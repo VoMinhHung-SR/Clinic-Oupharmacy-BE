@@ -1,0 +1,425 @@
+{% extends "admin/index.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<!--    <link rel="stylesheet" type="text/css" href="{% static "jobportals/css/dashboard.css" %}">-->
+<!--Chart js-->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.8.0/Chart.min.js"
+        integrity="sha256-Uv9BNBucvCPipKQ2NS9wYpJmi8DTOEfTA/nH2aoJALw=" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.8.0/Chart.min.css"
+      integrity="sha256-aa0xaJgmK/X74WM224KMQeNQC2xYKwlAt08oZqjeF0E=" crossorigin="anonymous"/>
+<!-- jQuery -->
+<script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+<!--    &lt;!&ndash;- my stats script &ndash;&gt;-->
+<!--    <script src="{% static 'jobportals/js/stats.js' %}"></script>-->
+<!--- bootstrap -->
+<!-- Latest compiled and minified CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.1/dist/css/bootstrap.min.css">
+
+<!-- jQuery library -->
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.slim.min.js"></script>
+
+<!-- Popper JS -->
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+
+<!-- Latest compiled JavaScript -->
+<script src="{% static 'js/script.js' %}"></script>
+
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz"
+        crossorigin="anonymous"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-cookie@3.0.1/dist/js.cookie.min.js"></script>
+
+{% endblock %}
+
+{% block coltype %}colMS{% endblock %}
+
+{% block bodyclass %}{{ block.super }} dashboard{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block extrajs %}
+{{ block.super }}
+
+<script>
+    var revenueChart = undefined
+    var examinationsChart = undefined
+    var medicinesChart = undefined
+    var doctorsChart = undefined
+
+    <!-- Examiantion stats-->
+    function examinationsStats(quarter, year) {
+        if (examinationsChart)
+            examinationsChart.destroy()
+        var ctx = document.getElementById('examinations').getContext('2d');
+        fetch(`/admin/api/examinations_stats/?quarter=${quarter}&year=${year}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': Cookies.get('csrftoken'),
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+                const examination_chart = {
+                    datasets: [{
+                        data: data.data_examination,
+                        backgroundColor: [
+                            '#2c3e50',
+                            '#3c8dbc',
+                            '#f39c12',
+                            '#f1c40f',
+                            '#d63031',
+                            '#f56954',
+                            '#e67e22',
+                            '#8e44ad',
+                            '#1abc9c',
+                            '#3498db',
+                            '#2ecc71',
+                            '#bdc3c7',
+                        ],
+                        label: data.title,
+                        "borderWidth": 1,
+                    }],
+                    labels: [
+                        'Tháng 1',
+                        'Tháng 2',
+                        'Tháng 3',
+                        'Tháng 4',
+                        'Tháng 5',
+                        'Tháng 6',
+                        'Tháng 7',
+                        'Tháng 8',
+                        'Tháng 9',
+                        'Tháng 10',
+                        'Tháng 11',
+                        'Tháng 12'
+                    ]
+                };
+                examinationsChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: examination_chart,
+                    options: {
+                        responsive: false,
+                        maintainAspectRatio: false,
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                boxWidth: 30
+                            }
+                        },
+                        plugins: {
+                            title: {
+                                display: false
+                            },
+                        },
+                        scales: {
+                            y: {
+                              min: 0
+                            }
+                        }
+                    }
+                });
+            });
+    }
+
+    function medicinesStats(quarter, year) {
+        if (medicinesChart)
+            medicinesChart.destroy()
+        var ctx_2 = document.getElementById("medicines_type_stats").getContext('2d');
+        fetch(`/admin/api/medicines_stats/?quarter=${quarter}&year=${year}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': Cookies.get('csrftoken'),
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+              const medicines_chart = {
+                    datasets: [],
+                    labels: []
+                };
+
+                if (data.data_medicine_labels.length === 0) {
+                    // Add default data and labels
+                    medicines_chart.datasets.push({
+                        data: [-1],
+                        backgroundColor: ['#E1E1E1']
+                    });
+                    medicines_chart.labels.push(data.title);
+                } else {
+                    medicines_chart.datasets.push({
+                        data: data.data_medicine_quantity,
+                        backgroundColor: [
+                            "#A6B6C9",
+                            "#E1E1E1",
+                            '#F4C29F',
+                            '#D5AC8B',
+                            '#B3A285',
+                            '#B2AB98',
+                            '#F2BE6F',
+                            '#DFD87E',
+                            '#E1A836',
+                        ]
+                    });
+                    medicines_chart.labels = data.data_medicine_labels;
+                }
+
+                medicinesChart = new Chart(ctx_2, {
+    type: 'doughnut',
+    data: medicines_chart,
+    options: {
+        responsive: false,
+        maintainAspectRatio: false,
+        legend: {
+            position: 'top',
+            labels: {
+                boxWidth: 30
+            }
+        }
+    }
+});
+            });
+
+
+    };
+   function doctorStats(quarter, year) {
+    if (doctorsChart)
+        doctorsChart.destroy();
+    var ctx = document.getElementById('doctor_frequency_chart').getContext('2d');
+    fetch(`/admin/api/doctor_stats/?quarter=${quarter}&year=${year}`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': Cookies.get('csrftoken'),
+        }
+    })
+        .then(response => response.json())
+        .then(data => {
+           const datasets = data.data_doctor_datasets.length > 0
+          ? data.data_doctor_datasets.map(doctor => ({
+              label: doctor.label,
+              data: doctor.data,
+              borderColor: doctor.borderColor,
+              backgroundColor: doctor.backgroundColor,
+              borderWidth: 4,
+              fill: false
+            }))
+          : [{
+              label: data.title,
+              data: [0],
+              borderColor: 'gray',
+              backgroundColor: 'gray',
+              borderWidth: 4,
+              fill: false
+            }];
+
+            const months = ['Tháng 1',
+                        'Tháng 2',
+                        'Tháng 3',
+                        'Tháng 4',
+                        'Tháng 5',
+                        'Tháng 6',
+                        'Tháng 7',
+                        'Tháng 8',
+                        'Tháng 9',
+                        'Tháng 10',
+                        'Tháng 11',
+                        'Tháng 12'];
+
+            const doctor_chart = {
+                datasets: datasets,
+                labels: months
+            };
+
+            // Create a new chart instance
+            doctorsChart = new Chart(ctx, {
+                type: 'line',
+                data: doctor_chart,
+                options: {
+                    responsive: false,
+                    maintainAspectRatio: false,
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            boxWidth: 30
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: false
+                        },
+                    },
+                    scales: {
+                        y: {
+                          min: 0
+                        }
+                    },
+                    elements: {
+                        line: {
+                            tension: 0,
+                        }
+                    }
+                }
+            });
+        });
+}
+
+
+    function getRandomColor() {
+        var letters = '0123456789ABCDEF';
+        var color = '#';
+        for (var i = 0; i < 6; i++) {
+            color += letters[Math.floor(Math.random() * 16)];
+        }
+        return color;
+    }
+
+    // REVENUE
+    function revenueStats(quarter, year) {
+        if (revenueChart)
+            revenueChart.destroy()
+        var ctx = document.getElementById('revenue_stats').getContext('2d');
+
+        fetch(`/admin/api/revenue_stats/?quarter=${quarter}&year=${year}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': Cookies.get('csrftoken'),
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+                const revenue_chart = {
+                    datasets: [{
+                        data: data.data_revenue,
+                        borderColor: "#30747e", backgroundColor: "#1f3865",
+                        label: data.title,
+                        borderWidth: 4,
+                    }],
+                    labels: [
+                        'Tháng 1',
+                        'Tháng 2',
+                        'Tháng 3',
+                        'Tháng 4',
+                        'Tháng 5',
+                        'Tháng 6',
+                        'Tháng 7',
+                        'Tháng 8',
+                        'Tháng 9',
+                        'Tháng 10',
+                        'Tháng 11',
+                        'Tháng 12'
+                    ]
+                };
+
+                revenueChart = new Chart(ctx, {
+                    type: 'line',
+                    data: revenue_chart,
+                    options: {
+                        responsive: false,
+                        maintainAspectRatio: false,
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                boxWidth: 30
+                            }
+                        },
+                        plugins: {
+                            title: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                              min: 0
+                            }
+                        }
+                    }
+                });
+            });
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const nameDiagram = ['revenue', 'examinations', 'medicines', 'doctor']
+        const objType = {}
+        for (let i = 0; i < nameDiagram.length; i++)
+            objType[nameDiagram[i]] = {
+                'quarter': document.getElementById(`${nameDiagram[i]}-quarter`).value,
+                'year': document.getElementById(`${nameDiagram[i]}-year`).value
+            }
+
+
+        examinationsStats(objType.examinations.quarter, objType.examinations.year)
+        revenueStats(objType.revenue.quarter, objType.revenue.year)
+        medicinesStats(objType.medicines.quarter, objType.medicines.year)
+        doctorStats(objType.doctor.quarter, objType.doctor.year)
+    })
+
+
+</script>
+<script>
+    function handleQuarterOnchange(quarter, name) {
+        const year = document.getElementById(`${name}-year`).value
+        switch (name) {
+            case 'revenue':
+                revenueStats(quarter, year)
+                break
+
+            case 'examinations':
+                examinationsStats(quarter, year)
+                break
+
+            case 'medicines':
+                medicinesStats(quarter, year)
+                break
+
+            case 'doctor':
+                doctorStats(quarter, year)
+                break
+
+            default:
+                console.log("value error")
+        }
+
+
+    }
+
+    function handleYearOnchange(year, name) {
+        const quarter = document.getElementById(`${name}-quarter`).value
+        switch (name) {
+            case 'revenue':
+                revenueStats(quarter, year)
+                break
+
+            case 'examinations':
+                examinationsStats(quarter, year)
+                break
+
+            case 'medicines':
+                medicinesStats(quarter, year)
+                break
+
+            case 'doctor':
+                doctorStats(quarter, year)
+                break
+
+            default:
+                console.log("value error")
+        }
+
+    }
+
+</script>
+
+{% endblock %}
