@@ -18,3 +18,4 @@ env.bak/
 venv.bak/
 
 .dockerignore
+.idea/
