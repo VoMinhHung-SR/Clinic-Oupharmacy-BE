@@ -5,13 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="814de633-8a8b-41b8-ab51-4b382b59de8c" name="Changes" comment="refactor: env params">
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources.local.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.local.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources/8b144135-ef1c-4823-950c-ad9f3a0502d8.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources/8b144135-ef1c-4823-950c-ad9f3a0502d8.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/OUPharmacyManagementApp/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/OUPharmacyManagementApp/settings.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/firebase/signals/users/signals.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/firebase/signals/users/signals.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/serializers.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/serializers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/serializers/user.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/serializers/user.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -574,6 +570,7 @@
       <workItem from="1742959813799" duration="3517000" />
       <workItem from="1743001020801" duration="5286000" />
       <workItem from="1743093340374" duration="932000" />
+      <workItem from="1743178812508" duration="1555000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>

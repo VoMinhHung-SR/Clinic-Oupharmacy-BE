@@ -57,3 +57,25 @@ class UserSerializer(ModelSerializer):
             'avatar': {'write_only': 'true'},
             'location': {'write_only': 'true'}
         }
+
+class UserNormalSerializer(ModelSerializer):
+    locationGeo = serializers.SerializerMethodField(source="location")
+
+    def get_locationGeo(self, obj):
+        location = obj.location
+        city = location.city
+        district = location.district
+        if location:
+            return {'lat': location.lat, 'lng': location.lng,
+                    'district': {'id': district.id, 'name': district.name},
+                    'city': {'id': city.id, 'name': city.name}}
+        else:
+            return {}
+
+    class Meta:
+        model = User
+        fields = ['id', "first_name", "last_name", "email", "location", "locationGeo"]
+        extra_kwargs = {
+            'locationGeo': {'read_only': 'true'},
+            'location': {'write_only': 'true'}
+        }

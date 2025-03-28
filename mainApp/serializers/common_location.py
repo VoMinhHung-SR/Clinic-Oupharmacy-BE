@@ -8,14 +8,12 @@ class CommonCitySerializer(ModelSerializer):
         model = CommonCity
         fields = ["id", "name"]
 
-
 class CommonDistrictSerializer(ModelSerializer):
     city = CommonCitySerializer()
 
     class Meta:
         model = CommonDistrict
         fields = ["id", "name", "city"]
-
 
 class CommonLocationSerializer(ModelSerializer):
     district_info = serializers.SerializerMethodField(source='district')
