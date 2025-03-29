@@ -205,7 +205,6 @@ class ExaminationSerializer(ModelSerializer):
             'time_slot': {'write_only': 'true'}
         }
 
-
 class UserNormalSerializer(ModelSerializer):
     locationGeo = serializers.SerializerMethodField(source="location")
 
@@ -228,7 +227,6 @@ class UserNormalSerializer(ModelSerializer):
             'location': {'write_only': 'true'}
         }
 
-
 class PrescribingSerializer(ModelSerializer):
     bill_status = serializers.SerializerMethodField(read_only=True)
     class Meta:
@@ -242,7 +240,6 @@ class PrescribingSerializer(ModelSerializer):
             return {'id': bill_instance.id, 'amount': bill_instance.amount}
         return None
 
-
 class DiagnosisSerializer(ModelSerializer):
     examination = ExaminationSerializer()
     user = UserNormalSerializer()
@@ -253,18 +250,15 @@ class DiagnosisSerializer(ModelSerializer):
         model = Diagnosis
         exclude = []
 
-
 class DiagnosisCRUDSerializer(ModelSerializer):
     class Meta:
         model = Diagnosis
         exclude = []
 
-
 class PrescriptionDetailCRUDSerializer(ModelSerializer):
     class Meta:
         model = PrescriptionDetail
         exclude = []
-
 
 class PrescriptionDetailSerializer(ModelSerializer):
     prescribing = PrescribingSerializer()
@@ -274,12 +268,10 @@ class PrescriptionDetailSerializer(ModelSerializer):
         model = PrescriptionDetail
         exclude = []
 
-
 class BillSerializer(ModelSerializer):
     class Meta:
         model = Bill
         fields = ["id", "amount", "prescribing"]
-
 
 class DoctorAvailabilitySerializer(ModelSerializer):
     doctor_info = serializers.SerializerMethodField(source='doctor')

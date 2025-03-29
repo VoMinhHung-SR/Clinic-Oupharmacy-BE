@@ -1068,7 +1068,7 @@ sys|schema||mysql.sys|localhost|TRIGGER|G</Grants>
     </schema>
     <schema id="290" parent="1" name="oupharmacydb">
       <Current>1</Current>
-      <LastIntrospectionLocalTimestamp>2025-02-21.16:00:37</LastIntrospectionLocalTimestamp>
+      <LastIntrospectionLocalTimestamp>2025-03-26.04:52:36</LastIntrospectionLocalTimestamp>
       <CollationName>utf8mb4_vietnamese_ci</CollationName>
     </schema>
     <schema id="291" parent="1" name="performance_schema">
@@ -1330,7 +1330,7 @@ permission_id</ColNames>
       <UnderlyingIndexName>auth_group_permissions_group_id_permission_id_0cd325b0_uniq</UnderlyingIndexName>
     </key>
     <column id="352" parent="301" name="id">
-      <AutoIncrement>133</AutoIncrement>
+      <AutoIncrement>132</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>int|0s</StoredType>
@@ -1379,7 +1379,7 @@ codename</ColNames>
       <Predicate>`action_flag` &gt;= 0</Predicate>
     </check>
     <column id="362" parent="302" name="id">
-      <AutoIncrement>635</AutoIncrement>
+      <AutoIncrement>731</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>int|0s</StoredType>
@@ -1771,7 +1771,7 @@ longitude</ColNames>
       <UnderlyingIndexName>django_celery_beat_solar_event_latitude_longitude_ba64999a_uniq</UnderlyingIndexName>
     </key>
     <column id="444" parent="309" name="id">
-      <AutoIncrement>34</AutoIncrement>
+      <AutoIncrement>33</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>int|0s</StoredType>
@@ -1806,7 +1806,7 @@ model</ColNames>
       <UnderlyingIndexName>django_content_type_app_label_model_76bd3d3b_uniq</UnderlyingIndexName>
     </key>
     <column id="451" parent="310" name="id">
-      <AutoIncrement>53</AutoIncrement>
+      <AutoIncrement>52</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -1915,7 +1915,7 @@ model</ColNames>
       <UnderlyingIndexName>PRIMARY</UnderlyingIndexName>
     </key>
     <column id="473" parent="313" name="id">
-      <AutoIncrement>7</AutoIncrement>
+      <AutoIncrement>6</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -1959,7 +1959,7 @@ model</ColNames>
       <UnderlyingIndexName>name</UnderlyingIndexName>
     </key>
     <column id="482" parent="314" name="id">
-      <AutoIncrement>64</AutoIncrement>
+      <AutoIncrement>63</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -1990,7 +1990,7 @@ model</ColNames>
       <UnderlyingIndexName>PRIMARY</UnderlyingIndexName>
     </key>
     <column id="488" parent="315" name="id">
-      <AutoIncrement>710</AutoIncrement>
+      <AutoIncrement>709</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -2035,7 +2035,7 @@ model</ColNames>
       <UnderlyingIndexName>PRIMARY</UnderlyingIndexName>
     </key>
     <column id="497" parent="316" name="id">
-      <AutoIncrement>49</AutoIncrement>
+      <AutoIncrement>48</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -2102,7 +2102,7 @@ model</ColNames>
       <UnderlyingIndexName>PRIMARY</UnderlyingIndexName>
     </key>
     <column id="511" parent="317" name="id">
-      <AutoIncrement>32</AutoIncrement>
+      <AutoIncrement>31</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -2228,7 +2228,7 @@ model</ColNames>
       <UnderlyingIndexName>PRIMARY</UnderlyingIndexName>
     </key>
     <column id="537" parent="319" name="id">
-      <AutoIncrement>9</AutoIncrement>
+      <AutoIncrement>75</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -2414,7 +2414,7 @@ model</ColNames>
       <UnderlyingIndexName>name</UnderlyingIndexName>
     </key>
     <column id="576" parent="322" name="id">
-      <AutoIncrement>36</AutoIncrement>
+      <AutoIncrement>35</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -2494,7 +2494,7 @@ model</ColNames>
       <Predicate>`gender` &gt;= 0</Predicate>
     </check>
     <column id="593" parent="323" name="id">
-      <AutoIncrement>103</AutoIncrement>
+      <AutoIncrement>105</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -2579,7 +2579,7 @@ model</ColNames>
       <UnderlyingIndexName>email</UnderlyingIndexName>
     </key>
     <column id="611" parent="324" name="id">
-      <AutoIncrement>34</AutoIncrement>
+      <AutoIncrement>33</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -2637,7 +2637,7 @@ model</ColNames>
       <UnderlyingIndexName>PRIMARY</UnderlyingIndexName>
     </key>
     <column id="623" parent="325" name="id">
-      <AutoIncrement>65</AutoIncrement>
+      <AutoIncrement>64</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -2705,7 +2705,7 @@ model</ColNames>
       <UnderlyingIndexName>PRIMARY</UnderlyingIndexName>
     </key>
     <column id="637" parent="326" name="id">
-      <AutoIncrement>7</AutoIncrement>
+      <AutoIncrement>45</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -2754,7 +2754,7 @@ model</ColNames>
       <Predicate>`gender` &gt;= 0</Predicate>
     </check>
     <column id="647" parent="327" name="id">
-      <AutoIncrement>41</AutoIncrement>
+      <AutoIncrement>40</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -2974,7 +2974,7 @@ permission_id</ColNames>
       <UnderlyingIndexName>mainApp_user_user_permis_user_id_permission_id_c267e88a_uniq</UnderlyingIndexName>
     </key>
     <column id="693" parent="330" name="id">
-      <AutoIncrement>15</AutoIncrement>
+      <AutoIncrement>14</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -3008,7 +3008,7 @@ permission_id</ColNames>
       <UnderlyingIndexName>name</UnderlyingIndexName>
     </key>
     <column id="700" parent="331" name="id">
-      <AutoIncrement>621</AutoIncrement>
+      <AutoIncrement>644</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -3117,7 +3117,7 @@ permission_id</ColNames>
       <UnderlyingIndexName>id_token_id</UnderlyingIndexName>
     </key>
     <column id="724" parent="332" name="id">
-      <AutoIncrement>2</AutoIncrement>
+      <AutoIncrement>1</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>
@@ -3386,7 +3386,7 @@ permission_id</ColNames>
       <UnderlyingIndexName>jti</UnderlyingIndexName>
     </key>
     <column id="780" parent="335" name="id">
-      <AutoIncrement>620</AutoIncrement>
+      <AutoIncrement>644</AutoIncrement>
       <NotNull>1</NotNull>
       <Position>1</Position>
       <StoredType>bigint|0s</StoredType>

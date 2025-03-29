@@ -121,12 +121,12 @@ pymysql.install_as_MySQLdb()
 
 DATABASES = {
     'default': {
-        'ENGINE': config('DB_PG_ENGINE'),
+        'ENGINE': config('DB_MYSQL_ENGINE'),
         'NAME': config('DB_NAME'),
-        'USER': config('DB_PG_USER'),
-        'PASSWORD': config('DB_PG_PASSWORD'),
+        'USER': config('DB_MYSQL_USER'),
+        'PASSWORD': config('DB_MYSQL_PASSWORD'),
         'HOST': config('DB_HOST'),
-        'PORT': config('DB_PG_PORT')
+        'PORT': config('DB_MYSQL_PORT')
     }
 }
 
