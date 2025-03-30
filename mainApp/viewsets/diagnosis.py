@@ -4,7 +4,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from mainApp.filters import DiagnosisFilter
 from mainApp.models import Diagnosis
 from mainApp.paginator import ExaminationPaginator
-from mainApp.serializers import DiagnosisSerializer, DiagnosisCRUDSerializer
+from mainApp.serializers.diagnosis import DiagnosisSerializer, DiagnosisCRUDSerializer
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status, filters

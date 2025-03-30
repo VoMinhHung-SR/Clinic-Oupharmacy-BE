@@ -1,7 +1,7 @@
 from rest_framework import viewsets, generics
 
 from mainApp.models import Category
-from mainApp.serializers import CategorySerializer
+from mainApp.serializers.category import CategorySerializer
 
 class CategoryViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIView,
                       generics.CreateAPIView, generics.DestroyAPIView):

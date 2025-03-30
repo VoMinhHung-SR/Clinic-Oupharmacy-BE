@@ -6,8 +6,21 @@
   <component name="ChangeListManager">
     <list default="true" id="814de633-8a8b-41b8-ab51-4b382b59de8c" name="Changes" comment="refactor: env params">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/serializers.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/user.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/serializers/user.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/serializers/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/serializers/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/bill.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/bill.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/category.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/category.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/common_location.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/common_location.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/diagnosis.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/diagnosis.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/doctor_schedule.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/doctor_schedule.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/examination.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/examination.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/medicine.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/medicine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/medicine_unit.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/medicine_unit.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/patient.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/patient.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/prescribing.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/prescribing.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/prescribing_detail.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/prescribing_detail.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/time_slot.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/time_slot.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/user.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/user.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/user_role.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/user_role.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -571,6 +584,8 @@
       <workItem from="1743001020801" duration="5286000" />
       <workItem from="1743093340374" duration="932000" />
       <workItem from="1743178812508" duration="1555000" />
+      <workItem from="1743239158740" duration="1870000" />
+      <workItem from="1743351737219" duration="1741000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>

@@ -1,7 +1,8 @@
 from rest_framework import viewsets, generics
 from mainApp.models import  Prescribing, PrescriptionDetail
 from mainApp.paginator import ExaminationPaginator
-from mainApp.serializers import  PrescribingSerializer, PrescriptionDetailSerializer
+from mainApp.serializers.prescribing import PrescribingSerializer
+from mainApp.serializers.prescribing_detail import PrescriptionDetailSerializer
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status

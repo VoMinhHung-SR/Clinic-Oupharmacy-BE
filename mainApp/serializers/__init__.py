@@ -9,6 +9,6 @@ from .medicine_unit import MedicineUnitSerializer
 from .patient import PatientSerializer
 from .prescribing import PrescribingSerializer
 from .prescribing_detail import PrescriptionDetailSerializer, PrescriptionDetailCRUDSerializer
-from .user import UserSerializer
-from .user_role import UserRoleSerializer, UserNormalSerializer
+from .user import UserSerializer, UserNormalSerializer
+from .user_role import UserRoleSerializer
 from .time_slot import TimeSlotSerializer

@@ -1,4 +1,3 @@
-
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, generics
 from rest_framework.parsers import JSONParser, MultiPartParser
@@ -8,7 +7,10 @@ from mainApp.filters import RecipientsFilter
 from mainApp.models import User, Examination, CommonLocation, Patient
 from mainApp.paginator import ExaminationPaginator
 from mainApp.permissions import UserPermission, OwnerExaminationPermission
-from mainApp.serializers import UserSerializer, ExaminationSerializer, CommonLocationSerializer, PatientSerializer
+from mainApp.serializers.user import UserSerializer
+from mainApp.serializers.examination import ExaminationSerializer
+from mainApp.serializers.common_location import CommonLocationSerializer
+from mainApp.serializers.patient import PatientSerializer
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from ..tasks import load_waiting_room

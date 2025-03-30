@@ -2,7 +2,7 @@ from rest_framework import viewsets, generics
 from rest_framework.parsers import JSONParser, MultiPartParser
 
 from mainApp.models import TimeSlot
-from mainApp.serializers import TimeSlotSerializer
+from mainApp.serializers.time_slot import TimeSlotSerializer
 
 class TimeSlotViewSet(viewsets.ViewSet, generics.CreateAPIView,
                   generics.DestroyAPIView, generics.RetrieveAPIView,

@@ -11,9 +11,12 @@ from rest_framework import views
 
 from .constant import ROLE_DOCTOR, ROLE_NURSE
 from rest_framework.decorators import action, api_view, permission_classes
-from .serializers import *
+
 from rest_framework.parsers import MultiPartParser
 from rest_framework.parsers import JSONParser
+
+from .models import DoctorAvailability, CommonCity, UserRole, User, Category, Bill
+from .serializers.examination import DoctorAvailabilitySerializer
 
 # Create your views here.
 wageBooking = 20000

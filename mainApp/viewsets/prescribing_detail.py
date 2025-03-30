@@ -1,8 +1,7 @@
 from rest_framework import viewsets, generics
 from rest_framework.parsers import JSONParser, MultiPartParser
 from mainApp.models import PrescriptionDetail
-from mainApp.serializers import PrescriptionDetailCRUDSerializer
-
+from mainApp.serializers.prescribing_detail import PrescriptionDetailCRUDSerializer
 
 class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
                                 generics.UpdateAPIView, generics.CreateAPIView, generics.DestroyAPIView):
