@@ -32,20 +32,6 @@ from oauth2_provider.models import (
     get_refresh_token_model,
 )
 
-
-def calculate_doctor_frequency():
-    try:
-        doctor_frequency = DoctorAvailability.objects.annotate(month=TruncMonth('day')) \
-            .values('doctor__id', 'doctor__first_name', 'doctor__last_name', 'doctor__email') \
-            .annotate(count=Count('id')) \
-            .values('doctor__id', 'doctor__first_name', 'doctor__last_name', 'doctor__email', 'count')
-        return list(doctor_frequency)
-    except Exception as e:
-        # Handle the error or log it
-        print(f"An error occurred while calculating doctor frequency: {str(e)}")
-        return []
-
-
 class MainAppAdminSite(admin.AdminSite):
 
     def index(self, request, extra_context=None):
@@ -150,16 +136,6 @@ class DoctorScheduleAdmin(admin.ModelAdmin):
 class TimeSlotAdmin(admin.ModelAdmin):
     list_display = ['id', 'schedule', 'start_time', 'end_time', 'is_available']
     list_filter = ['schedule', 'is_available']
-
-class DoctorAvailabilityAdmin(admin.ModelAdmin):
-    list_display = ['id', 'day', 'start_time', 'end_time', 'doctor']
-    list_filter = ['doctor', 'day']
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "doctor":
-            kwargs["queryset"] = User.objects.filter(role__name="ROLE_DOCTOR")
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
-
 
 class UserRoleAdmin(admin.ModelAdmin):
     list_display = ['id', 'name', 'active']
@@ -297,7 +273,6 @@ admin_site.register(PrescriptionDetail, PrescriptionDetailAdmin)
 admin_site.register(Patient, PatientAdmin)
 admin_site.register(User, UserAdmin)
 admin_site.register(UserRole, UserRoleAdmin)
-# admin_site.register(DoctorAvailability, DoctorAvailabilityAdmin)
 admin_site.register(DoctorSchedule, DoctorScheduleAdmin)
 admin_site.register(TimeSlot, TimeSlotAdmin)
 

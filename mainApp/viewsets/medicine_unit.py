@@ -4,7 +4,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from mainApp.filters import MedicineUnitFilter
 from mainApp.models import MedicineUnit
 from mainApp.paginator import MedicineUnitPagination
-from mainApp.serializers.medicine_unit import MedicineUnitSerializer
+from mainApp.serializers import MedicineUnitSerializer
 
 class MedicineUnitViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView,
                           generics.UpdateAPIView, generics.CreateAPIView, generics.DestroyAPIView):

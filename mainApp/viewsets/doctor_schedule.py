@@ -3,8 +3,8 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from rest_framework import viewsets, generics, status
 from rest_framework.response import Response
 from mainApp.models import DoctorSchedule, TimeSlot, User
-from mainApp.serializers.doctor_schedule import DoctorScheduleSerializer
-from mainApp.serializers.time_slot import TimeSlotSerializer
+from mainApp.serializers import DoctorScheduleSerializer
+from mainApp.serializers import TimeSlotSerializer
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.decorators import action
 class DoctorScheduleViewSet(viewsets.ViewSet, generics.CreateAPIView,

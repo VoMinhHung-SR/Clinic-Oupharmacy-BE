@@ -13,8 +13,8 @@ from mainApp.paginator import ExaminationPaginator
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
-from mainApp.serializers.diagnosis import DiagnosisSerializer
-from mainApp.serializers.examination import ExaminationSerializer, ExaminationsPairSerializer
+from mainApp.serializers import DiagnosisSerializer
+from mainApp.serializers import ExaminationSerializer, ExaminationsPairSerializer
 # Create your views here.
 wageBooking = 20000
 

@@ -17,7 +17,8 @@ from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
 
-from mainApp.serializers.bill import BillSerializer
+from mainApp.serializers import BillSerializer
+
 
 class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
                   generics.DestroyAPIView, generics.RetrieveAPIView,
