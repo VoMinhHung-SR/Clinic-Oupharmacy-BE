@@ -12,10 +12,13 @@ from rest_framework.decorators import action
 from rest_framework import viewsets, generics
 
 from mainApp.models import Bill, Prescribing
-from mainApp.serializers import BillSerializer
+
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
+
+from mainApp.serializers import BillSerializer
+
 
 class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
                   generics.DestroyAPIView, generics.RetrieveAPIView,

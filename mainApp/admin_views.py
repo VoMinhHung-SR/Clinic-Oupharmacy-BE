@@ -138,62 +138,62 @@ from django.db.models import Q
 def get_doctor_stats(request):
     if request.user.is_anonymous or not request.user.is_staff:
         return HttpResponseForbidden()
+
     try:
         quarter = request.GET.get('quarter', '0')
         year = request.GET.get('year', '0')
 
-        doctor_frequency = DoctorAvailability.objects
+        doctor_frequency = DoctorSchedule.objects
 
         quarter_number = int(quarter)
-        year_number = int(year)
-        if year_number == 0:
-            year_number = date.today().year
+        year_number = int(year) if int(year) > 0 else date.today().year
 
         if quarter_number > 0:
-            doctor_frequency = doctor_frequency.filter(day__quarter=quarter_number)
+            doctor_frequency = doctor_frequency.filter(date__quarter=quarter_number)
 
-        # Get doctor frequency data
-        doctor_frequency = doctor_frequency.filter(day__year=year_number) \
-            .annotate(month=TruncMonth('day')) \
-            .values('doctor__id', 'doctor__first_name', 'doctor__last_name', 'doctor__email', 'month') \
-            .annotate(count=Count('id')) \
+        doctor_frequency = (
+            doctor_frequency.filter(date__year=year_number)
+            .annotate(month=TruncMonth('date'))
+            .values('doctor__id', 'doctor__first_name', 'doctor__last_name', 'doctor__email', 'month')
+            .annotate(count=Count('id'))
             .values('doctor__id', 'doctor__first_name', 'doctor__last_name', 'doctor__email', 'month', 'count')
+        )
 
+        # Xử lý dữ liệu thành dạng biểu đồ
         data_doctor_labels = []
         data_doctor_quantity = []
         data_doctor_datasets = []
+        colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4CAF50', '#F44336']
+
         for doctor in doctor_frequency:
-            data_doctor_labels.append(doctor.get('doctor__first_name') + " " + doctor.get('doctor__last_name'))
-            data_doctor_quantity.append(doctor.get('count'))
-
-            doctor_name = doctor.get('doctor__first_name') + " " + doctor.get('doctor__last_name')
+            doctor_name = f"{doctor.get('doctor__first_name')} {doctor.get('doctor__last_name')}"
             count = doctor.get('count')
-            month = doctor.get('month').month - 1
+            month = doctor.get('month').month - 1  # Tháng bắt đầu từ 1 nên trừ 1
 
-            # Check if the dataset for the current doctor already exists
+            if doctor_name not in data_doctor_labels:
+                data_doctor_labels.append(doctor_name)
+                data_doctor_quantity.append(count)
+
             dataset = next((d for d in data_doctor_datasets if d['label'] == doctor_name), None)
             if dataset:
-                dataset['data'][month] = count  # Update the count for the corresponding month
+                dataset['data'][month] = count
             else:
                 data = [0] * 12
                 data[month] = count
                 dataset = {
                     'label': doctor_name,
                     'data': data,
-                    # 'backgroundColor': random.choice(colors),
                     'borderColor': random.choice(colors),
                     'fill': False
                 }
                 data_doctor_datasets.append(dataset)
 
-        if data_doctor_datasets:
-            print(data_doctor_datasets)
-    except Exception as ex:
-        return HttpResponseServerError({"errMsg": "Value Error"})
-    else:
         return JsonResponse({
             "data_doctor_labels": data_doctor_labels,
             "data_doctor_quantity": data_doctor_quantity,
             "data_doctor_datasets": data_doctor_datasets,
             "title": f'Thống kê tần suất khám của từng bác sĩ trong năm {year_number}'
         })
+
+    except Exception as ex:
+        return HttpResponseServerError({"errMsg": "Lỗi xử lý dữ liệu"})
