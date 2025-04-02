@@ -34,9 +34,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 
 # DEBUG MODE ; SECURITY WARNING: don't run with debug turned on in production!
-# DEBUG = os.getenv('DEBUG', 'False') == 'True'
-DEBUG = config('DEBUG', default=True)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0').split(',')
+DEBUG = True  # Always True for development
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
 INTERNAL_IPS = [
     '127.0.0.1'
 ]
@@ -121,12 +120,12 @@ pymysql.install_as_MySQLdb()
 
 DATABASES = {
     'default': {
-        'ENGINE': config('DB_MYSQL_ENGINE'),
-        'NAME': config('DB_NAME'),
-        'USER': config('DB_MYSQL_USER'),
-        'PASSWORD': config('DB_MYSQL_PASSWORD'),
-        'HOST': config('DB_HOST'),
-        'PORT': config('DB_MYSQL_PORT')
+        'ENGINE': os.getenv('DB_MYSQL_ENGINE'),
+        'NAME': os.getenv('DB_NAME'),
+        'USER': os.getenv('DB_MYSQL_USER'),
+        'PASSWORD': os.getenv('DB_MYSQL_PASSWORD'),
+        'HOST': os.getenv('DB_HOST'),
+        'PORT': os.getenv('DB_MYSQL_PORT')
     }
 }
 

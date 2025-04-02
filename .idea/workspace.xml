@@ -6,38 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="814de633-8a8b-41b8-ab51-4b382b59de8c" name="Changes" comment="refactor: env params">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/admin.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/admin_views.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/admin_views.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/__init__.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/bill.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/category.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/common_location.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/diagnosis.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/doctor_schedule.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/examination.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/medicine.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/medicine_unit.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/patient.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/prescribing.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/prescribing_detail.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/time_slot.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/user.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers/user_role.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/views.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/bill.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/bill.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/category.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/category.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/common_location.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/common_location.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/diagnosis.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/diagnosis.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/doctor_schedule.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/doctor_schedule.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/examination.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/examination.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/medicine.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/medicine.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/medicine_unit.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/medicine_unit.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/patient.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/patient.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/prescribing.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/prescribing.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/prescribing_detail.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/prescribing_detail.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/time_slot.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/time_slot.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/user.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/user.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/user_role.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/user_role.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/OUPharmacyManagementApp/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/OUPharmacyManagementApp/settings.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -605,6 +574,7 @@
       <workItem from="1743351737219" duration="1741000" />
       <workItem from="1743426572089" duration="2885000" />
       <workItem from="1743436578180" duration="2298000" />
+      <workItem from="1743522318335" duration="4012000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>
