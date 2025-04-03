@@ -1,0 +1,41 @@
+networks:
+  oupharmacy_network:
+    driver: bridge
+
+services:
+  backend:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    networks:
+      - oupharmacy_network
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    expose: 
+      - 8000
+  db:
+    image: mysql:8.0
+    networks: 
+      - oupharmacy_network
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+    container_name: mysql
+    ports:
+      - "3307:3306"
+    expose: 
+      - 3306
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+volumes:
+  db_data:
