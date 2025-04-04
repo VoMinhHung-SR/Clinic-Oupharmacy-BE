@@ -6,6 +6,5 @@ class MainappConfig(AppConfig):
     name = 'mainApp'
 
     def ready(self):
-        # Temporarily disabled Firebase signals
-        # import mainApp.firebase.signals.users.signals
-        pass
+        import mainApp.firebase.signals.users.signals  # noqa: F401
+        import mainApp.firebase.signals.doctor_schedule.signals
