@@ -15,7 +15,7 @@ services:
       db:
         condition: service_healthy
     env_file:
-      - .env
+      - .env.production
     expose: 
       - 8000
   db:

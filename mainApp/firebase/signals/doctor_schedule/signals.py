@@ -1,3 +1,5 @@
+import os
+
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.conf import settings
@@ -39,18 +41,22 @@ def sync_schedules_by_date(date):
             
             # Get all time slots for this schedule
             time_slots = TimeSlot.objects.filter(schedule=schedule)
+            waiting_status_undone = 'undone'
+            # waiting_status_processing = 'processing'
+            # waiting_status_done = 'done'
             for slot in time_slots:
                 schedule_data['time_slots'].append({
                     'id': slot.id,
                     'start_time': slot.start_time.isoformat(),
                     'end_time': slot.end_time.isoformat(),
-                    'is_available': slot.is_available
+                    'is_available': slot.is_available,
+                    'status': waiting_status_undone,
                 })
             
             date_data['schedules'].append(schedule_data)
         
         # Save to Firestore using the date as document ID
-        collection_name = 'doctor_schedule'
+        collection_name = 'production_doctor_schedule' if os.getenv('ENVIRONMENT') == 'production' else 'dev_doctor_schedule'
         db.collection(collection_name).document(date.isoformat()).set(date_data)
         print(f"All schedules for {date} synced to Firebase.")
         

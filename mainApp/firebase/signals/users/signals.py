@@ -1,7 +1,10 @@
+import os
+
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from django.conf import settings
+
 from OUPharmacyManagementApp.firebase_config import get_firestore
 
 User = get_user_model()
@@ -20,7 +23,7 @@ def sync_user_to_firebase(sender, instance, created, **kwargs):
 
     try:
         # Use a dynamic collection name based on the environment (optional)
-        collection_name = 'dev_users' if settings.DEBUG else 'users'
+        collection_name = 'dev_users' if os.getenv('ENVIRONMENT') == 'dev' else 'production_users'
 
         # Save to Firestore
         db.collection(collection_name).document(str(instance.id)).set(user_data)
@@ -39,7 +42,7 @@ def delete_user_from_firebase(sender, instance, **kwargs):
     """Delete user from Firebase when deleted in Django"""
     try:
         # Use a dynamic collection name based on the environment (optional)
-        collection_name = 'dev_users' if settings.DEBUG else 'users'
+        collection_name = 'dev_users' if os.getenv('ENVIRONMENT') == 'dev' else 'production_users'
 
         # Delete from Firestore
         db.collection(collection_name).document(str(instance.id)).delete()

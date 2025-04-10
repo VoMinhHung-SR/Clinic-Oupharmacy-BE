@@ -12,7 +12,7 @@ def initialize_firebase():
     """Initialize Firebase Admin SDK with environment variables"""
     if not firebase_admin._apps:
         # Determine environment
-        is_prod = os.getenv('ENVIRONMENT', 'development') == 'production'
+        is_prod = os.getenv('ENVIRONMENT', 'dev') == 'production'
         
         if is_prod and os.path.exists(os.getenv('FIREBASE_CREDENTIALS_PATH', '')):
             # Production: Use JSON file for credentials (more secure)
