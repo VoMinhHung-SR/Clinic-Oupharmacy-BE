@@ -36,7 +36,6 @@ class MainAppAdminSite(admin.AdminSite):
 
     def index(self, request, extra_context=None):
         app_list = self.get_app_list(request)
-        doctor_frequency = calculate_doctor_frequency()
         # Get counts of active patients, medicine units, and active users
         patients = Patient.objects.filter(active=True).count()
         medicine_units = MedicineUnit.objects.filter(active=True).count()
@@ -77,8 +76,6 @@ class MainAppAdminSite(admin.AdminSite):
             data_medicine_labels.append(m['medicine_unit__medicine__name'])
             data_medicine_quantity.append(m['count'])
 
-        print(doctor_frequency)
-
         context = {
             **self.each_context(request),
             "title": "OUPharmacy",
@@ -92,7 +89,6 @@ class MainAppAdminSite(admin.AdminSite):
             "medicineUnits": medicine_units,
             'data_medicine_labels': data_medicine_labels,
             'data_medicine_quantity': data_medicine_quantity,
-            'doctor_frequency': doctor_frequency,
             **(extra_context or {}),
         }
 
