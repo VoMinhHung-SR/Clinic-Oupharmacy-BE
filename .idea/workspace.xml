@@ -5,13 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="814de633-8a8b-41b8-ab51-4b382b59de8c" name="Changes" comment="refactor: env params">
-      <change beforePath="$PROJECT_DIR$/.env.sample" beforeDir="false" afterPath="$PROJECT_DIR$/.env.sample" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/OUPharmacyManagementApp/firebase_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/OUPharmacyManagementApp/firebase_config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/admin.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/mainApp/firebase/signals/doctor_schedule/signals.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/firebase/signals/doctor_schedule/signals.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/firebase/signals/users/signals.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/firebase/signals/users/signals.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -586,7 +581,12 @@
       <workItem from="1744100899715" duration="1970000" />
       <workItem from="1744184441629" duration="636000" />
       <workItem from="1744215313828" duration="3699000" />
-      <workItem from="1744297297751" duration="5296000" />
+      <workItem from="1744297297751" duration="6739000" />
+      <workItem from="1744345903808" duration="2452000" />
+      <workItem from="1744363239443" duration="435000" />
+      <workItem from="1744387447500" duration="2669000" />
+      <workItem from="1744475187662" duration="3351000" />
+      <workItem from="1744559815820" duration="779000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>
