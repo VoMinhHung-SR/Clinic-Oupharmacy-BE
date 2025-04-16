@@ -4,7 +4,7 @@ from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.conf import settings
 from OUPharmacyManagementApp.firebase_config import get_firestore
-from mainApp.models import DoctorSchedule, TimeSlot, Examination, Patient
+from mainApp.models import DoctorSchedule, TimeSlot, Examination, Patient, Bill
 
 db = get_firestore()
 
@@ -57,6 +57,7 @@ def sync_schedules_by_date(date):
             for slot in time_slots:
                 # Check if this time slot has an examination (patient)
                 patient_info = None
+                appointment_infor = None
                 examinations = Examination.objects.filter(time_slot=slot, active=True)
                 examination = examinations.select_related('patient').first()
                 
@@ -68,11 +69,17 @@ def sync_schedules_by_date(date):
                         'gender': examination.patient.gender,
                         'email': examination.patient.email
                     }
+                    appointment_infor = {
+                        'id': examination.id,
+                        'user': {'id': examination.user.id, 'email': examination.user.email,
+                                 'name': examination.user.first_name + " " + examination.user.last_name},
+                    }
                 else:
                     print(f"Debug - TimeSlot {slot.id}: No patient found. Examination: {examination}")
                 
                 schedule_data['time_slots'].append({
                     'id': slot.id,
+                    "appointment_info":appointment_infor,
                     'start_time': slot.start_time.isoformat(),
                     'end_time': slot.end_time.isoformat(),
                     'is_available': slot.is_available,
@@ -133,7 +140,6 @@ def sync_examination_to_firebase(sender, instance, created, **kwargs):
     """Sync examination changes to Firebase"""
     try:
         if instance.time_slot and instance.time_slot.schedule:
-            print(f"Debug - Examination signal triggered: ID={instance.id}, TimeSlot={instance.time_slot.id}")
             sync_schedules_by_date(instance.time_slot.schedule.date)
     except Exception as e:
         print(f"Error syncing examination {instance.id} to Firebase: {e}")
@@ -143,7 +149,6 @@ def delete_examination_from_firebase(sender, instance, **kwargs):
     """Update Firebase when an examination is deleted by removing the time slot"""
     try:
         if instance.time_slot and instance.time_slot.schedule:
-            print(f"Debug - Deleting examination {instance.id} and its time slot from Firebase")
             # Get the current document
             collection_name = get_collection_name()
             date = instance.time_slot.schedule.date
@@ -160,12 +165,10 @@ def delete_examination_from_firebase(sender, instance, **kwargs):
                             ts for ts in schedule['time_slots'] 
                             if ts['id'] != instance.time_slot.id
                         ]
-                        print(f"Debug - Removed time slot {instance.time_slot.id} from schedule {schedule['id']}")
                         break
 
                 # Update the document
                 doc_ref.set(data)
-                print(f"Debug - Updated Firebase document for date {date}")
     except Exception as e:
         print(f"Error updating Firebase after examination {instance.id} deletion: {e}")
 
@@ -179,4 +182,4 @@ def sync_patient_to_firebase(sender, instance, **kwargs):
             if examination.time_slot and examination.time_slot.schedule:
                 sync_schedules_by_date(examination.time_slot.schedule.date)
     except Exception as e:
-        print(f"Error syncing patient {instance.id} changes to Firebase: {e}") 
+        print(f"Error syncing patient {instance.id} changes to Firebase: {e}")
