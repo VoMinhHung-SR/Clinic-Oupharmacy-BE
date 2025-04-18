@@ -5,13 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="814de633-8a8b-41b8-ab51-4b382b59de8c" name="Changes" comment="refactor: env params">
-      <change beforePath="$PROJECT_DIR$/.env.sample" beforeDir="false" afterPath="$PROJECT_DIR$/.env.sample" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources.local.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.local.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/OUPharmacyManagementApp/firebase_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/OUPharmacyManagementApp/firebase_config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/admin.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/mainApp/firebase/signals/doctor_schedule/signals.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/firebase/signals/doctor_schedule/signals.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/firebase/signals/users/signals.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/firebase/signals/users/signals.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -59,7 +55,7 @@
   &quot;associatedIndex&quot;: 4
 }</component>
   <component name="ProjectId" id="2K9FnlqfABHXNc3RyjIpnfAaOAo" />
-  <component name="ProjectLevelVcsManager" settingsEditedManually="true">
+  <component name="ProjectLevelVcsManager">
     <ConfirmationsSetting value="1" id="Add" />
   </component>
   <component name="ProjectViewState">
@@ -102,7 +98,31 @@
       <recent name="$PROJECT_DIR$/OUPharmacyManagementApp" />
     </key>
   </component>
-  <component name="RunManager">
+  <component name="RunManager" selected="Django Server.Clinic-Oupharmacy-BE">
+    <configuration name="Clinic-Oupharmacy-BE" type="Python.DjangoServer" factoryName="Django server">
+      <module name="Clinic-Oupharmacy-BE" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="launchJavascriptDebuger" value="false" />
+      <option name="port" value="8000" />
+      <option name="host" value="" />
+      <option name="additionalOptions" value="" />
+      <option name="browserUrl" value="" />
+      <option name="runTestServer" value="false" />
+      <option name="runNoReload" value="false" />
+      <option name="useCustomRunCommand" value="false" />
+      <option name="customRunCommand" value="" />
+      <method v="2" />
+    </configuration>
     <configuration name="OUPharmacyManagementApp" type="Python.DjangoServer" factoryName="Django server">
       <module name="OUPharmacyManagementApp" />
       <option name="ENV_FILES" value="" />
@@ -132,8 +152,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-1632447f56bf-JavaScript-PY-243.26053.29" />
-        <option value="bundled-python-sdk-b1dbf8ef85a6-4df51de95216-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-243.26053.29" />
+        <option value="bundled-js-predefined-d6986cc7102b-f27c65a3e318-JavaScript-PY-251.23774.444" />
+        <option value="bundled-python-sdk-890ed5b35930-d9c5bdb153f4-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-251.23774.444" />
       </set>
     </attachedChunks>
   </component>
@@ -586,7 +606,21 @@
       <workItem from="1744100899715" duration="1970000" />
       <workItem from="1744184441629" duration="636000" />
       <workItem from="1744215313828" duration="3699000" />
-      <workItem from="1744297297751" duration="5296000" />
+      <workItem from="1744297297751" duration="6739000" />
+      <workItem from="1744345903808" duration="2452000" />
+      <workItem from="1744363239443" duration="435000" />
+      <workItem from="1744387447500" duration="2669000" />
+      <workItem from="1744475187662" duration="3351000" />
+      <workItem from="1744559815820" duration="779000" />
+      <workItem from="1744615225893" duration="1898000" />
+      <workItem from="1744645004159" duration="1492000" />
+      <workItem from="1744647195789" duration="2598000" />
+      <workItem from="1744691771790" duration="922000" />
+      <workItem from="1744732539709" duration="1104000" />
+      <workItem from="1744735255819" duration="1414000" />
+      <workItem from="1744790523422" duration="681000" />
+      <workItem from="1744819195064" duration="2241000" />
+      <workItem from="1744821707724" duration="545000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>
