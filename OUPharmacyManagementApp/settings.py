@@ -122,12 +122,12 @@ pymysql.install_as_MySQLdb()
 
 DATABASES = {
     'default': {
-        'ENGINE': os.getenv('DB_MYSQL_ENGINE'),
+        'ENGINE': os.getenv('DB_PG_ENGINE'),
         'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_MYSQL_USER'),
-        'PASSWORD': os.getenv('DB_MYSQL_PASSWORD'),
+        'USER': os.getenv('DB_PG_USER'),
+        'PASSWORD': os.getenv('DB_PG_PASSWORD'),
         'HOST': os.getenv('DB_HOST'),
-        'PORT': os.getenv('DB_MYSQL_PORT')
+        'PORT': os.getenv('DB_PG_PORT')
     }
 }
 

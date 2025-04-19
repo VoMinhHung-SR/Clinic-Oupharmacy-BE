@@ -5,9 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="814de633-8a8b-41b8-ab51-4b382b59de8c" name="Changes" comment="refactor: env params">
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources.local.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.local.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/firebase/signals/doctor_schedule/signals.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/firebase/signals/doctor_schedule/signals.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/OUPharmacyManagementApp/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/OUPharmacyManagementApp/settings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -620,7 +620,12 @@
       <workItem from="1744735255819" duration="1414000" />
       <workItem from="1744790523422" duration="681000" />
       <workItem from="1744819195064" duration="2241000" />
-      <workItem from="1744821707724" duration="545000" />
+      <workItem from="1744821707724" duration="1553000" />
+      <workItem from="1744823492680" duration="1829000" />
+      <workItem from="1744875864888" duration="2831000" />
+      <workItem from="1744905245826" duration="712000" />
+      <workItem from="1744968944721" duration="655000" />
+      <workItem from="1745035586659" duration="5069000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>

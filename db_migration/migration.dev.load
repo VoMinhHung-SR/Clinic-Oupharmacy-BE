@@ -1,0 +1,26 @@
+LOAD DATABASE
+     FROM mysql://pgloader:Pgloader%40123@localhost:3306/oupharmacydb
+     INTO pgsql://postgres:Hung123456@localhost:5432/oupharmacydb
+
+WITH include drop, create tables, create indexes, reset sequences
+
+CAST type int to integer,
+     type varchar to text,
+     type datetime to timestamp,
+     type timestamp to timestamp,
+     type date to date,
+     type text to text,
+     type tinyint to smallint,
+     type smallint to smallint,
+     type mediumint to integer,
+     type bigint to bigint,
+     type double to float8,
+     type float to float,
+     type decimal to numeric,
+     type year to integer,
+     type enum to text,
+     type set to text,
+     type bit to boolean
+
+SET maintenance_work_mem to '128MB',
+    work_mem to '12MB';
