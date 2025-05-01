@@ -1,0 +1,26 @@
+LOAD DATABASE
+     FROM mysql://pgloader:Hung%40123456@localhost:3306/oupharmacydb
+     INTO pgsql://postgres:Hung123456@localhost:5432/oupharmacydb
+
+WITH data only
+
+CAST type int to integer,
+     type varchar to text,
+     type datetime to timestamp,
+     type timestamp to timestamp,
+     type date to date,
+     type text to text,
+     type tinyint to smallint,
+     type smallint to smallint,
+     type mediumint to integer,
+     type bigint to bigint,
+     type double to float8,
+     type float to float,
+     type decimal to numeric,
+     type year to integer,
+     type enum to text,
+     type set to text,
+     type bit to boolean,
+     type geometry to text,
+     type time to time,
+     type json to jsonb;

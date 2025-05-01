@@ -1,0 +1,23 @@
+LOAD DATABASE
+     FROM 'mysql://root:Hung@123456@localhost:3306/oupharmacydb'
+     INTO 'postgresql://postgres:Hung@123456@localhost:5432/oupharmacydb'
+
+WITH include drop, create tables, create indexes, reset sequences
+
+CAST type datetime to timestamp,
+     type date to date,
+     type time to time,
+     type tinyint to boolean,
+     type int to integer,
+     type bigint to bigint,
+     type float to float,
+     type double to double precision,
+     type decimal to numeric,
+     type char to varchar,
+     type varchar to varchar,
+     type text to text,
+     type longtext to text,
+     type mediumtext to text,
+     type tinytext to text,
+     type json to jsonb,
+     type enum to varchar 
