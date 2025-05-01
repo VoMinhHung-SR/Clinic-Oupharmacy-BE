@@ -128,6 +128,14 @@ DATABASES = {
         'PASSWORD': os.getenv('DB_PG_PASSWORD'),
         'HOST': os.getenv('DB_HOST'),
         'PORT': os.getenv('DB_PG_PORT')
+    },
+    'mysql_db': {
+        'ENGINE': os.getenv('DB_MYSQL_ENGINE'),
+        'NAME': os.getenv('DB_NAME'),
+        'USER': os.getenv('DB_MYSQL_USER'),
+        'PASSWORD': os.getenv('DB_MYSQL_PASSWORD'),
+        'HOST': os.getenv('DB_HOST'),
+        'PORT': os.getenv('DB_MYSQL_PORT')
     }
 }
 

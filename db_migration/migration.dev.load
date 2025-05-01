@@ -1,8 +1,8 @@
 LOAD DATABASE
-     FROM mysql://pgloader:Pgloader%40123@localhost:3306/oupharmacydb
+     FROM mysql://pgloader:Hung%40123456@localhost:3306/oupharmacydb
      INTO pgsql://postgres:Hung123456@localhost:5432/oupharmacydb
 
-WITH include drop, create tables, create indexes, reset sequences
+WITH data only
 
 CAST type int to integer,
      type varchar to text,
@@ -20,7 +20,7 @@ CAST type int to integer,
      type year to integer,
      type enum to text,
      type set to text,
-     type bit to boolean
-
-SET maintenance_work_mem to '128MB',
-    work_mem to '12MB';
+     type bit to boolean,
+     type geometry to text,
+     type time to time,
+     type json to jsonb;
