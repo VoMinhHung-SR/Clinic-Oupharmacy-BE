@@ -4,9 +4,13 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    default-libmysqlclient-dev \
+    # default-libmysqlclient-dev \
+    # pkg-config \
+    # default-mysql-client \
+    # && rm -rf /var/lib/apt/lists/*
+    libpq-dev \
     pkg-config \
-    default-mysql-client \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
