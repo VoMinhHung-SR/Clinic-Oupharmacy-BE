@@ -8,7 +8,7 @@
       <change beforePath="$PROJECT_DIR$/.idea/dataSources.local.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.local.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/OUPharmacyManagementApp/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/OUPharmacyManagementApp/settings.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/db_migration/migration.dev.load" beforeDir="false" afterPath="$PROJECT_DIR$/db_migration/migration.dev.load" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -639,7 +639,8 @@
       <workItem from="1745748704933" duration="2403000" />
       <workItem from="1745855296333" duration="922000" />
       <workItem from="1745930299124" duration="4392000" />
-      <workItem from="1746112403236" duration="4802000" />
+      <workItem from="1746112403236" duration="5472000" />
+      <workItem from="1746177139220" duration="2566000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>
