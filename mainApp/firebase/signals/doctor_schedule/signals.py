@@ -48,7 +48,12 @@ def sync_schedules_by_date(date):
                 'is_off': schedule.is_off,
                 'time_slots': []
             }
-            
+            doctor_info = {
+                'doctor_id': schedule.doctor.id,
+                'doctor_name': f"{schedule.doctor.first_name} {schedule.doctor.last_name}",
+                'doctor_email': schedule.doctor.email
+            }
+
             # Get all time slots for this schedule
             time_slots = TimeSlot.objects.filter(schedule=schedule)
             waiting_status_undone = 'undone'
@@ -73,6 +78,7 @@ def sync_schedules_by_date(date):
                         'id': examination.id,
                         'user': {'id': examination.user.id, 'email': examination.user.email,
                                  'name': examination.user.first_name + " " + examination.user.last_name},
+                        'doctor_info': doctor_info,
                     }
                 else:
                     print(f"Debug - TimeSlot {slot.id}: No patient found. Examination: {examination}")
