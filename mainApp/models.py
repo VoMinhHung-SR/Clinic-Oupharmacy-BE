@@ -166,7 +166,7 @@ class Examination(BaseModel):
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, null=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=False)
     # doctor_availability = models.ForeignKey(DoctorAvailability, on_delete=models.SET_NULL, null=True)
-    time_slot = models.ForeignKey(TimeSlot, on_delete=models.SET_NULL, null=True)
+    time_slot = models.ForeignKey(TimeSlot, on_delete=models.CASCADE, null=True)
     def __str__(self):
         return f"{self.patient} - {self.time_slot}"
 
