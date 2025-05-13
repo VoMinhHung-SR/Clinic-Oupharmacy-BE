@@ -193,14 +193,46 @@ OAUTH2_PROVIDER = {
 
 
 # CLOUDINARY FOLDER UPLOADED
-# MEDIA_URL = '/OUPharmacy/'
-# DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+# Uncomment these lines to use Cloudinary for media storage
+MEDIA_URL = '/OUPharmacy/'
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
 cloudinary.config(
     cloud_name="dl6artkyb",
     api_key=os.getenv('CLOUDINARY_API_KEY'),
     api_secret=os.getenv('CLOUDINARY_API_SECRET')
 )
+
+# Cloudinary Storage Configuration
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': 'dl6artkyb',
+    'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
+    'MEDIA_TAG': 'media',
+    'INVALID_VIDEO_ERROR_MESSAGE': 'Please upload a valid video file.',
+    'STATIC_TAG': 'static',
+    'STATIC_IMAGES_EXTENSIONS': ['jpg', 'jpe', 'jpeg', 'jpc', 'jp2', 'j2k', 'wdp', 'jxr', 
+                                'hdp', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'ico'],
+    'MAGIC_FILE_PATH': 'magic',
+    'STATIC_IMAGES_TRANSFORMATIONS': {
+        'default': {
+            'format': 'jpg',
+            'transformation': [
+                {'quality': 'auto'},
+                {'fetch_format': 'auto'}
+            ]
+        }
+    },
+    'STATIC_FILES_TRANSFORMATIONS': {
+        'default': {
+            'format': 'jpg',
+            'transformation': [
+                {'quality': 'auto'},
+                {'fetch_format': 'auto'}
+            ]
+        }
+    }
+}
 
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
