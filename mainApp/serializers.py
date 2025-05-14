@@ -2,7 +2,7 @@ from rest_framework.serializers import ModelSerializer
 from . import cloud_context
 from .models import *
 from rest_framework import serializers
-
+import cloudinary.uploader
 
 class UserRoleSerializer(ModelSerializer):
     class Meta:
@@ -56,12 +56,24 @@ class CommonLocationSerializer(ModelSerializer):
 class UserSerializer(ModelSerializer):
 
     def create(self, validated_data):
+        avatar_file = validated_data.pop('avatar', None)
+        if avatar_file:
+            upload_result = cloudinary.uploader.upload(avatar_file)
+            validated_data['avatar'] = upload_result['public_id']
         user = User(**validated_data)
-        print(validated_data.get('role'))
         user.set_password(user.password)
         user.save()
-
         return user
+
+    def update(self, instance, validated_data):
+        avatar_file = validated_data.pop('avatar', None)
+        if avatar_file:
+            upload_result = cloudinary.uploader.upload(avatar_file)
+            instance.avatar = upload_result['public_id']
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -123,6 +135,23 @@ class MedicineUnitSerializer(ModelSerializer):
     image_path = serializers.SerializerMethodField(source='image')
     medicine = serializers.PrimaryKeyRelatedField(queryset=Medicine.objects.all())
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
+
+    def create(self, validated_data):
+        image_file = validated_data.pop('image', None)
+        if image_file:
+            upload_result = cloudinary.uploader.upload(image_file)
+            validated_data['image'] = upload_result['public_id']
+        return MedicineUnit.objects.create(**validated_data)
+    
+    def update(self, instance, validated_data):
+        image_file = validated_data.pop('image', None)
+        if image_file:
+            upload_result = cloudinary.uploader.upload(image_file)
+            instance.image = upload_result['public_id']
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
 
     class Meta:
         model = MedicineUnit

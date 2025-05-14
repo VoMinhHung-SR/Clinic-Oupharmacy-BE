@@ -86,7 +86,7 @@ class User(AbstractUser):
     username = None
     email = models.EmailField(max_length=100, null=False, blank=False, unique=True, db_index=True)
 
-    avatar = CloudinaryField('avatar', default='', blank=True, null=True)
+    avatar = CloudinaryField('avatar', folder='OUPharmacy/users/avatar', default='', blank=True, null=True)
     phone_number = models.CharField(max_length=20, null=False, blank=True)
     date_of_birth = models.DateTimeField(null=True)
     gender = models.PositiveIntegerField(choices=genders, default=male)
@@ -208,7 +208,7 @@ class Category(BaseModel):
 class MedicineUnit(BaseModel):
     price = models.FloatField(null=False)
     in_stock = models.IntegerField(null=False)
-    image = CloudinaryField('medicineImage', default='', null=True)
+    image = CloudinaryField('medicines', default='', null=True, folder='OUPharmacy/medicines/image')
     packaging = models.CharField(max_length=50, null=True)
     medicine = models.ForeignKey(Medicine, on_delete=models.CASCADE)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True)
