@@ -17,6 +17,7 @@ import cloudinary.uploader
 import cloudinary.api
 import os
 
+# import dj_database_url
 from decouple import config, Csv, Config, RepositoryEnv
 from dotenv import load_dotenv
 import firebase_admin
@@ -116,7 +117,6 @@ REST_FRAMEWORK = {
 # import pymysql
 
 # pymysql.install_as_MySQLdb()
-
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
 
@@ -129,7 +129,7 @@ DATABASES = {
         'HOST': os.getenv('DB_HOST'),
         'PORT': os.getenv('DB_PG_PORT')
     }
-
+    # 'default': dj_database_url.config(default=os.getenv('DATABASE_URL_PG'))
 }
 
 # Password validation

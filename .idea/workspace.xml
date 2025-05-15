@@ -7,8 +7,7 @@
     <list default="true" id="814de633-8a8b-41b8-ab51-4b382b59de8c" name="Changes" comment="refactor: env params">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/OUPharmacyManagementApp/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/OUPharmacyManagementApp/settings.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/serializers.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/serializers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -652,7 +651,9 @@
       <workItem from="1746804502991" duration="1032000" />
       <workItem from="1746893016141" duration="7887000" />
       <workItem from="1747034552560" duration="2596000" />
-      <workItem from="1747148799904" duration="2661000" />
+      <workItem from="1747148799904" duration="3280000" />
+      <workItem from="1747296958987" duration="420000" />
+      <workItem from="1747297796235" duration="6157000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>
