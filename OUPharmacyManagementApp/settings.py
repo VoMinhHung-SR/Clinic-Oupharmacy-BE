@@ -17,7 +17,7 @@ import cloudinary.uploader
 import cloudinary.api
 import os
 
-# import dj_database_url
+import dj_database_url
 from decouple import config, Csv, Config, RepositoryEnv
 from dotenv import load_dotenv
 import firebase_admin
@@ -115,26 +115,20 @@ REST_FRAMEWORK = {
 }
 
 # import pymysql
-
 # pymysql.install_as_MySQLdb()
 # Database
-# https://docs.djangoproject.com/en/4.0/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': os.getenv('DB_PG_ENGINE'),
-        'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_PG_USER'),
-        'PASSWORD': os.getenv('DB_PG_PASSWORD'),
-        'HOST': os.getenv('DB_HOST'),
-        'PORT': os.getenv('DB_PG_PORT')
-    }
-    # 'default': dj_database_url.config(default=os.getenv('DATABASE_URL_PG'))
+    # 'default': {
+    #     'ENGINE': os.getenv('DB_PG_ENGINE'),
+    #     'NAME': os.getenv('DB_NAME'),
+    #     'USER': os.getenv('DB_PG_USER'),
+    #     'PASSWORD': os.getenv('DB_PG_PASSWORD'),
+    #     'HOST': os.getenv('DB_HOST'),
+    #     'PORT': os.getenv('DB_PG_PORT')
+    # }
+    'default': dj_database_url.config(default=os.getenv('DATABASE_URL_PG'))
 }
-
-# Password validation
-# https://docs.djangoproject.com/en/4.0/ref/settings/#auth-password-validators
-
 
 AUTH_PASSWORD_VALIDATORS = [
     {
