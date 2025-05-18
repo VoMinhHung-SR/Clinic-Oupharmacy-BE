@@ -30,5 +30,19 @@
         </introspection-scope>
       </schema-mapping>
     </data-source>
+    <data-source name="oupharmacydb_ck61@dpg-d0jgbpbuibrs73d0n720-a.singapore-postgres.render.com" uuid="f372f105-ebf7-427b-afe0-54c023cceb2d">
+      <database-info product="PostgreSQL" version="16.8 (Debian 16.8-1.pgdg120+1)" jdbc-version="4.2" driver-name="PostgreSQL JDBC Driver" driver-version="42.7.3" dbms="POSTGRES" exact-version="16.8" exact-driver-version="42.7">
+        <identifier-quote-string>&quot;</identifier-quote-string>
+      </database-info>
+      <case-sensitivity plain-identifiers="lower" quoted-identifiers="exact" />
+      <user-name>postgre</user-name>
+      <schema-mapping>
+        <introspection-scope>
+          <node kind="database" qname="@">
+            <node kind="schema" qname="@" />
+          </node>
+        </introspection-scope>
+      </schema-mapping>
+    </data-source>
   </component>
 </project>
