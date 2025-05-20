@@ -15,11 +15,11 @@
       <jdbc-url>jdbc:postgresql://localhost:5432/oupharmacydb</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
-    <data-source source="LOCAL" name="oupharmacydb_ck61@dpg-d0jgbpbuibrs73d0n720-a.singapore-postgres.render.com" uuid="f372f105-ebf7-427b-afe0-54c023cceb2d">
+    <data-source source="LOCAL" name="oupharmacydb@render" uuid="36ebbae3-ccaa-4dec-a6ee-4cf8d2f37088">
       <driver-ref>postgresql</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.postgresql.Driver</jdbc-driver>
-      <jdbc-url>jdbc:postgresql://dpg-d0jgbpbuibrs73d0n720-a.singapore-postgres.render.com:5432/oupharmacydb_ck61</jdbc-url>
+      <jdbc-url>jdbc:postgresql://dpg-d0m4i08dl3ps73c0t2h0-a.singapore-postgres.render.com:5432/oupharmacydb_8peu</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
   </component>
