@@ -90,7 +90,7 @@ class User(AbstractUser):
     phone_number = models.CharField(max_length=20, null=False, blank=True)
     date_of_birth = models.DateTimeField(null=True)
     gender = models.PositiveIntegerField(choices=genders, default=male)
-    title = models.CharField(max_length=20, null=False, blank=True, default='')
+    title = models.CharField(max_length=20, null=True, blank=True, default='')
     # Keep follow this format (UPPERCASE-ALL + PREFIX:ROLE_")
     # ex: (1:ROLE_USER; 2:ROLE_DOCTOR; 3:ROLE_NURSE)
     role = models.ForeignKey(UserRole, on_delete=models.SET_NULL, null=True)
