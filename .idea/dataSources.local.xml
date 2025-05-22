@@ -16,5 +16,13 @@
       </schema-mapping>
       <load-sources>user_and_system_sources</load-sources>
     </data-source>
+    <data-source name="oupharmacydb@localhost" uuid="db41fe91-dfef-4769-b336-8969f585d930">
+      <database-info product="" version="" jdbc-version="" driver-name="" driver-version="" dbms="POSTGRES" />
+      <schema-mapping />
+    </data-source>
+    <data-source name="oupharmacydb@render" uuid="36ebbae3-ccaa-4dec-a6ee-4cf8d2f37088">
+      <database-info product="" version="" jdbc-version="" driver-name="" driver-version="" dbms="POSTGRES" />
+      <schema-mapping />
+    </data-source>
   </component>
 </project>
