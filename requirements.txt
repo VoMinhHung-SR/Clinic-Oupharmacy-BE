@@ -32,7 +32,7 @@ django-js-asset==2.0.0
 django-oauth-toolkit==1.7.1
 django-timezone-field==5.0
 djangorestframework==3.16.0
-drf-yasg==1.20.0
+# drf-yasg==1.20.0
 firebase-admin==6.1.0
 google-api-core==2.11.0
 google-api-python-client==2.86.0

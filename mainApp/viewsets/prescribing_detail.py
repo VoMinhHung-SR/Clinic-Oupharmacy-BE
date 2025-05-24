@@ -10,7 +10,4 @@ class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
     parser_classes = [JSONParser, MultiPartParser]
 
     def get_parsers(self):
-        if getattr(self, 'swagger_fake_view', False):
-            return []
-
         return super().get_parsers()
