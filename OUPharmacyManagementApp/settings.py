@@ -63,7 +63,7 @@ INSTALLED_APPS = [
     'ckeditor_uploader',
     'rest_framework',
     'oauth2_provider',
-    'drf_yasg',
+    # 'drf_yasg',
     'corsheaders',
     'cloudinary',
     'django_celery_beat',

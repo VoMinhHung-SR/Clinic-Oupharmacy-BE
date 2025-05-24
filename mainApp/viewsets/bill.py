@@ -28,9 +28,6 @@ class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
     parser_classes = [JSONParser, MultiPartParser]
 
     def get_parsers(self):
-        if getattr(self, 'swagger_fake_view', False):
-            return []
-
         return super().get_parsers()
 
     @action(methods=['POST'], detail=False, url_path='get-bill-by-pres')
