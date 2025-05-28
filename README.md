@@ -1,9 +1,10 @@
 # 🏥 Clinic-Oupharmacy-BE
 
 A backend system for managing clinic and pharmacy operations, built with **Django** and **PostgreSQL**.
+
 ---
 
-## 🚀 Live Demo: [Clinic-Oupharmacy-BE](https://github.com/VoMinhHung-SR/Clinic-Oupharmacy-BE)
+## 🚀 Live Demo: [Clinic-Oupharmacy-BE](https://clinic-oupharmacy-be.onrender.com/)
 
 ---
 
@@ -32,7 +33,7 @@ A backend system for managing clinic and pharmacy operations, built with **Djang
 ```bash
 Clinic-Oupharmacy-BE/
 ├── OUPharmacyManagementApp/   # Main Django project folder
-├── mainApp/                      # Main application logic
+├── mainApp/                   # Main application logic
 ├── staticfiles/               # Collected static files
 ├── .env                       # Environment variables
 ├── manage.py
@@ -45,5 +46,3 @@ Clinic-Oupharmacy-BE/
   → For more details on setting up the technologies used in this project, please refer to the Notion documentation.
 
 - 💻 **Frontend Repository**: [Clinic-Oupharmacy-FE](https://github.com/VoMinhHung-SR/Clinic-Oupharmacy-FE)
-
-```
