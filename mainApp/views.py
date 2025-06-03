@@ -61,33 +61,30 @@ def logout_view(request):
 @api_view(http_method_names=["GET"])
 def get_all_config(request):
     try:
-        # database
-        cities = CommonCity.objects.values("id", "name")
-        roles = UserRole.objects.values("id", "name")
-        nurses = User.objects.filter(role__name=ROLE_NURSE,is_active=True)
-        doctors = User.objects.filter(role__name=ROLE_DOCTOR, is_active=True)
-        categories = Category.objects.filter(active=True).values("id", "name")
+        cities = list(CommonCity.objects.values("id", "name"))
+        roles = list(UserRole.objects.values("id", "name"))
+        categories = list(Category.objects.filter(active=True).values("id", "name"))
 
-        doctors_data = [
-            {
-                "id": doctor.id,
-                "email": doctor.email,
-                "first_name": doctor.first_name,
-                "last_name": doctor.last_name,
-                "avatar": doctor.avatar.url if doctor.avatar else None  # Get avatar URL if available
+        doctors = User.objects.filter(role__name=ROLE_DOCTOR, is_active=True).values(
+            "id", "email", "first_name", "last_name", "avatar"
+        )
+        nurses = User.objects.filter(role__name=ROLE_NURSE, is_active=True).values(
+            "id", "email", "first_name", "last_name", "avatar"
+        )
+
+        def process_avatar(user):
+            avatar = user["avatar"]
+            if hasattr(avatar, 'url'):
+                avatar = avatar.url
+            elif not avatar or avatar == "null":
+                avatar = None
+            return {
+                **user,
+                "avatar": avatar
             }
-            for doctor in doctors
-        ]
-        nurses_data = [
-            {
-                "id": nurse.id,
-                "email": nurse.email,
-                "first_name": nurse.first_name,
-                "last_name": nurse.last_name,
-                "avatar": nurse.avatar.url if nurse.avatar else None  # Get avatar URL if available
-            }
-            for nurse in nurses
-        ]
+
+        doctors_data = [process_avatar(doc) for doc in doctors]
+        nurses_data = [process_avatar(nurse) for nurse in nurses]
 
         res_data = {
             "cityOptions": cities,
