@@ -302,32 +302,10 @@ class BillSerializer(ModelSerializer):
         model = Bill
         fields = ["id", "amount", "prescribing"]
 
-class DoctorAvailabilitySerializer(ModelSerializer):
-    doctor_info = serializers.SerializerMethodField(source='doctor')
-
-    def get_doctor_info(self, obj):
-        doctor = obj.doctor
-        if doctor:
-            return {'id': obj.id, 'email': doctor.email, "doctor_id": doctor.id,
-                    'start_time': obj.start_time, 'end_time': obj.end_time,  'day': obj.day,
-                    'first_name': doctor.first_name, 'last_name': doctor.last_name}
-        else:
-            return {}
-
-    class Meta:
-        model = DoctorAvailability
-        fields = ['id', 'day', 'start_time', 'end_time', 'doctor', 'doctor_info']
-        extra_kwargs = {
-            'doctor_info': {'read_only': 'true'},
-            'doctor': {'write_only': 'true'}
-        }
-
-
 class ExaminationsPairSerializer(ModelSerializer):
     user = UserNormalSerializer()
     patient = PatientSerializer()
-    doctor_availability = DoctorAvailabilitySerializer()
 
     class Meta:
         model = Examination
-        fields = ['id', 'user', 'patient', 'description', 'doctor_availability', 'created_date']
+        fields = ['id', 'user', 'patient', 'description', 'created_date']

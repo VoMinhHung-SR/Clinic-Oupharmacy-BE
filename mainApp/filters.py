@@ -3,19 +3,6 @@ from django.db.models import CharField, Value
 from django.db.models.functions import Concat
 from .models import *
 
-
-class DoctorAvailabilityFilter(django_filters.FilterSet):
-    doctor_name = django_filters.CharFilter(method='filter_doctor_name')
-    # Can add another fields to filter
-
-    class Meta:
-        model = DoctorAvailability
-        fields = ['doctor_name']
-
-    def filter_doctor_name(self, queryset, name, value):
-        return queryset.filter(doctor__first_name__icontains=value) | queryset.filter(doctor__last_name__icontains=value)
-
-
 class PatientFilter(django_filters.FilterSet):
     patient_name = django_filters.CharFilter(method='filter_patient_name')
 
