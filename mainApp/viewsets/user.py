@@ -23,9 +23,10 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView, generics.RetrieveAPI
     def get_permissions(self):
         if self.action in ['get_current_user']:
             return [permissions.IsAuthenticated()]
-        if self.action in ['update', 'partial_update', 'get_patients', 'change_password']:
+        if self.action in ['update', 'partial_update', 'get_patients',
+                           'change_password', 'change_avatar']:
             return [UserPermission()]
-        if self.action in ['get_examinations', 'change_avatar']:
+        if self.action in ['get_examinations']:
             return [OwnerExaminationPermission()]
         return [permissions.AllowAny()]
 
@@ -45,11 +46,14 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView, generics.RetrieveAPI
             parser_classes=[MultiPartParser, FormParser])
     def change_avatar(self, request, pk=None):
         user = self.get_object()
-        serializer = self.get_serializer(user, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({'avatar': serializer.instance.avatar}, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        avatar = request.FILES.get('avatar_path')
+        if not avatar:
+            return Response({'detail': 'No avatar file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+        user.avatar = avatar
+        user.save()
+        avatar_url = user.avatar.url if user.avatar else None
+        return Response({'avatar': avatar_url}, status=status.HTTP_200_OK)
+
     @action(methods=['get'], detail=True, url_path='booking-list', pagination_class=ExaminationPaginator)
     def get_examinations(self, request, pk):
         examinations = Examination.objects.filter(user=pk).all()
