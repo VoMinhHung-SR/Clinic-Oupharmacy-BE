@@ -1,6 +1,6 @@
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, generics
-from rest_framework.parsers import JSONParser, MultiPartParser
+from rest_framework.parsers import JSONParser, FormParser,MultiPartParser
 
 from rest_framework import permissions, status, filters
 from mainApp.filters import RecipientsFilter
@@ -23,7 +23,8 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView, generics.RetrieveAPI
     def get_permissions(self):
         if self.action in ['get_current_user']:
             return [permissions.IsAuthenticated()]
-        if self.action in ['update', 'partial_update', 'get_patients', 'change_password']:
+        if self.action in ['update', 'partial_update', 'get_patients',
+                           'change_password', 'change_avatar']:
             return [UserPermission()]
         if self.action in ['get_examinations']:
             return [OwnerExaminationPermission()]
@@ -41,13 +42,17 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView, generics.RetrieveAPI
         return Response(self.serializer_class(request.user, context={'request': request}).data,
                         status=status.HTTP_200_OK)
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+    @action(methods=['patch'], detail=True, url_path='change-avatar',
+            parser_classes=[MultiPartParser, FormParser])
+    def change_avatar(self, request, pk=None):
+        user = self.get_object()
+        avatar = request.FILES.get('avatar_path')
+        if not avatar:
+            return Response({'detail': 'No avatar file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+        user.avatar = avatar
+        user.save()
+        avatar_url = user.avatar.url if user.avatar else None
+        return Response({'avatar': avatar_url}, status=status.HTTP_200_OK)
 
     @action(methods=['get'], detail=True, url_path='booking-list', pagination_class=ExaminationPaginator)
     def get_examinations(self, request, pk):
