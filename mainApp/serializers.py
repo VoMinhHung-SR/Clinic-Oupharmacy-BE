@@ -1,5 +1,6 @@
 from rest_framework.serializers import ModelSerializer
 from . import cloud_context
+from .constant import CLOUDINARY_DEFAULT_AVATAR
 from .models import *
 from rest_framework import serializers
 import cloudinary.uploader
@@ -57,12 +58,19 @@ class UserSerializer(ModelSerializer):
 
     def create(self, validated_data):
         avatar_file = validated_data.pop('avatar', None)
-        if avatar_file:
-            upload_result = cloudinary.uploader.upload(avatar_file)
-            validated_data['avatar'] = upload_result['public_id']
         user = User(**validated_data)
         user.set_password(user.password)
         user.save()
+        if avatar_file:
+            if hasattr(avatar_file, 'read'):
+                upload_result = cloudinary.uploader.upload(avatar_file)
+                user.avatar = upload_result['public_id']
+            else:
+                user.avatar = avatar_file
+        else:
+            user.avatar = CLOUDINARY_DEFAULT_AVATAR
+        user.save()
+
         return user
 
     def update(self, instance, validated_data):
