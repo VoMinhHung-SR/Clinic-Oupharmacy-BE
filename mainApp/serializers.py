@@ -126,6 +126,40 @@ class UserSerializer(ModelSerializer):
             'location': {'write_only': 'true'}
         }
 
+class UserDisplaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'first_name', 'last_name', 'email']
+
+class SpecializationTagSerializer(ModelSerializer):
+    class Meta:
+        model = SpecializationTag
+        fields = ["id", "name"]
+
+class DoctorProfileSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        write_only=True
+    )
+    user_display = UserDisplaySerializer(source='user', read_only=True)
+
+    specialization_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=SpecializationTag.objects.all(),
+        source='specializations',
+        write_only=True
+    )
+    specializations = SpecializationTagSerializer(many=True, read_only=True)
+    class Meta:
+        model = DoctorProfile
+        fields = [
+            "id",
+            "user",               # input
+            "user_display",       # output
+            "description",
+            "specialization_ids", # input
+            "specializations"     # output
+        ]
 
 class CategorySerializer(ModelSerializer):
     class Meta:
