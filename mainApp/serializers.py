@@ -1,6 +1,6 @@
 from rest_framework.serializers import ModelSerializer
 from . import cloud_context
-from .constant import CLOUDINARY_DEFAULT_AVATAR
+from .constant import CLOUDINARY_DEFAULT_AVATAR, ROLE_DOCTOR
 from .models import *
 from rest_framework import serializers
 import cloudinary.uploader
@@ -138,7 +138,7 @@ class SpecializationTagSerializer(ModelSerializer):
 
 class DoctorProfileSerializer(serializers.ModelSerializer):
     user = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(),
+        queryset=User.objects.filter(role__name=ROLE_DOCTOR,is_active=True),
         write_only=True
     )
     user_display = UserDisplaySerializer(source='user', read_only=True)

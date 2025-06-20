@@ -6,7 +6,8 @@
   <component name="ChangeListManager">
     <list default="true" id="814de633-8a8b-41b8-ab51-4b382b59de8c" name="Changes" comment="refactor: env params">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/admin.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/serializers.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/serializers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/views.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -33,14 +34,12 @@
     &quot;state&quot;: &quot;OPEN&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings">
-    <option name="selectedUrlAndAccountId">
-      <UrlAndAccount>
-        <option name="accountId" value="d962c980-1ef7-4c74-a838-c384e01fff32" />
-        <option name="url" value="https://github.com/VoMinhHung-SR/OUPharmacy.git" />
-      </UrlAndAccount>
-    </option>
-  </component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/VoMinhHung-SR/Clinic-Oupharmacy-BE.git&quot;,
+    &quot;accountId&quot;: &quot;d962c980-1ef7-4c74-a838-c384e01fff32&quot;
+  }
+}</component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file://$PROJECT_DIR$/OUPharmacyManagementApp/mainApp/views.py" root0="FORCE_HIGHLIGHTING" />
   </component>
@@ -672,6 +671,8 @@
       <workItem from="1749743425513" duration="2002000" />
       <workItem from="1749745842171" duration="701000" />
       <workItem from="1750264307001" duration="648000" />
+      <workItem from="1750348415083" duration="3846000" />
+      <workItem from="1750435455477" duration="1064000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>
