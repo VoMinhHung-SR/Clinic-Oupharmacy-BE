@@ -15,7 +15,9 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import MultiPartParser
 from rest_framework.parsers import JSONParser
 
-from .models import CommonCity, UserRole, User, Category, Bill
+from .models import CommonCity, UserRole, User, Category, Bill, DoctorProfile
+from .serializers import DoctorProfileSerializer
+from . import cloud_context
 
 # Create your views here.
 wageBooking = 20000
@@ -65,36 +67,46 @@ def get_all_config(request):
         roles = list(UserRole.objects.values("id", "name"))
         categories = list(Category.objects.filter(active=True).values("id", "name"))
 
-        doctors = User.objects.filter(role__name=ROLE_DOCTOR, is_active=True).values(
-            "id", "email", "first_name", "last_name", "avatar"
-        )
-        nurses = User.objects.filter(role__name=ROLE_NURSE, is_active=True).values(
-            "id", "email", "first_name", "last_name", "avatar"
+        doctor_profiles = DoctorProfile.objects.select_related(
+            'user', 'user__role'
+        ).prefetch_related(
+            'specializations'
+        ).filter(
+            user__role__name=ROLE_DOCTOR,
+            user__is_active=True
         )
 
-        def process_avatar(user):
-            avatar = user["avatar"]
-            if hasattr(avatar, 'url'):
-                avatar = avatar.url
-            elif not avatar or avatar == "null":
-                avatar = None
-            return {
-                **user,
-                "avatar": avatar
-            }
-
-        doctors_data = [process_avatar(doc) for doc in doctors]
-        nurses_data = [process_avatar(nurse) for nurse in nurses]
+        nurses_data = []
+        nurses_queryset = User.objects.filter(
+            role__name=ROLE_NURSE, 
+            is_active=True
+        )
+        
+        for nurse in nurses_queryset:
+            avatar_path = None
+            if nurse.avatar:
+                avatar_path = "{cloud_context}{image_name}".format(
+                    cloud_context=cloud_context,
+                    image_name=str(nurse.avatar)
+                )
+            
+            nurses_data.append({
+                'id': nurse.id,
+                'email': nurse.email,
+                'first_name': nurse.first_name,
+                'last_name': nurse.last_name,
+                'avatar': avatar_path
+            })
 
         res_data = {
             "cityOptions": cities,
             "roles": roles,
-            "doctors": doctors_data,
+            "doctors": DoctorProfileSerializer(doctor_profiles, many=True).data,
             "nurses": nurses_data,
             "categories": categories
         }
 
     except Exception as ex:
-        return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR, data={"errMgs": "value Error"})
+        return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR, data={"errMgs": f"Error: {str(ex)}"})
     else:
         return Response(data=res_data, status=status.HTTP_200_OK)

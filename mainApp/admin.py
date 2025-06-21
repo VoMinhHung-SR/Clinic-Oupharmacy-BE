@@ -173,6 +173,17 @@ class PrescribingAdmin(admin.ModelAdmin):
 class PrescriptionDetailAdmin(admin.ModelAdmin):
     list_display = ['id', 'quantity', 'uses', 'prescribing', 'medicine_unit']
 
+class DoctorProfileAdmin(admin.ModelAdmin):
+    list_display = ['id', 'user', 'description', 'get_specializations']
+    list_filter = ['user', 'specializations']
+
+    def get_specializations(self, obj):
+        return ", ".join([tag.name for tag in obj.specializations.all()])
+
+    get_specializations.short_description = "Specializations"
+
+class SpecializationTagAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name']
 
 class MyModelAdmin(admin.ModelAdmin):
     list_display = ('name', 'custom_field')
@@ -270,6 +281,8 @@ admin_site.register(Patient, PatientAdmin)
 admin_site.register(User, UserAdmin)
 admin_site.register(UserRole, UserRoleAdmin)
 admin_site.register(DoctorSchedule, DoctorScheduleAdmin)
+admin_site.register(DoctorProfile, DoctorProfileAdmin)
+admin_site.register(SpecializationTag, SpecializationTagAdmin)
 admin_site.register(TimeSlot, TimeSlotAdmin)
 
 admin_site.register(IntervalSchedule)

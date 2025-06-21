@@ -25,3 +25,7 @@ from .user import UserViewSet
 from .user_role import UserRoleViewSet
 
 from .time_slot import TimeSlotViewSet
+
+from .specialization_tag import SpecializationTagViewSet
+
+from .doctor_profile import DoctorProfileViewSet

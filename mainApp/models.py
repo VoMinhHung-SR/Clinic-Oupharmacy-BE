@@ -106,6 +106,20 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.title} {self.first_name} {self.last_name} ({self.email})"
 
+class SpecializationTag(BaseModel):
+    name = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.name
+
+class DoctorProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='doctor_profile')
+    description = models.TextField(blank=True, null=True)
+    specializations = models.ManyToManyField(SpecializationTag, related_name='doctors')
+
+    def __str__(self):
+        return f"Dr. {self.user.get_full_name()}"
+
 class Patient(BaseModel):
     # 0 , 1, 2
     male, female, secret = range(3)
