@@ -127,9 +127,20 @@ class UserSerializer(ModelSerializer):
         }
 
 class UserDisplaySerializer(serializers.ModelSerializer):
+    avatar_path = serializers.SerializerMethodField(source='avatar')
+    def get_avatar_path(self, obj):
+        if obj.avatar:
+            path = "{cloud_context}{image_name}".format(cloud_context=cloud_context,
+                                                        image_name=obj.avatar)
+            return path
+
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'email']
+        fields = ['id', 'first_name', 'last_name', 'email', "avatar_path"]
+
+        extra_kwargs = {
+            'avatar_path': {'read_only': 'true'}
+        }
 
 class SpecializationTagSerializer(ModelSerializer):
     class Meta:

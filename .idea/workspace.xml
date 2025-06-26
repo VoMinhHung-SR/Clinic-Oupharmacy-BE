@@ -7,7 +7,6 @@
     <list default="true" id="814de633-8a8b-41b8-ab51-4b382b59de8c" name="Changes" comment="refactor: env params">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/mainApp/serializers.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/serializers.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/views.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -672,7 +671,12 @@
       <workItem from="1749745842171" duration="701000" />
       <workItem from="1750264307001" duration="648000" />
       <workItem from="1750348415083" duration="3846000" />
-      <workItem from="1750435455477" duration="1064000" />
+      <workItem from="1750435455477" duration="3028000" />
+      <workItem from="1750522240259" duration="886000" />
+      <workItem from="1750607845325" duration="661000" />
+      <workItem from="1750695104386" duration="784000" />
+      <workItem from="1750867006629" duration="1631000" />
+      <workItem from="1750948360554" duration="1063000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>
