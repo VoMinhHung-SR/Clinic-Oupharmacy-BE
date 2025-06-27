@@ -158,16 +158,6 @@ class TimeSlot(models.Model):
     def __str__(self):
         return f"{self.schedule} ({self.start_time} - {self.end_time})"
 
-class DoctorAvailability(models.Model):
-    doctor = models.ForeignKey(User, on_delete=models.CASCADE)
-    day = models.DateField()
-    start_time = models.TimeField()
-    end_time = models.TimeField()
-
-    def __str__(self):
-        return f"{self.doctor})"
-
-
 class Examination(BaseModel):
 
     class Meta:
