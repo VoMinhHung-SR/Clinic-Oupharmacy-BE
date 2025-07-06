@@ -39,5 +39,6 @@ urlpatterns = [
     path('common-configs/', views.get_all_config),
     path('dashboard/stats/get-booking-stats/', statistic_views.get_booking_stats),
     path('dashboard/stats/get-medicine-stats/', statistic_views.get_medicines_stats),
-    path('dashboard/stats/get-revenue-stats/', statistic_views.get_revenue_stats)
+    path('dashboard/stats/get-revenue-stats/', statistic_views.get_revenue_stats),
+    path('contact-admin/', views.contact_admin),
 ]
