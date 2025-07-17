@@ -1,4 +1,3 @@
-
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.db.models import Count
@@ -17,7 +16,9 @@ from rest_framework.parsers import JSONParser
 
 from .models import CommonCity, UserRole, User, Category, Bill, DoctorProfile
 from .serializers import DoctorProfileSerializer
+from .serializers import ContactSerializer
 from . import cloud_context
+from django.core.mail import send_mail
 
 # Create your views here.
 wageBooking = 20000
@@ -110,3 +111,25 @@ def get_all_config(request):
         return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR, data={"errMgs": f"Error: {str(ex)}"})
     else:
         return Response(data=res_data, status=status.HTTP_200_OK)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def contact_admin(request):
+    serializer = ContactSerializer(data=request.data)
+    if serializer.is_valid():
+        data = serializer.validated_data
+        subject = data.get('subject') or 'Liên hệ từ website OUPharmacy'
+        message = f"Họ tên: {data['name']}\nEmail: {data['email']}\nĐiện thoại: {data.get('phone', '')}\n\nNội dung:\n{data['message']}"
+        try:
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=None, 
+                recipient_list=[settings.EMAIL_HOST_USER],
+                fail_silently=False,
+            )
+            return Response({'message': 'Gửi email thành công!'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': f'Lỗi gửi email: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    else:
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

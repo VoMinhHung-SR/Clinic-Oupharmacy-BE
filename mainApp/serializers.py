@@ -362,3 +362,10 @@ class ExaminationsPairSerializer(ModelSerializer):
     class Meta:
         model = Examination
         fields = ['id', 'user', 'patient', 'description', 'created_date']
+
+class ContactSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100)
+    email = serializers.EmailField()
+    phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    subject = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    message = serializers.CharField()
