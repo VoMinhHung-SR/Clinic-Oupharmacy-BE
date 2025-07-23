@@ -1,0 +1,16 @@
+name: Cronjob for Render Backend
+
+on:
+  schedule:
+    - cron: '*/12 * * * *' # Every 12 minutes
+  workflow_dispatch:
+
+env:
+  BACKEND_URL: https://clinic-oupharmacy-be.onrender.com
+
+jobs:
+  ping-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend to keep it alive
+        run: curl -s "$BACKEND_URL" || echo "Ping failed"
