@@ -5,8 +5,11 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="814de633-8a8b-41b8-ab51-4b382b59de8c" name="Changes" comment="refactor: env params">
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources.local.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.local.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources/8b144135-ef1c-4823-950c-ad9f3a0502d8.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources/8b144135-ef1c-4823-950c-ad9f3a0502d8.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/prescribing_detail.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/prescribing_detail.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/constant.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/constant.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mainApp/viewsets/bill.py" beforeDir="false" afterPath="$PROJECT_DIR$/mainApp/viewsets/bill.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -67,6 +70,7 @@
     &quot;RunOnceActivity.OpenDjangoStructureViewOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.pycharm.django.structure.promotion.once.per.project&quot;: &quot;true&quot;,
     &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
@@ -104,7 +108,6 @@
       <option name="PARENT_ENVS" value="true" />
       <envs>
         <env name="PYTHONUNBUFFERED" value="1" />
-        <env name="DJANGO_SETTINGS_MODULE" value="OUPharmacyManagementApp.settings" />
       </envs>
       <option name="SDK_HOME" value="" />
       <option name="WORKING_DIRECTORY" value="" />
@@ -151,8 +154,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-09060db00ec0-JavaScript-PY-251.26927.74" />
-        <option value="bundled-python-sdk-657d8234b839-64d779b69b7a-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-251.26927.74" />
+        <option value="bundled-js-predefined-d6986cc7102b-e03c56caf84a-JavaScript-PY-252.23892.515" />
+        <option value="bundled-python-sdk-7e47963ff851-f0eec537fc84-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.23892.515" />
       </set>
     </attachedChunks>
   </component>
@@ -684,6 +687,24 @@
       <workItem from="1751559795888" duration="792000" />
       <workItem from="1751733342850" duration="1056000" />
       <workItem from="1751818983358" duration="1830000" />
+      <workItem from="1753462684106" duration="7166000" />
+      <workItem from="1753633009481" duration="3139000" />
+      <workItem from="1753811471239" duration="7558000" />
+      <workItem from="1753977587543" duration="3492000" />
+      <workItem from="1754236149759" duration="10857000" />
+      <workItem from="1754409801260" duration="1514000" />
+      <workItem from="1754481029298" duration="3785000" />
+      <workItem from="1754492855880" duration="11037000" />
+      <workItem from="1754665970910" duration="1541000" />
+      <workItem from="1754756989383" duration="1741000" />
+      <workItem from="1754840921657" duration="5100000" />
+      <workItem from="1754926560013" duration="305000" />
+      <workItem from="1754926918590" duration="4391000" />
+      <workItem from="1755011483681" duration="2506000" />
+      <workItem from="1755094786612" duration="10668000" />
+      <workItem from="1755182721085" duration="2142000" />
+      <workItem from="1755272880186" duration="15000" />
+      <workItem from="1755963509817" duration="7000" />
     </task>
     <task id="LOCAL-00001" summary="config: BE server from Linux">
       <created>1676729692537</created>

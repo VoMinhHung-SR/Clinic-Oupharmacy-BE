@@ -11,7 +11,7 @@ class PatientFilter(django_filters.FilterSet):
         fields = ['patient_name']
 
     def filter_patient_name(self, queryset, name, value):
-        return queryset.filter(self_irst_name__icontains=value) | queryset.filter(
+        return queryset.filter(self_first_name__icontains=value) | queryset.filter(
             self_last_name__icontains=value)
 
 
