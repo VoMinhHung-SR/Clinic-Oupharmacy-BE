@@ -24,10 +24,15 @@ router.register("doctor-schedules", DoctorScheduleViewSet, basename="doctor-sche
 router.register("time-slots", TimeSlotViewSet, basename="time-slot")
 router.register("specialization-tags", SpecializationTagViewSet, basename="specialization-tag")
 router.register("doctor-profiles", DoctorProfileViewSet, basename="doctor-profile")
+
 urlpatterns = [
     path('', include(router.urls)),
     path('oauth2-info/', views.AuthInfo.as_view()),
     path('o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
+    # Social Authentication endpoints
+    path('auth/firebase/', views.firebase_social_login, name='firebase_social_login'),
+    path('auth/google/', views.google_login, name='google_login'),
+    path('auth/facebook/', views.facebook_login, name='facebook_login'),
     path('admin/', include([
         path('api/revenue_stats/', admin_views.get_admin_revenue),
         path('api/examinations_stats/', admin_views.get_examinations_stats),
