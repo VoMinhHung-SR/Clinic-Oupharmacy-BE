@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 import random
 import string
 from firebase_admin import auth as firebase_auth
+import cloudinary.uploader
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
@@ -28,15 +29,14 @@ from rest_framework import status
 from rest_framework import viewsets, generics
 from rest_framework import views
 
-from .constant import ROLE_DOCTOR, ROLE_NURSE
+from .constant import ERR_NULL_AVATAR, ROLE_DOCTOR, ROLE_NURSE, ROLE_USER, CLOUDINARY_DEFAULT_AVATAR
 from rest_framework.decorators import action, api_view, permission_classes
 
 from rest_framework.parsers import MultiPartParser
 from rest_framework.parsers import JSONParser
 
 from .models import CommonCity, UserRole, User, Category, Bill, DoctorProfile
-from .serializers import DoctorProfileSerializer
-from .serializers import ContactSerializer
+from .serializers import DoctorProfileSerializer, UserSerializer, ContactSerializer
 from . import cloud_context
 from django.core.mail import send_mail
 
@@ -202,7 +202,8 @@ def firebase_social_login(request):
                         last_name=last_name,
                         social_id=user_id,
                         social_provider=provider,
-                        is_active=True
+                        is_active=True,
+                        role=UserRole.objects.get(name=ROLE_USER)
                     )
             else:
                 # Create user with generated email if no email provided
@@ -213,19 +214,33 @@ def firebase_social_login(request):
                     last_name=last_name,
                     social_id=user_id,
                     social_provider=provider,
-                    is_active=True
+                    is_active=True,
+                    role=UserRole.objects.get(name=ROLE_USER)
                 )
-        
+
         # Update user info if needed
         if not user.first_name and first_name:
             user.first_name = first_name
         if not user.last_name and last_name:
             user.last_name = last_name
-        if picture and not user.avatar:
-            user.avatar = picture
+            
+        # Handle avatar: upload from picture or use default
+        if not user.avatar or str(user.avatar) == ERR_NULL_AVATAR:
+            if picture and picture != 'null' and picture.strip():
+                try:
+                    upload_result = cloudinary.uploader.upload(
+                        picture,
+                        folder='OUPharmacy/users/avatar',
+                        public_id=f'social_{user_id}'
+                    )
+                    user.avatar = upload_result['public_id']
+                except Exception as e:
+                    user.avatar = CLOUDINARY_DEFAULT_AVATAR
+            else:
+                user.avatar = CLOUDINARY_DEFAULT_AVATAR
+        
         user.save()
         
-        # Generate OAuth2 token
         token = generate_oauth_token(user)
         
         return Response({
@@ -233,14 +248,7 @@ def firebase_social_login(request):
             'refresh_token': token.refresh_token.token,
             'token_type': 'Bearer',
             'expires_in': 2592000,  # 30 days
-            'user': {
-                'id': user.id,
-                'email': user.email,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'role': user.role.name if user.role else None,
-                'avatar': user.avatar.url if user.avatar else None
-            }
+            'user': UserSerializer(user).data    
         }, status=status.HTTP_200_OK)
         
     except Exception as e:

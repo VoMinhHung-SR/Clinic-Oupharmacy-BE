@@ -3,5 +3,7 @@ SERVICE_FEE_PER_PRESCRIBING = 20000
 
 ROLE_DOCTOR = 'ROLE_DOCTOR'
 ROLE_NURSE = 'ROLE_NURSE'
+ROLE_USER = 'ROLE_USER'
 
-CLOUDINARY_DEFAULT_AVATAR = 'OUPharmacy/logo_oupharmacy_kz2yzd'
+CLOUDINARY_DEFAULT_AVATAR = 'OUPharmacy/logo_oupharmacy_kz2yzd.png'
+ERR_NULL_AVATAR = 'image/upload/null'
