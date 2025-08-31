@@ -72,11 +72,10 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView, generics.RetrieveAPI
         try:
             location = CommonLocation.objects.get(id=location_id)
             # Access the location properties
-            print(location.address, location.id)
             return Response(status=status.HTTP_200_OK, data=CommonLocationSerializer(location).data)
         except CommonLocation.DoesNotExist:
             # Handle the case when the location with the given ID doesn't exist
-            return Response(status=status.HTTP_404_NOT_FOUND, data=[])
+            return Response(status=status.HTTP_200_OK, data=None)
 
     @action(methods=['get'], detail=False, url_path='demo')
     def demo (self, request):
