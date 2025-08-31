@@ -1,3 +1,5 @@
+import os
+from django.conf import settings
 from rest_framework.serializers import ModelSerializer
 from . import cloud_context
 from .constant import CLOUDINARY_DEFAULT_AVATAR, ROLE_DOCTOR
@@ -95,9 +97,9 @@ class UserSerializer(ModelSerializer):
 
     def get_locationGeo(self, obj):
         location = obj.location
-        city = location.city
-        district = location.district
         if location:
+            city = location.city
+            district = location.district
             return {'lat': location.lat, 'lng': location.lng,
                     'address': location.address,
                     'district': {'id': district.id, 'name': district.name},
@@ -109,9 +111,18 @@ class UserSerializer(ModelSerializer):
 
     def get_avatar_path(self, obj):
         if obj.avatar:
-            path = "{cloud_context}{image_name}".format(cloud_context=cloud_context,
-                                                        image_name=obj.avatar)
-            return path
+            avatar_str = str(obj.avatar)
+            if 'https://' in avatar_str or 'http://' in avatar_str:
+                if 'image/upload/' in avatar_str:
+                    url_part = avatar_str.split('image/upload/')[-1]
+                    return url_part
+                else:
+                    return avatar_str
+            else:
+                path = "{cloud_context}{image_name}".format(cloud_context=cloud_context,
+                                                            image_name=obj.avatar)
+                return path
+        return None
 
     class Meta:
         model = User
@@ -130,9 +141,18 @@ class UserDisplaySerializer(serializers.ModelSerializer):
     avatar_path = serializers.SerializerMethodField(source='avatar')
     def get_avatar_path(self, obj):
         if obj.avatar:
-            path = "{cloud_context}{image_name}".format(cloud_context=cloud_context,
-                                                        image_name=obj.avatar)
-            return path
+            avatar_str = str(obj.avatar)
+            if 'https://' in avatar_str or 'http://' in avatar_str:
+                if 'image/upload/' in avatar_str:
+                    url_part = avatar_str.split('image/upload/')[-1]
+                    return url_part
+                else:
+                    return avatar_str
+            else:
+                path = "{cloud_context}{image_name}".format(cloud_context=cloud_context,
+                                                            image_name=obj.avatar)
+                return path
+        return None
 
     class Meta:
         model = User
@@ -292,12 +312,12 @@ class UserNormalSerializer(ModelSerializer):
 
     def get_locationGeo(self, obj):
         location = obj.location
-        city = location.city
-        district = location.district
         if location:
+            city = location.city
+            district = location.district
             return {'lat': location.lat, 'lng': location.lng,
-                    'district': {'id': district.id, 'name': district.name},
-                    'city': {'id': city.id, 'name': city.name}}
+                    'district': {'id': district.id, 'name': district.name} if district else None,
+                    'city': {'id': city.id, 'name': city.name} if city else None}
         else:
             return {}
 

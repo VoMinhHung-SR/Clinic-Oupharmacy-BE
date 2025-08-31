@@ -97,6 +97,10 @@ class User(AbstractUser):
     location = models.ForeignKey(CommonLocation, on_delete=models.SET_NULL, null=True)
     objects = UserManager()
     is_admin = models.BooleanField(default=False)
+    # Social Authentication fields
+    social_id = models.CharField(max_length=255, blank=True, null=True, unique=True)
+    social_provider = models.CharField(max_length=50, blank=True, null=True)  # 'google', 'facebook'
+    
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 

@@ -1,3 +1,24 @@
+from django.shortcuts import render
+from rest_framework import viewsets, status, views
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.models import User
+from mainApp.models import *
+from mainApp.serializers import *
+from mainApp.admin_views import *
+from mainApp.services.statistic_views import *
+import requests
+import json
+from django.conf import settings
+from oauth2_provider.models import AccessToken
+from datetime import datetime, timedelta
+import random
+import string
+from firebase_admin import auth as firebase_auth
+import cloudinary.uploader
+
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.db.models import Count
@@ -8,15 +29,14 @@ from rest_framework import status
 from rest_framework import viewsets, generics
 from rest_framework import views
 
-from .constant import ROLE_DOCTOR, ROLE_NURSE
+from .constant import ERR_NULL_AVATAR, ROLE_DOCTOR, ROLE_NURSE, ROLE_USER, CLOUDINARY_DEFAULT_AVATAR
 from rest_framework.decorators import action, api_view, permission_classes
 
 from rest_framework.parsers import MultiPartParser
 from rest_framework.parsers import JSONParser
 
 from .models import CommonCity, UserRole, User, Category, Bill, DoctorProfile
-from .serializers import DoctorProfileSerializer
-from .serializers import ContactSerializer
+from .serializers import DoctorProfileSerializer, UserSerializer, ContactSerializer
 from . import cloud_context
 from django.core.mail import send_mail
 
@@ -133,3 +153,153 @@ def contact_admin(request):
             return Response({'error': f'Lỗi gửi email: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     else:
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def firebase_social_login(request):
+    """Handle Firebase social login (Google, Facebook, etc.)"""
+    try:
+        id_token = request.data.get('id_token')
+        provider = request.data.get('provider', 'google')  # google, facebook, apple
+        
+        if not id_token:
+            return Response({'error': 'ID token is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Verify Firebase ID token
+        try:
+            decoded_token = firebase_auth.verify_id_token(id_token)
+        except Exception as e:
+            return Response({'error': 'Invalid Firebase token'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user_id = decoded_token['uid']
+        email = decoded_token.get('email')
+        name = decoded_token.get('name', '')
+        picture = decoded_token.get('picture')
+        
+        # Split name into first_name and last_name
+        name_parts = name.split(' ', 1) if name else ['', '']
+        first_name = name_parts[0]
+        last_name = name_parts[1] if len(name_parts) > 1 else ''
+        
+        # Check if user exists by social_id
+        user = User.objects.filter(social_id=user_id, social_provider=provider).first()
+        
+        if not user:
+            # Check if email already exists
+            if email:
+                existing_user = User.objects.filter(email=email).first()
+                if existing_user:
+                    # Link existing account to social provider
+                    existing_user.social_id = user_id
+                    existing_user.social_provider = provider
+                    existing_user.save()
+                    user = existing_user
+                else:
+                    # Create new user
+                    user = User.objects.create(
+                        email=email,
+                        first_name=first_name,
+                        last_name=last_name,
+                        social_id=user_id,
+                        social_provider=provider,
+                        is_active=True,
+                        role=UserRole.objects.get(name=ROLE_USER)
+                    )
+            else:
+                # Create user with generated email if no email provided
+                generated_email = f"{user_id}@{provider}.com"
+                user = User.objects.create(
+                    email=generated_email,
+                    first_name=first_name,
+                    last_name=last_name,
+                    social_id=user_id,
+                    social_provider=provider,
+                    is_active=True,
+                    role=UserRole.objects.get(name=ROLE_USER)
+                )
+
+        # Update user info if needed
+        if not user.first_name and first_name:
+            user.first_name = first_name
+        if not user.last_name and last_name:
+            user.last_name = last_name
+            
+        # Handle avatar: upload from picture or use default
+        if not user.avatar or str(user.avatar) == ERR_NULL_AVATAR:
+            if picture and picture != 'null' and picture.strip():
+                try:
+                    upload_result = cloudinary.uploader.upload(
+                        picture,
+                        folder='OUPharmacy/users/avatar',
+                        public_id=f'social_{user_id}'
+                    )
+                    user.avatar = upload_result['public_id']
+                except Exception as e:
+                    user.avatar = CLOUDINARY_DEFAULT_AVATAR
+            else:
+                user.avatar = CLOUDINARY_DEFAULT_AVATAR
+        
+        user.save()
+        
+        token = generate_oauth_token(user)
+        
+        return Response({
+            'access_token': token.token,
+            'refresh_token': token.refresh_token.token,
+            'token_type': 'Bearer',
+            'expires_in': 2592000,  # 30 days
+            'user': UserSerializer(user).data    
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def google_login(request):
+    """Legacy Google login - redirects to Firebase social login"""
+    return firebase_social_login(request)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def facebook_login(request):
+    """Legacy Facebook login - redirects to Firebase social login"""
+    return firebase_social_login(request)
+
+def generate_oauth_token(user):
+    """Generate OAuth2 token for user"""
+    from oauth2_provider.models import Application, AccessToken, RefreshToken
+    from datetime import datetime, timedelta
+    
+    # Get or create application
+    app, created = Application.objects.get_or_create(
+        client_id=settings.OAUTH2_INFO['client_id'],
+        defaults={
+            'client_secret': settings.OAUTH2_INFO['client_secret'],
+            'user': user,
+            'client_type': 'confidential',
+            'authorization_grant_type': 'password',
+            'name': 'OUPharmacy App'
+        }
+    )
+    
+    # Create access token
+    token = AccessToken.objects.create(
+        user=user,
+        application=app,
+        expires=datetime.now() + timedelta(days=30),
+        token=''.join(random.choices(string.ascii_letters + string.digits, k=40)),
+        scope='read write'
+    )
+    
+    # Create refresh token
+    refresh_token = RefreshToken.objects.create(
+        user=user,
+        application=app,
+        token=''.join(random.choices(string.ascii_letters + string.digits, k=40))
+    )
+    
+    token.refresh_token = refresh_token
+    token.save()
+    
+    return token
