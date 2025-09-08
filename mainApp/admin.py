@@ -107,6 +107,20 @@ class UserAdmin(admin.ModelAdmin):
     list_filter = ['email', 'role']
     search_fields = ['email']
     readonly_fields = ['avatar_view']
+    
+    def save_model(self, request, obj, form, change):
+        if obj.password:
+            obj.set_password(obj.password)
+        
+        if hasattr(obj.avatar, 'read'):
+            import cloudinary.uploader
+            upload_result = cloudinary.uploader.upload(obj.avatar)
+            obj.avatar = upload_result['public_id']
+        elif not obj.avatar:
+            from .constant import CLOUDINARY_DEFAULT_AVATAR
+            obj.avatar = CLOUDINARY_DEFAULT_AVATAR
+        
+        super().save_model(request, obj, form, change)
 
     def avatar_view(self, user):
         if user.avatar:
