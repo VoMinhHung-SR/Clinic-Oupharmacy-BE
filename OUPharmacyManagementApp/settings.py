@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'mainApp.apps.MainappConfig',
+    'storeApp.apps.StoreappConfig',
     'ckeditor',
     'ckeditor_uploader',
     'rest_framework',
@@ -119,9 +120,27 @@ REST_FRAMEWORK = {
 # pymysql.install_as_MySQLdb()
 # Database
 
+# Database chính cho Clinic app
+default_db = dj_database_url.config(default=os.getenv('DATABASE_URL_PG'))
+
+# Database riêng cho Store app (ưu tiên STORE_DATABASE_URL_PG, sau đó DATABASE_URL_STORE_PG)
+store_db_url = os.getenv('STORE_DATABASE_URL_PG') or os.getenv('DATABASE_URL_STORE_PG')
+if store_db_url:
+    store_db = dj_database_url.config(default=store_db_url)
+else:
+    # Fallback: dùng chung database nhưng tách schema bằng cách clone config
+    store_db = default_db.copy()
+    if 'NAME' in store_db:
+        # Nếu có tên database, thêm suffix
+        store_db['NAME'] = store_db.get('NAME', '') + '_store'
+
 DATABASES = {
-    'default': dj_database_url.config(default=os.getenv('DATABASE_URL_PG'))
+    'default': default_db,
+    'store': store_db,
 }
+
+# Database Router để route models sang database phù hợp
+DATABASE_ROUTERS = ['storeApp.db_router.StoreRouter']
 
 AUTH_PASSWORD_VALIDATORS = [
     {

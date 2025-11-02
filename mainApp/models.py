@@ -218,6 +218,7 @@ class MedicineUnit(BaseModel):
     packaging = models.CharField(max_length=50, null=True)
     medicine = models.ForeignKey(Medicine, on_delete=models.CASCADE)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True)
+    brand_id = models.BigIntegerField(null=True, blank=True, help_text="ID của Brand trong store database")
 
 
 # Phieu ke toa
