@@ -123,8 +123,8 @@ REST_FRAMEWORK = {
 # Database chính cho Clinic app
 default_db = dj_database_url.config(default=os.getenv('DATABASE_URL_PG'))
 
-# Database riêng cho Store app (ưu tiên STORE_DATABASE_URL_PG, sau đó DATABASE_URL_STORE_PG)
-store_db_url = os.getenv('STORE_DATABASE_URL_PG') or os.getenv('DATABASE_URL_STORE_PG')
+# Database riêng cho Store app (ưu tiên STORE_DATABASE_URL_PG)
+store_db_url = os.getenv('STORE_DATABASE_URL_PG')
 if store_db_url:
     store_db = dj_database_url.config(default=store_db_url)
 else:
