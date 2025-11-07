@@ -5,6 +5,7 @@ from .admin import admin_site
 from . import admin_views
 from .services import statistic_views
 from .viewsets import *
+from storeApp import admin_views as store_admin_views
 
 router = routers.DefaultRouter()
 router.register("users", UserViewSet, basename="user")
@@ -38,6 +39,12 @@ urlpatterns = [
         path('api/examinations_stats/', admin_views.get_examinations_stats),
         path('api/medicines_stats/', admin_views.get_medicines_stats),
         path('api/doctor_stats/', admin_views.get_doctor_stats),
+        # Store App Statistics
+        path('api/store/revenue_stats/', store_admin_views.get_store_revenue_stats),
+        path('api/store/orders_stats/', store_admin_views.get_store_orders_stats),
+        path('api/store/payment_methods_stats/', store_admin_views.get_store_payment_methods_stats),
+        path('api/store/shipping_methods_stats/', store_admin_views.get_store_shipping_methods_stats),
+        path('api/store/order_status_stats/', store_admin_views.get_store_order_status_stats),
         path('',  admin_site.urls)
     ])),
     path('stats/', views.StatsView.as_view()),
@@ -46,4 +53,7 @@ urlpatterns = [
     path('dashboard/stats/get-medicine-stats/', statistic_views.get_medicines_stats),
     path('dashboard/stats/get-revenue-stats/', statistic_views.get_revenue_stats),
     path('contact-admin/', views.contact_admin),
+
+    # Store App URLs
+    path('api/store/', include('storeApp.urls')),
 ]
