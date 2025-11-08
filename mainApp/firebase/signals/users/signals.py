@@ -13,11 +13,19 @@ db = get_firestore()
 @receiver(post_save, sender=User)
 def sync_user_to_firebase(sender, instance, created, **kwargs):
     """Sync user to Firebase when created or updated"""
+    avatar_url = None
+    if instance.avatar:
+        if hasattr(instance.avatar, 'url'):
+            avatar_url = instance.avatar.url
+        else:
+            from mainApp import cloud_context
+            avatar_url = f"{cloud_context}{instance.avatar}"
+    
     user_data = {
         'email': instance.email,
         'fullName': f"{instance.first_name} {instance.last_name}",
         'id': instance.id,
-        'avatar': instance.avatar.url if instance.avatar else None,
+        'avatar': avatar_url,
         'lastSeen': instance.last_login.isoformat() if instance.last_login else None,
     }
 

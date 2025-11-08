@@ -1,0 +1,9 @@
+from rest_framework import viewsets, generics
+from storeApp.models import Brand
+from storeApp.serializers import BrandSerializer
+
+
+class BrandViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView,
+                   generics.CreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
+    queryset = Brand.objects.filter(active=True)
+    serializer_class = BrandSerializer

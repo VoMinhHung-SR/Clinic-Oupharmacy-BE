@@ -133,6 +133,7 @@ def getRandomColor():
 
 
 from django.db.models import Q
+from storeApp import admin_views as store_admin_views
 
 
 def get_doctor_stats(request):
