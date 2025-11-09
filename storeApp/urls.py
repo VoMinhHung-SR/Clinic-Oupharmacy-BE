@@ -8,9 +8,13 @@ from .viewsets import (
     OrderItemViewSet,
     MedicineBatchViewSet,
     NotificationViewSet,
+    ProductViewSet,
+    CategoryViewSet,
 )
 
 router = routers.DefaultRouter()
+router.register("products", ProductViewSet, basename="product")
+router.register("categories", CategoryViewSet, basename="category")
 router.register("brands", BrandViewSet, basename="brand")
 router.register("shipping-methods", ShippingMethodViewSet, basename="shipping-method")
 router.register("payment-methods", PaymentMethodViewSet, basename="payment-method")
