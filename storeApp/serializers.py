@@ -1,7 +1,7 @@
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
 from .models import MedicineBatch, Brand, ShippingMethod, PaymentMethod, Order, OrderItem, Notification
-from mainApp.serializers import UserSerializer
-from mainApp.models import User
+from mainApp.serializers import UserSerializer, MedicineSerializer, CategorySerializer
+from mainApp.models import User, MedicineUnit
 
 
 class BrandSerializer(ModelSerializer):
@@ -45,7 +45,6 @@ class OrderSerializer(ModelSerializer):
         ]
     
     def get_user(self, obj):
-        """Lấy thông tin user từ user_id nếu có"""
         if obj.user_id:
             try:
                 user = User.objects.get(id=obj.user_id)
@@ -74,3 +73,37 @@ class NotificationSerializer(ModelSerializer):
             'title', 'message', 'is_read', 'read_at', 
             'created_date', 'updated_date'
         ]
+
+
+class ProductSerializer(ModelSerializer):
+    medicine = MedicineSerializer(read_only=True)
+    category = CategorySerializer(read_only=True)
+    brand = SerializerMethodField()
+    image_url = SerializerMethodField()
+    
+    class Meta:
+        model = MedicineUnit
+        fields = [
+            'id', 'price', 'in_stock', 'image', 'image_url', 'packaging',
+            'medicine', 'category', 'brand_id', 'brand', 'active',
+            'created_date', 'updated_date'
+        ]
+        read_only_fields = ['image_url', 'brand']
+    
+    def get_brand(self, obj):
+        if obj.brand_id:
+            try:
+                brand = Brand.objects.get(id=obj.brand_id, active=True)
+                return {
+                    'id': brand.id,
+                    'name': brand.name
+                }
+            except Brand.DoesNotExist:
+                return None
+        return None
+    
+    def get_image_url(self, obj):
+        if obj.image:
+            from mainApp import cloud_context
+            return f'{cloud_context}{obj.image}'
+        return None
