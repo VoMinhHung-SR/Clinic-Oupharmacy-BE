@@ -27,7 +27,7 @@ class PaymentMethodAdmin(admin.ModelAdmin):
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-    readonly_fields = ['medicine_unit_id', 'quantity', 'price', 'created_date']
+    readonly_fields = ['medicine_unit_id', 'quantity', 'price', 'subtotal', 'created_date']
     fields = ['medicine_unit_id', 'quantity', 'price', 'subtotal', 'created_date']
 
 

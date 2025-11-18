@@ -1,0 +1,24 @@
+{
+  "user_id": 1,
+  "shipping_address": "123 Đường ABC, Phường XYZ, Quận 1, TP.HCM",
+  "shipping_method_id": 1,
+  "payment_method_id": 1,
+  "subtotal": 500000,
+  "shipping_fee": 30000,
+  "total": 530000,
+  "status": "PENDING",
+  "notes": "Giao hàng vào buổi sáng",
+  "items": [
+    {
+      "medicine_unit_id": 1,
+      "quantity": 2,
+      "price": 150000
+    },
+    {
+      "medicine_unit_id": 2,
+      "quantity": 1,
+      "price": 200000
+    }
+  ]
+}
+
