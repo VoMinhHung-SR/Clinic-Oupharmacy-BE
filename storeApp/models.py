@@ -119,6 +119,8 @@ class OrderItem(BaseModel):
 
     @property
     def subtotal(self):
+        if self.quantity is None or self.price is None:
+            return 0
         return self.quantity * self.price
 
     def __str__(self):
