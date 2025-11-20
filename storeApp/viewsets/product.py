@@ -1,5 +1,6 @@
 from rest_framework import viewsets, generics, filters
 from rest_framework.parsers import JSONParser
+from rest_framework.permissions import AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from mainApp.models import MedicineUnit
 from storeApp.serializers import ProductSerializer
@@ -18,6 +19,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
     serializer_class = ProductSerializer
     pagination_class = ProductPagination
     parser_classes = [JSONParser]
+    permission_classes = [AllowAny]
     filter_backends = [filters.OrderingFilter, DjangoFilterBackend, filters.SearchFilter]
     filterset_class = ProductFilter
     search_fields = ['medicine__name', 'packaging']

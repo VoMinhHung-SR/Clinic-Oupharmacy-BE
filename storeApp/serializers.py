@@ -43,6 +43,9 @@ class OrderSerializer(ModelSerializer):
             'shipping_method', 'payment_method', 'shipping_address',
             'created_date', 'updated_date'
         ]
+        extra_kwargs = {
+            'order_number': {'required': False, 'allow_blank': True}
+        }
     
     def get_user(self, obj):
         if obj.user_id:
