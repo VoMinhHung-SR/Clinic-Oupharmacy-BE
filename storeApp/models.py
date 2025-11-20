@@ -85,7 +85,10 @@ class Order(BaseModel):
     @staticmethod
     def generate_order_number():
         """Generate order number: ORD + YYYYMMDD + 4 digits"""
-        today = timezone.now()
+        # Sử dụng localtime để lấy ngày theo timezone của hệ thống (Asia/Bangkok UTC+7)
+        # Đảm bảo order_number dùng ngày local, không phải UTC
+        from django.utils import timezone as tz
+        today = tz.localtime(tz.now())
         date_str = today.strftime('%Y%m%d')
         # Lấy số thứ tự trong ngày
         last_order = Order.objects.filter(

@@ -47,6 +47,14 @@ class OrderSerializer(ModelSerializer):
             'order_number': {'required': False, 'allow_blank': True}
         }
     
+    def create(self, validated_data):
+        if hasattr(self, '_shipping_method'):
+            validated_data['shipping_method'] = self._shipping_method
+        if hasattr(self, '_payment_method'):
+            validated_data['payment_method'] = self._payment_method
+            
+        return super().create(validated_data)
+    
     def get_user(self, obj):
         if obj.user_id:
             try:

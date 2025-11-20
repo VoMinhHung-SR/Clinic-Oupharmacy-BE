@@ -2,9 +2,9 @@ from rest_framework import viewsets, generics, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
-from django.db import transaction
+from django.db import transaction, models
 from django.utils import timezone
-from storeApp.models import Order, OrderItem, MedicineBatch
+from storeApp.models import Order, OrderItem, MedicineBatch, ShippingMethod, PaymentMethod
 from storeApp.serializers import OrderSerializer, OrderItemSerializer
 from mainApp.models import MedicineUnit
 
@@ -13,23 +13,98 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                    generics.CreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
+
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        - list, retrieve: AllowAny (public)
+        - create: IsAuthenticated (user)
+        - update, destroy: IsAdminUser (admin)
+        - by_user: IsAuthenticated (user)
+        - update_status: IsAdminUser (admin)
+        """
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [AllowAny]
+        elif self.action in ['create', 'by_user']:
+            permission_classes = [IsAuthenticated]
+        else:
+            permission_classes = [IsAdminUser]
+        return [permission() for permission in permission_classes]
     
-    # def get_permissions(self):
-    #     """
-    #     Instantiates and returns the list of permissions that this view requires.
-    #     - list, retrieve: AllowAny (public)
-    #     - create: IsAuthenticated (user)
-    #     - update, destroy: IsAdminUser (admin)
-    #     - by_user: IsAuthenticated (user)
-    #     - update_status: IsAdminUser (admin)
-    #     """
-    #     if self.action in ['list', 'retrieve']:
-    #         permission_classes = [AllowAny]
-    #     elif self.action in ['create', 'by_user']:
-    #         permission_classes = [IsAuthenticated]
-    #     else:
-    #         permission_classes = [IsAdminUser]
-    #     return [permission() for permission in permission_classes]
+    def _validate_order_item(self, item_data, idx):
+        """Validate một order item"""
+        medicine_unit_id = item_data.get('medicine_unit_id')
+        quantity = item_data.get('quantity')
+        price = item_data.get('price')
+        
+        # Validate required fields
+        if not medicine_unit_id:
+            return {'item_index': idx, 'field': 'medicine_unit_id', 'error': 'medicine_unit_id is required'}
+        if not quantity or quantity <= 0:
+            return {'item_index': idx, 'field': 'quantity', 'error': 'quantity must be greater than 0'}
+        if not price or price < 0:
+            return {'item_index': idx, 'field': 'price', 'error': 'price must be greater than or equal to 0'}
+        
+        # Validate MedicineUnit exists and active
+        try:
+            medicine_unit = MedicineUnit.objects.using('default').get(id=medicine_unit_id, active=True)
+        except MedicineUnit.DoesNotExist:
+            return {'item_index': idx, 'medicine_unit_id': medicine_unit_id, 'error': 'MedicineUnit not found or inactive'}
+        
+        # Validate price
+        if abs(float(price) - float(medicine_unit.price)) > 0.01:
+            return {
+                'item_index': idx,
+                'medicine_unit_id': medicine_unit_id,
+                'field': 'price',
+                'error': f'Price mismatch. Expected: {medicine_unit.price}, Got: {price}'
+            }
+        
+        # Validate stock availability
+        today = timezone.now().date()
+        total_available = MedicineBatch.objects.filter(
+            medicine_unit_id=medicine_unit_id,
+            active=True,
+            remaining_quantity__gt=0,
+            expiry_date__gte=today
+        ).aggregate(total=models.Sum('remaining_quantity'))['total'] or 0
+        
+        if total_available < quantity:
+            return {
+                'item_index': idx,
+                'medicine_unit_id': medicine_unit_id,
+                'field': 'quantity',
+                'error': f'Insufficient stock. Available: {total_available}, Requested: {quantity}'
+            }
+        
+        return None
+    
+    def _deduct_stock(self, medicine_unit_id, quantity):
+        """Trừ tồn kho theo FIFO"""
+        today = timezone.now().date()
+        available_batches = MedicineBatch.objects.filter(
+            medicine_unit_id=medicine_unit_id,
+            active=True,
+            remaining_quantity__gt=0,
+            expiry_date__gte=today
+        ).order_by('expiry_date', 'import_date')
+        
+        remaining = quantity
+        for batch in available_batches:
+            if remaining <= 0:
+                break
+            
+            if batch.remaining_quantity >= remaining:
+                batch.remaining_quantity -= remaining
+                batch.save(update_fields=['remaining_quantity'])
+                remaining = 0
+            else:
+                remaining -= batch.remaining_quantity
+                batch.remaining_quantity = 0
+                batch.save(update_fields=['remaining_quantity'])
+        
+        if remaining > 0:
+            raise ValueError(f'Insufficient stock for medicine_unit_id {medicine_unit_id}. Could not deduct {remaining} units.')
     
     def create(self, request, *args, **kwargs):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
@@ -41,138 +116,58 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        validation_errors = []
-        
-        for idx, item_data in enumerate(items_data):
-            medicine_unit_id = item_data.get('medicine_unit_id')
-            quantity = item_data.get('quantity')
-            price = item_data.get('price')
-            
-            if not medicine_unit_id:
-                validation_errors.append({
-                    'item_index': idx,
-                    'field': 'medicine_unit_id',
-                    'error': 'medicine_unit_id is required'
-                })
-                continue
-            
-            if not quantity or quantity <= 0:
-                validation_errors.append({
-                    'item_index': idx,
-                    'field': 'quantity',
-                    'error': 'quantity must be greater than 0'
-                })
-                continue
-            
-            if not price or price < 0:
-                validation_errors.append({
-                    'item_index': idx,
-                    'field': 'price',
-                    'error': 'price must be greater than or equal to 0'
-                })
-                continue
-            
-            try:
-                medicine_unit = MedicineUnit.objects.using('default').get(
-                    id=medicine_unit_id,
-                    active=True
-                )
-            except MedicineUnit.DoesNotExist:
-                validation_errors.append({
-                    'item_index': idx,
-                    'medicine_unit_id': medicine_unit_id,
-                    'error': 'MedicineUnit not found or inactive'
-                })
-                continue
-            
-            if abs(float(price) - float(medicine_unit.price)) > 0.01:
-                validation_errors.append({
-                    'item_index': idx,
-                    'medicine_unit_id': medicine_unit_id,
-                    'field': 'price',
-                    'error': f'Price mismatch. Expected: {medicine_unit.price}, Got: {price}'
-                })
-                continue
-            
-            today = timezone.now().date()
-            available_batches = MedicineBatch.objects.filter(
-                medicine_unit_id=medicine_unit_id,
-                active=True,
-                remaining_quantity__gt=0,
-                expiry_date__gte=today
-            ).order_by('expiry_date', 'import_date')
-            
-            total_available_quantity = sum(
-                batch.remaining_quantity for batch in available_batches
-            )
-            
-            if total_available_quantity < quantity:
-                validation_errors.append({
-                    'item_index': idx,
-                    'medicine_unit_id': medicine_unit_id,
-                    'field': 'quantity',
-                    'error': f'Insufficient stock. Available: {total_available_quantity}, Requested: {quantity}'
-                })
-                continue
+        # Validate tất cả items
+        validation_errors = [
+            error for idx, item_data in enumerate(items_data)
+            if (error := self._validate_order_item(item_data, idx)) is not None
+        ]
         
         if validation_errors:
             return Response(
-                {
-                    'error': 'Validation failed',
-                    'details': validation_errors
-                },
+                {'error': 'Validation failed', 'details': validation_errors},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Sử dụng database 'store' cho transaction vì Order và MedicineBatch đều ở store database
+        # Validate và lấy shipping_method, payment_method
+        shipping_method_obj = None
+        payment_method_obj = None
+        
+        if 'shipping_method_id' in data:
+            try:
+                shipping_method_obj = ShippingMethod.objects.get(id=data.pop('shipping_method_id'))
+            except ShippingMethod.DoesNotExist:
+                return Response(
+                    {'error': 'ShippingMethod not found'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        if 'payment_method_id' in data:
+            try:
+                payment_method_obj = PaymentMethod.objects.get(id=data.pop('payment_method_id'))
+            except PaymentMethod.DoesNotExist:
+                return Response(
+                    {'error': 'PaymentMethod not found'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Create order and items in transaction
         with transaction.atomic(using='store'):
             serializer = self.get_serializer(data=data)
+            if shipping_method_obj:
+                serializer._shipping_method = shipping_method_obj
+            if payment_method_obj:
+                serializer._payment_method = payment_method_obj
+            
             serializer.is_valid(raise_exception=True)
             order = serializer.save()
             
-            # Tạo order items và trừ tồn kho theo FIFO (First In First Out)
+            # Create order items and deduct stock
             for item_data in items_data:
-                medicine_unit_id = item_data.get('medicine_unit_id')
-                quantity = item_data.get('quantity')
-                
-                # Tạo order item
                 OrderItem.objects.create(order=order, **item_data)
-                
-                # Trừ tồn kho theo FIFO (ưu tiên lô sắp hết hạn trước)
-                remaining_quantity = quantity
-                today = timezone.now().date()
-                
-                # Lấy các batches còn hàng, chưa hết hạn, sắp xếp theo expiry_date (FIFO)
-                available_batches = MedicineBatch.objects.filter(
-                    medicine_unit_id=medicine_unit_id,
-                    active=True,
-                    remaining_quantity__gt=0,
-                    expiry_date__gte=today
-                ).order_by('expiry_date', 'import_date')
-                
-                # Trừ tồn kho từ các batches theo thứ tự
-                for batch in available_batches:
-                    if remaining_quantity <= 0:
-                        break
-                    
-                    if batch.remaining_quantity >= remaining_quantity:
-                        # Batch này đủ để trừ hết số lượng còn lại
-                        batch.remaining_quantity -= remaining_quantity
-                        batch.save(update_fields=['remaining_quantity'])
-                        remaining_quantity = 0
-                    else:
-                        # Batch này không đủ, trừ hết batch này và tiếp tục batch tiếp theo
-                        remaining_quantity -= batch.remaining_quantity
-                        batch.remaining_quantity = 0
-                        batch.save(update_fields=['remaining_quantity'])
-                
-                # Kiểm tra nếu vẫn còn quantity chưa trừ (không nên xảy ra vì đã validate)
-                if remaining_quantity > 0:
-                    # Rollback transaction nếu có lỗi
-                    raise ValueError(
-                        f'Insufficient stock for medicine_unit_id {medicine_unit_id}. '
-                        f'Could not deduct {remaining_quantity} units.'
-                    )
+                self._deduct_stock(
+                    item_data['medicine_unit_id'],
+                    item_data['quantity']
+                )
         
         headers = self.get_success_headers(serializer.data)
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED, headers=headers)
@@ -198,7 +193,7 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         Get list of orders by user_id.
         Only allow users to view their own orders, or admin can view all.
         """
-        # Kiểm tra nếu user đang xem đơn hàng của chính mình hoặc là admin
+        # Check if user is viewing their own orders or admin
         if request.user.is_authenticated:
             if str(request.user.id) != str(user_id) and not request.user.is_staff:
                 return Response(
