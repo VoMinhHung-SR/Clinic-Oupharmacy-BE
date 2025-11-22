@@ -1,5 +1,6 @@
 from rest_framework import viewsets, generics
 from rest_framework.parsers import JSONParser
+from rest_framework.permissions import AllowAny
 from mainApp.models import Category
 from mainApp.serializers import CategorySerializer
 
@@ -8,4 +9,5 @@ class CategoryViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveA
     queryset = Category.objects.using('default').filter(active=True).order_by('name')
     serializer_class = CategorySerializer
     parser_classes = [JSONParser]
+    permission_classes = [AllowAny]
 
