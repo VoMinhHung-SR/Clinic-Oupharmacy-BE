@@ -5,6 +5,13 @@ echo "Current working directory: $(pwd)"
 echo "Python version: $(python --version)"
 echo "Django version: $(python -m django --version)"
 
+# Run migrations for both databases
+echo "Running migrations for default database..."
+python manage.py migrate --database=default
+
+echo "Running migrations for store database..."
+python manage.py migrate --database=store
+
 # Create a simple Django server script
 cat > run_django.py << EOL
 import os
