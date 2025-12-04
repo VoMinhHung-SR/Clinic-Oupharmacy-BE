@@ -1,0 +1,8 @@
+# Backup files
+backups/*.sql
+backups/*.sql.gz
+backups/*.dump
+
+# Keep directory structure
+!backups/.gitkeep
+

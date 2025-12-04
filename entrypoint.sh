@@ -15,14 +15,13 @@ python manage.py migrate --database=store
 # Create a simple Django server script
 cat > run_django.py << EOL
 import os
-os.environ['DEBUG'] = 'True'
-os.environ['ALLOWED_HOSTS'] = 'localhost,127.0.0.1,0.0.0.0'
-
 import django
 from django.core.management import call_command
 django.setup()
 
 print("Starting Django development server...")
+print(f"DEBUG: {os.getenv('DEBUG', 'Not set')}")
+print(f"ALLOWED_HOSTS: {os.getenv('ALLOWED_HOSTS', 'Not set')}")
 call_command('runserver', '0.0.0.0:8000')
 EOL
 

@@ -24,11 +24,13 @@ RUN chmod +x entrypoint.sh
 
 EXPOSE 8000
 
-# Make sure environment variables are loaded
+# Python/Django runtime environment variables
+# These are build-time constants that should not be overridden
 ENV PYTHONUNBUFFERED=1
 ENV DJANGO_SETTINGS_MODULE=OUPharmacyManagementApp.settings
-ENV DEBUG=True
-ENV ALLOWED_HOSTS="localhost,127.0.0.1,0.0.0.0"
+
+# Note: DEBUG and ALLOWED_HOSTS are loaded from .env.production via docker-compose.yml
+# Do not hard-code them here to allow environment-specific configuration
 
 # Run Django
 CMD ["./entrypoint.sh"]
