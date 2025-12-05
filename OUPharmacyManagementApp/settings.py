@@ -39,15 +39,12 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 # DEBUG MODE ; SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False") == "True"
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
-INTERNAL_IPS = [
-    '127.0.0.1'
-]
+INTERNAL_IPS = os.getenv('INTERNAL_IPS', '127.0.0.1').split(',')
 CORS_ALLOW_ALL_ORIGINS = True
 
 # Application definition
-CSRF_TRUSTED_ORIGINS = [
-    'https://oupharmacy-vominhhung.up.railway.app'
-]
+csrf_origins = os.getenv('CSRF_TRUSTED_ORIGINS', '')
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins.split(',') if origin.strip()] if csrf_origins else []
 
 # 'debug_toolbar',
 INSTALLED_APPS = [
@@ -74,6 +71,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -82,7 +80,6 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # 'debug_toolbar.middleware.DebugToolbarMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'OUPharmacyManagementApp.urls'
@@ -204,14 +201,14 @@ MEDIA_URL = '/OUPharmacy/'
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
 cloudinary.config(
-    cloud_name="dl6artkyb",
+    cloud_name=os.getenv('CLOUDINARY_NAME'),
     api_key=os.getenv('CLOUDINARY_API_KEY'),
     api_secret=os.getenv('CLOUDINARY_API_SECRET')
 )
 
 # Cloudinary Storage Configuration
 CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': 'dl6artkyb',
+    'CLOUD_NAME': os.getenv('CLOUDINARY_NAME'),
     'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
     'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
     'MEDIA_TAG': 'media',
@@ -240,17 +237,17 @@ CLOUDINARY_STORAGE = {
     }
 }
 
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = 587
-EMAIL_HOST_USER = "oupharmacymanagement@gmail.com"
+EMAIL_HOST = os.getenv('EMAIL_HOST')
+EMAIL_PORT = os.getenv('EMAIL_PORT')
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')  
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_USE_TLS = True
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 
-CELERY_BROKER_URL = "redis://default:12ru4X3ZiUglwwjxjqfVTLOHVCYy9IPe@redis-17968.c265.us-east-1-2.ec2.cloud.redislabs.com:17968/0"
-CELERY_RESULT_BACKEND = "redis://default:12ru4X3ZiUglwwjxjqfVTLOHVCYy9IPe@redis-17968.c265.us-east-1-2.ec2.cloud.redislabs.com:17968/0"
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL')
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND')
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 DJANGO_CELERY_BEAT_TZ_AWARE = True

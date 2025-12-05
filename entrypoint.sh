@@ -12,6 +12,10 @@ python manage.py migrate --database=default
 echo "Running migrations for store database..."
 python manage.py migrate --database=store
 
+# Collect static files
+echo "Collecting static files..."
+python manage.py collectstatic --noinput
+
 # Create a simple Django server script
 cat > run_django.py << EOL
 import os
@@ -19,10 +23,12 @@ import django
 from django.core.management import call_command
 django.setup()
 
+backend_port = os.getenv('BACKEND_PORT', '8000')
 print("Starting Django development server...")
 print(f"DEBUG: {os.getenv('DEBUG', 'Not set')}")
 print(f"ALLOWED_HOSTS: {os.getenv('ALLOWED_HOSTS', 'Not set')}")
-call_command('runserver', '0.0.0.0:8000')
+print(f"Backend Port: {backend_port}")
+call_command('runserver', f'0.0.0.0:{backend_port}')
 EOL
 
 # Run the script

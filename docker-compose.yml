@@ -10,17 +10,17 @@ services:
     networks:
       - oupharmacy_network
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT}:8000"
     depends_on:
       db:
         condition: service_healthy
     env_file:
       - .env.production
     environment:
-      - DATABASE_URL_PG=postgresql://${DB_PG_USER}:${DB_PG_PASSWORD}@db:5432/${DB_PG_NAME_DEFAULT}
-      - STORE_DATABASE_URL_PG=postgresql://${DB_PG_USER}:${DB_PG_PASSWORD}@db:5432/${DB_PG_NAME_STORE}
+      - DATABASE_URL_PG=postgresql://${DB_PG_USER}:${DB_PG_PASSWORD}@db:${DB_CONTAINER_INTERNAL_PORT}/${DB_PG_NAME_DEFAULT}
+      - STORE_DATABASE_URL_PG=postgresql://${DB_PG_USER}:${DB_PG_PASSWORD}@db:${DB_CONTAINER_INTERNAL_PORT}/${DB_PG_NAME_STORE}
     expose: 
-      - 8000
+      - ${BACKEND_PORT}
   db:
     image: postgres:15
     networks: 
@@ -35,12 +35,11 @@ services:
       - DB_PG_NAME_STORE=${DB_PG_NAME_STORE}
     container_name: postgres
     ports:
-      - "5433:5432"
+      - "${DB_CONTAINER_EXTERNAL_PORT}:${DB_CONTAINER_INTERNAL_PORT}"
     expose: 
-      - 5432
+      - ${DB_CONTAINER_INTERNAL_PORT}
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_PG_USER} -d ${DB_NAME}"]
       interval: 5s
