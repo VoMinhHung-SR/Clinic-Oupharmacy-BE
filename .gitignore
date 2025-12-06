@@ -24,3 +24,8 @@ venv.bak/
 /staticfiles/
 
 storeApp/test/
+
+# Database backups
+scripts/db/backups/*.sql
+scripts/db/backups/*.sql.gz
+scripts/db/backups/*.dump
