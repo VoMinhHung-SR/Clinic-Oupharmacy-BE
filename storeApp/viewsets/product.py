@@ -22,8 +22,8 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
     permission_classes = [AllowAny]
     filter_backends = [filters.OrderingFilter, DjangoFilterBackend, filters.SearchFilter]
     filterset_class = ProductFilter
-    search_fields = ['medicine__name', 'packaging']
-    ordering_fields = ['price', 'created_date', 'in_stock']
+    search_fields = ['medicine__name', 'package_size', 'medicine__web_name']
+    ordering_fields = ['price_value', 'created_date', 'in_stock', 'product_ranking']
     ordering = ['-created_date']
     
     def get_queryset(self):

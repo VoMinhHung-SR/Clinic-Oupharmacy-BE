@@ -193,32 +193,201 @@ class Diagnosis(BaseModel):
 
 
 class Medicine(BaseModel):
-    name = models.CharField(max_length=254, null=False, blank=False, unique=True)
-    effect = models.CharField(max_length=254, null=True, blank=True)
-    contraindications = models.CharField(max_length=254, null=True, blank=True)
-
-    def __str__(self):
-        return self.name
-
-
-class Category(BaseModel):
-    name = models.CharField(max_length=254, null=False, blank=False, unique=True)
+    """Medicine model"""
+    # basicInfo
+    name = models.CharField(max_length=254, null=False, blank=False, unique=True, db_index=True, help_text="basicInfo.name")
+    mid = models.CharField(max_length=64, null=True, blank=True, unique=True, db_index=True, help_text="basicInfo.mid - Mã định danh sản phẩm (MID)")
+    slug = models.CharField(max_length=300, null=True, blank=True, unique=True, db_index=True, help_text="basicInfo.slug - URL slug")
+    web_name = models.CharField(max_length=500, null=True, blank=True, help_text="basicInfo.webName - Tên hiển thị trên web")
+    
+    # content
+    description = models.TextField(null=True, blank=True, help_text="content.description - Mô tả sản phẩm")
+    ingredients = models.TextField(null=True, blank=True, help_text="content.ingredients - Thành phần")
+    usage = models.TextField(null=True, blank=True, help_text="content.usage - Cách sử dụng/Công dụng")
+    dosage = models.TextField(null=True, blank=True, help_text="content.dosage - Liều dùng")
+    adverse_effect = models.TextField(null=True, blank=True, help_text="content.adverseEffect - Tác dụng phụ")
+    careful = models.TextField(null=True, blank=True, help_text="content.careful - Lưu ý/Cảnh báo")
+    preservation = models.TextField(null=True, blank=True, help_text="content.preservation - Bảo quản")
+    
+    # Foreign Keys
+    brand_id = models.BigIntegerField(null=True, blank=True, db_index=True, help_text="basicInfo.brand - ID của Brand trong store database")
 
     def __str__(self):
         return self.name
 
     class Meta:
+        indexes = [
+            models.Index(fields=['mid']),
+            models.Index(fields=['slug']),
+            models.Index(fields=['brand_id']),
+            models.Index(fields=['name']),  # For search
+        ]
+
+
+class Category(BaseModel):
+    name = models.CharField(max_length=254, null=False, blank=False)
+    slug = models.CharField(max_length=254, null=True, blank=True, db_index=True, help_text="URL slug cho category (unique per parent) - auto-generated")
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
+    level = models.PositiveIntegerField(default=0, help_text="Level trong hierarchy (0 = root)")
+    path = models.CharField(max_length=500, null=True, blank=True, help_text="category.categoryPath")
+    path_slug = models.CharField(max_length=500, null=True, blank=True, unique=True, db_index=True, help_text="category.categorySlug (unique)")
+
+    def __str__(self):
+        return self.path if self.path else self.name
+
+    def _generate_slug_from_name(self):
+        """Generate slug từ name nếu chưa có"""
+        if not self.slug and self.name:
+            import re
+            from django.utils.text import slugify
+            slug = slugify(self.name)
+            if not slug:
+                slug = self.name.lower()
+                slug = re.sub(r'[^\w\s-]', '', slug)
+                slug = re.sub(r'[-\s]+', '-', slug)
+            self.slug = slug[:254]
+        return self.slug
+
+    def save(self, *args, **kwargs):
+        """Auto-calculate level, path, và path_slug khi save"""
+        self._generate_slug_from_name()
+        
+        if self.parent:
+            self.level = self.parent.level + 1
+            self.path = f"{self.parent.path} > {self.name}" if self.parent.path else f"{self.parent.name} > {self.name}"
+            self.path_slug = f"{self.parent.path_slug}/{self.slug}" if self.parent.path_slug else f"{self.parent.slug}/{self.slug}"
+        else:
+            self.level = 0
+            self.path = self.name
+            self.path_slug = self.slug
+        super().save(*args, **kwargs)
+
+    def get_category_array(self):
+        """Trả về category array format theo schema: [{"name":"...","slug":"..."}, ...]"""
+        categories = []
+        current = self
+        path = []
+        
+        # Build path từ leaf lên root
+        while current:
+            path.insert(0, {'name': current.name, 'slug': current.slug})
+            current = current.parent
+        
+        return path
+
+    @classmethod
+    def get_or_create_from_array(cls, category_array, cache=None):
+        """
+        Tạo/get nested categories từ array format: [{"name":"...","slug":"..."}, ...]
+        Trả về category cuối cùng (leaf category)
+        
+        Args:
+            category_array: List of dicts [{"name":"...","slug":"..."}, ...]
+            cache: Optional dict để cache categories (tối ưu cho bulk import)
+        """
+        if not category_array or not isinstance(category_array, list):
+            return None
+        
+        if cache is None:
+            cache = {}
+        
+        parent = None
+        for cat_data in category_array:
+            if not isinstance(cat_data, dict):
+                continue
+            
+            name = cat_data.get('name', '').strip()
+            slug = cat_data.get('slug', '').strip()
+            
+            if not name or not slug:
+                continue
+            
+            # Cache key: (parent_id, slug)
+            cache_key = (parent.id if parent else None, slug)
+            
+            if cache_key in cache:
+                parent = cache[cache_key]
+            else:
+                # Get or create category
+                category, created = cls.objects.get_or_create(
+                    slug=slug,
+                    parent=parent,
+                    defaults={'name': name}
+                )
+                cache[cache_key] = category
+                parent = category
+        
+        return parent
+
+    class Meta:
         verbose_name_plural = "Categories"
+        ordering = ['level', 'name']
+        unique_together = [['parent', 'slug']]  # Slug unique per parent
+        indexes = [
+            models.Index(fields=['slug']),
+            models.Index(fields=['parent', 'level']),
+            models.Index(fields=['path_slug']),
+        ]
 
 
 class MedicineUnit(BaseModel):
-    price = models.FloatField(null=False)
-    in_stock = models.IntegerField(null=False)
-    image = CloudinaryField('medicines', default='', null=True, folder='OUPharmacy/medicines/image')
-    packaging = models.CharField(max_length=50, null=True)
-    medicine = models.ForeignKey(Medicine, on_delete=models.CASCADE)
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True)
-    brand_id = models.BigIntegerField(null=True, blank=True, help_text="ID của Brand trong store database")
+    in_stock = models.IntegerField(null=False, default=0, db_index=True, help_text="Số lượng tồn kho")
+    
+    # pricing
+    price_display = models.CharField(max_length=50, null=True, blank=True, help_text="pricing.priceDisplay - Giá hiển thị: 567.000đ")
+    price_value = models.FloatField(null=False, default=0, db_index=True, help_text="pricing.priceValue - Giá trị số (dùng để filter/sort)")
+    package_size = models.CharField(max_length=100, null=True, blank=True, help_text="pricing.packageSize - Quy cách đóng gói")
+    prices = models.JSONField(default=list, blank=True, help_text="pricing.prices - Danh sách giá (JSON array)")
+    price_obj = models.JSONField(default=dict, null=True, blank=True, help_text="pricing.priceObj - Object giá (JSON object)")
+    
+    # media
+    image = CloudinaryField('medicines', default='', null=True, folder='OUPharmacy/medicines/image', help_text="media.image - Ảnh chính")
+    images = models.JSONField(default=list, blank=True, help_text="media.images - Danh sách ảnh gallery (JSON array)")
+    
+    # Rating & Reviews - TODO: Implement later
+    # rating = models.FloatField(null=True, blank=True, db_index=True, help_text="rating.rating - Đánh giá trung bình (float)")
+    # review_count = models.IntegerField(default=0, db_index=True, help_text="rating.reviewCount - Số lượng đánh giá (integer)")
+    # comment_count = models.IntegerField(default=0, help_text="rating.commentCount - Số lượng bình luận (integer)")
+    # reviews = models.TextField(null=True, blank=True, help_text="rating.reviews - Đánh giá chi tiết")
+    
+    # specifications
+    registration_number = models.CharField(max_length=100, null=True, blank=True, help_text="specifications.registrationNumber - Số đăng ký")
+    origin = models.CharField(max_length=100, null=True, blank=True, help_text="specifications.origin - Xuất xứ")
+    manufacturer = models.CharField(max_length=200, null=True, blank=True, help_text="specifications.manufacturer - Nhà sản xuất")
+    shelf_life = models.CharField(max_length=50, null=True, blank=True, help_text="specifications.shelfLife - Hạn sử dụng")
+    specifications = models.JSONField(default=dict, null=True, blank=True, help_text="specifications.specifications - Object specification (JSON object)")
+    
+    # metadata
+    link = models.URLField(max_length=500, null=True, blank=True, help_text="metadata.link - Link sản phẩm")
+    product_ranking = models.IntegerField(default=0, db_index=True, help_text="metadata.productRanking - Product ranking")
+    display_code = models.IntegerField(null=True, blank=True, help_text="metadata.displayCode - Display code")
+    is_published = models.BooleanField(default=True, db_index=True, help_text="metadata.isPublish - Published status")
+    
+    # Foreign Keys
+    medicine = models.ForeignKey(Medicine, on_delete=models.CASCADE, related_name='units', db_index=True)
+    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, db_index=True, help_text="category - Category cuối cùng (leaf) trong hierarchy")
+    
+    def get_category_info(self):
+        if not self.category:
+            return {
+                'category': [],
+                'categoryPath': '',
+                'categorySlug': ''
+            }
+        
+        return {
+            'category': self.category.get_category_array(),
+            'categoryPath': self.category.path or '',
+            'categorySlug': self.category.path_slug or ''
+        }
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['is_published', 'product_ranking']),
+            models.Index(fields=['category', 'is_published']),
+            models.Index(fields=['price_value', 'is_published']),  # For price filtering
+            models.Index(fields=['medicine', 'is_published']),  # For medicine filtering
+        ]
 
 
 # Phieu ke toa

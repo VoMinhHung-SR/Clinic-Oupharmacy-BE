@@ -193,15 +193,28 @@ class DoctorProfileSerializer(serializers.ModelSerializer):
         ]
 
 class CategorySerializer(ModelSerializer):
+    category_array = serializers.SerializerMethodField()
+    
     class Meta:
         model = Category
-        fields = ["id", "name"]
+        fields = ["id", "name", "slug", "parent", "level", "path", "path_slug", "category_array", "active"]
+    
+    def get_category_array(self, obj):
+        """Trả về category array format theo schema"""
+        if hasattr(obj, 'get_category_array'):
+            return obj.get_category_array()
+        return []
 
 
 class MedicineSerializer(ModelSerializer):
     class Meta:
         model = Medicine
-        fields = ["id", "name", "effect", "contraindications"]
+        fields = [
+            "id", "name", "mid", "slug", "web_name", 
+            "description", "ingredients", "usage", "dosage", 
+            "adverse_effect", "careful", "preservation", 
+            "brand_id", "created_date", "updated_date"
+        ]
 
 
 class MedicineUnitSerializer(ModelSerializer):
@@ -228,7 +241,13 @@ class MedicineUnitSerializer(ModelSerializer):
 
     class Meta:
         model = MedicineUnit
-        fields = ["id", "price", "in_stock", "image", "packaging", "medicine", "category", "image_path"]
+        fields = [
+            "id", "in_stock", "image", "image_path",
+            "price_display", "price_value", "package_size", "prices", "price_obj",
+            "images", "link", "product_ranking", "display_code", "is_published",
+            "registration_number", "origin", "manufacturer", "shelf_life", "specifications",
+            "medicine", "category", "active", "created_date", "updated_date"
+        ]
         extra_kwargs = {
             'image_path': {'read_only': 'true'},
             'image': {'write_only': 'true'},
