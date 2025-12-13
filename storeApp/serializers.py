@@ -91,20 +91,25 @@ class ProductSerializer(ModelSerializer):
     category = CategorySerializer(read_only=True)
     brand = SerializerMethodField()
     image_url = SerializerMethodField()
+    images_urls = SerializerMethodField()
+    category_info = SerializerMethodField()
     
     class Meta:
         model = MedicineUnit
         fields = [
-            'id', 'price', 'in_stock', 'image', 'image_url', 'packaging',
-            'medicine', 'category', 'brand_id', 'brand', 'active',
+            'id', 'in_stock', 'image', 'image_url', 'images', 'images_urls',
+            'price_display', 'price_value', 'package_size', 'prices', 'price_obj',
+            'link', 'product_ranking', 'display_code', 'is_published',
+            'registration_number', 'origin', 'manufacturer', 'shelf_life', 'specifications',
+            'medicine', 'category', 'category_info', 'brand', 'active',
             'created_date', 'updated_date'
         ]
-        read_only_fields = ['image_url', 'brand']
+        read_only_fields = ['image_url', 'images_urls', 'brand', 'category_info']
     
     def get_brand(self, obj):
-        if obj.brand_id:
+        if hasattr(obj, 'medicine') and obj.medicine and obj.medicine.brand_id:
             try:
-                brand = Brand.objects.get(id=obj.brand_id, active=True)
+                brand = Brand.objects.get(id=obj.medicine.brand_id, active=True)
                 return {
                     'id': brand.id,
                     'name': brand.name
@@ -118,3 +123,20 @@ class ProductSerializer(ModelSerializer):
             from mainApp import cloud_context
             return f'{cloud_context}{obj.image}'
         return None
+    
+    def get_images_urls(self, obj):
+        """Convert images array to full URLs"""
+        if obj.images and isinstance(obj.images, list):
+            from mainApp import cloud_context
+            return [f'{cloud_context}{img}' if img else None for img in obj.images]
+        return []
+    
+    def get_category_info(self, obj):
+        """Get category info in format: {category: [...], categoryPath: '...', categorySlug: '...'}"""
+        if hasattr(obj, 'get_category_info'):
+            return obj.get_category_info()
+        return {
+            'category': [],
+            'categoryPath': '',
+            'categorySlug': ''
+        }

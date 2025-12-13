@@ -6,9 +6,9 @@ class ProductFilter(django_filters.FilterSet):
     """Filter cho products API trong store"""
     kw = django_filters.CharFilter(field_name="medicine__name", lookup_expr="icontains")
     category = django_filters.NumberFilter(field_name="category__id")
-    brand = django_filters.NumberFilter(field_name="brand_id")
-    min_price = django_filters.NumberFilter(field_name="price", lookup_expr="gte")
-    max_price = django_filters.NumberFilter(field_name="price", lookup_expr="lte")
+    brand = django_filters.NumberFilter(field_name="medicine__brand_id")
+    min_price = django_filters.NumberFilter(field_name="price_value", lookup_expr="gte")
+    max_price = django_filters.NumberFilter(field_name="price_value", lookup_expr="lte")
     in_stock = django_filters.BooleanFilter(method="filter_in_stock")
     price_sort = django_filters.CharFilter(method="filter_price_sort")
     
@@ -23,8 +23,8 @@ class ProductFilter(django_filters.FilterSet):
     
     def filter_price_sort(self, queryset, name, value):
         if value == "asc":
-            return queryset.order_by("price")
+            return queryset.order_by("price_value")
         elif value == "desc":
-            return queryset.order_by("-price")
+            return queryset.order_by("-price_value")
         return queryset
 

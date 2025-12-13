@@ -157,19 +157,29 @@ class ExaminationAdmin(admin.ModelAdmin):
 
 
 class MedicineAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name', 'effect', 'contraindications', 'created_date']
-    list_filter = ['name']
+    list_display = ['id', 'name', 'mid', 'slug', 'web_name', 'brand_id', 'created_date']
+    list_filter = ['brand_id', 'created_date']
+    search_fields = ['name', 'mid', 'slug', 'web_name']
+    readonly_fields = ['created_date', 'updated_date']
 
 
 class MedicineUnitAdmin(admin.ModelAdmin):
-    
-    list_display = ['id', 'price', 'in_stock', 'created_date', 'packaging', 'medicine', 'category']
-    list_filter = ['medicine', 'category']
+    list_display = ['id', 'medicine', 'price_display', 'price_value', 'in_stock', 'package_size', 'category', 'is_published', 'product_ranking', 'created_date']
+    list_filter = ['medicine', 'category', 'is_published', 'in_stock']
+    search_fields = ['medicine__name', 'package_size', 'registration_number', 'origin', 'manufacturer']
+    readonly_fields = ['created_date', 'updated_date']
 
 
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name']
-    list_filter = ['name']
+    list_display = ['id', 'name', 'slug', 'parent', 'level', 'path_slug', 'active', 'created_date']
+    list_filter = ['level', 'parent', 'active']
+    search_fields = ['name', 'slug', 'path', 'path_slug']
+    readonly_fields = ['created_date', 'updated_date', 'level', 'path', 'path_slug']
+    
+    def get_queryset(self, request):
+        """Optimize queryset với select_related cho parent"""
+        qs = super().get_queryset(request)
+        return qs.select_related('parent')
 
 
 class DiagnosisAdmin(admin.ModelAdmin):
