@@ -25,6 +25,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils.text import slugify
 from mainApp.models import Medicine, MedicineUnit, Category
+from storeApp.models import Brand
 import cloudinary
 import cloudinary.uploader
 
@@ -59,6 +60,12 @@ class Command(BaseCommand):
             action='store_true',
             default=False,
             help='Skip image upload to Cloudinary (save original URL instead). Use this for faster import.'
+        )
+        parser.add_argument(
+            '--update-existing',
+            action='store_true',
+            default=False,
+            help='Update existing MedicineUnits instead of skipping (use this to fix truncated data)'
         )
 
     def parse_price_value(self, price_display):
@@ -128,13 +135,64 @@ class Command(BaseCommand):
             return value
         return str(value).lower() in ('true', '1', 'yes', 'on')
 
-    def import_single_file(self, csv_file, dry_run=False, skip_duplicates=True, skip_image_upload=False, category_cache=None):
+    def normalize_brand_name(self, brand_name):
+        """Normalize brand name to handle variants (trim, remove extra spaces)"""
+        if not brand_name:
+            return None
+        # Trim và normalize spaces
+        normalized = ' '.join(brand_name.strip().split())
+        return normalized if normalized else None
+
+    def extract_country_from_text(self, text):
+        """Extract country name from text (manufacturer or origin field)"""
+        if not text:
+            return None
+        
+        # Common country patterns in Vietnamese
+        country_patterns = {
+            'Úc': 'Australia',
+            'Australia': 'Australia',
+            'Pháp': 'France',
+            'France': 'France',
+            'Đức': 'Germany',
+            'Germany': 'Germany',
+            'Mỹ': 'USA',
+            'USA': 'USA',
+            'Hoa Kỳ': 'USA',
+            'Anh': 'UK',
+            'UK': 'UK',
+            'Nhật': 'Japan',
+            'Japan': 'Japan',
+            'Hàn Quốc': 'South Korea',
+            'Korea': 'South Korea',
+            'Trung Quốc': 'China',
+            'China': 'China',
+            'Ấn Độ': 'India',
+            'India': 'India',
+            'Thái Lan': 'Thailand',
+            'Thailand': 'Thailand',
+            'Pakistan': 'Pakistan',
+            'Parkistan': 'Pakistan',
+            'Việt Nam': 'Vietnam',
+            'Vietnam': 'Vietnam',
+        }
+        
+        text_lower = text.lower()
+        for pattern, country in country_patterns.items():
+            if pattern.lower() in text_lower:
+                return country
+        
+        return None
+
+    def import_single_file(self, csv_file, dry_run=False, skip_duplicates=True, skip_image_upload=False, update_existing=False, category_cache=None, brand_cache=None):
         """
         Import một file CSV
         Returns: dict với stats {imported, skipped, errors}
         """
         if category_cache is None:
             category_cache = {}
+        if brand_cache is None:
+            brand_cache = {}
         
         file_name = os.path.basename(csv_file)
         self.stdout.write(f'\n📄 Processing: {file_name}')
@@ -144,26 +202,58 @@ class Command(BaseCommand):
         errors = []
         
         try:
-            with open(csv_file, 'r', encoding='utf-8') as f:
+            with open(csv_file, 'r', encoding='utf-8-sig') as f:  # utf-8-sig để tự động remove BOM
                 reader = csv.DictReader(f)
-                total_rows = sum(1 for _ in reader)
-                f.seek(0)
-                reader = csv.DictReader(f)  # Reset reader
+                rows_list = list(reader)  # Read all rows into memory
+                total_rows = len(rows_list)
                 
                 self.stdout.write(f'  📊 Total rows: {total_rows}')
                 
-                for row_num, row in enumerate(reader, start=2):  # Start from 2 (header is row 1)
+                for row_num, row in enumerate(rows_list, start=2):  # Start from 2 (header is row 1)
                     try:
                         # ============================================
-                        # 1. VẤN ĐỀ NGHIÊM TRỌNG: Brand → brand_id = None (tạm thời)
-                        # TODO: Implement brand mapping
-                        # - CSV có basicInfo.brand (string name)
-                        # - Medicine model cần brand_id (ForeignKey to Brand)
-                        # - Cần tạo Brand model hoặc mapping table
-                        # - Hoặc import Brand trước, sau đó map brand_name → brand_id
+                        # 1. Brand mapping: basicInfo.brand → Medicine.brand_id
                         # ============================================
-                        brand_name = row.get('basicInfo.brand', '').strip()
-                        brand_id = None  # Tạm thời để None, sẽ import sau
+                        brand_name_raw = row.get('basicInfo.brand', '').strip()
+                        brand_id = None
+                        
+                        if brand_name_raw:
+                            # Normalize brand name để handle variants
+                            brand_name = self.normalize_brand_name(brand_name_raw)
+                            
+                            if brand_name:
+                                # Check cache first
+                                if brand_cache is not None and brand_name in brand_cache:
+                                    brand_id = brand_cache[brand_name]
+                                else:
+                                    # Extract country from manufacturer or origin (nếu có)
+                                    # Mặc định country = None nếu không extract được
+                                    manufacturer = row.get('specifications.manufacturer', '').strip()
+                                    origin = row.get('specifications.origin', '').strip()
+                                    
+                                    # Try to extract country from manufacturer or origin
+                                    country = None
+                                    if manufacturer:
+                                        country = self.extract_country_from_text(manufacturer)
+                                    if not country and origin:
+                                        country = self.extract_country_from_text(origin)
+                                    
+                                    # Get or create Brand (country mặc định là None nếu không extract được)
+                                    if not dry_run:
+                                        brand, created = Brand.objects.get_or_create(
+                                            name=brand_name,
+                                            defaults={'country': country, 'active': True}
+                                        )
+                                        brand_id = brand.id
+                                        
+                                        # Update cache
+                                        if brand_cache is not None:
+                                            brand_cache[brand_name] = brand_id
+                                        
+                                        # If brand exists but country is None, try to update it (nếu có country mới)
+                                        if not created and not brand.country and country:
+                                            brand.country = country
+                                            brand.save(update_fields=['country'])
                         
                         # ============================================
                         # 2. VẤN ĐỀ NGHIÊM TRỌNG: Bỏ qua pricing.packageOptions
@@ -241,73 +331,147 @@ class Command(BaseCommand):
                             sku = None
                         
                         # ============================================
-                        # Create Medicine
+                        # Create Medicine (reuse nếu đã tồn tại)
                         # ============================================
-                        medicine_defaults = {
-                            'name': row.get('basicInfo.name', '').strip(),
-                            'slug': row.get('basicInfo.slug', '').strip(),
-                            'web_name': row.get('basicInfo.webName', '').strip(),
-                            'description': row.get('content.description', '').strip(),
-                            'ingredients': row.get('content.ingredients', '').strip(),
-                            'usage': row.get('content.usage', '').strip(),
-                            'dosage': row.get('content.dosage', '').strip(),
-                            'adverse_effect': row.get('content.adverseEffect', '').strip(),
-                            'careful': row.get('content.careful', '').strip(),
-                            'preservation': row.get('content.preservation', '').strip(),
-                            'brand_id': brand_id,  # None tạm thời
-                        }
+                        medicine_name = row.get('basicInfo.name', '').strip()
+                        medicine = None
+                        created = False
                         
+                        # Tìm Medicine theo SKU trước (nếu có)
                         if sku:
-                            medicine, created = Medicine.objects.get_or_create(
-                                mid=sku,
-                                defaults=medicine_defaults
-                            )
+                            medicine = Medicine.objects.filter(mid=sku).first()
+                        
+                        # Nếu chưa tìm thấy, tìm theo name (reuse nếu name đã tồn tại)
+                        # Logic: Nếu Medicine với name đã tồn tại, reuse nó (bất kể SKU)
+                        # Điều này tránh lỗi unique constraint và cho phép tạo MedicineUnit mới với category khác
+                        if not medicine and medicine_name:
+                            medicine = Medicine.objects.filter(name=medicine_name).first()
+                        
+                        # Nếu Medicine đã tồn tại, reuse nó
+                        # Nếu chưa tồn tại, tạo mới
+                        # Nếu Medicine đã tồn tại nhưng chưa có brand_id và có brand_id mới, update brand_id
+                        if not medicine:
+                            medicine_defaults = {
+                                'name': medicine_name,
+                                'slug': row.get('basicInfo.slug', '').strip(),
+                                'web_name': row.get('basicInfo.webName', '').strip(),
+                                'description': row.get('content.description', '').strip(),
+                                'ingredients': row.get('content.ingredients', '').strip(),
+                                'usage': row.get('content.usage', '').strip(),
+                                'dosage': row.get('content.dosage', '').strip(),
+                                'adverse_effect': row.get('content.adverseEffect', '').strip(),
+                                'careful': row.get('content.careful', '').strip(),
+                                'preservation': row.get('content.preservation', '').strip(),
+                                'brand_id': brand_id,  # Brand ID từ Brand mapping ở trên
+                            }
+                            
+                            if sku:
+                                # Try get_or_create với SKU
+                                try:
+                                    medicine, created = Medicine.objects.get_or_create(
+                                        mid=sku,
+                                        defaults=medicine_defaults
+                                    )
+                                except Exception:
+                                    # Nếu lỗi (có thể do name unique), tìm lại theo name
+                                    medicine = Medicine.objects.filter(name=medicine_name).first()
+                                    if not medicine:
+                                        # Nếu vẫn không có, tạo mới với name (bỏ qua SKU)
+                                        medicine, created = Medicine.objects.get_or_create(
+                                            name=medicine_name,
+                                            defaults=medicine_defaults
+                                        )
+                            else:
+                                # Fallback: use name if no SKU
+                                medicine, created = Medicine.objects.get_or_create(
+                                    name=medicine_name,
+                                    defaults=medicine_defaults
+                                )
                         else:
-                            # Fallback: use name if no SKU
-                            medicine, created = Medicine.objects.get_or_create(
-                                name=row.get('basicInfo.name', ''),
-                                defaults=medicine_defaults
-                            )
+                            # Medicine đã tồn tại - update brand_id nếu có và chưa có
+                            if brand_id and not medicine.brand_id:
+                                medicine.brand_id = brand_id
+                                medicine.save(update_fields=['brand_id'])
                         
                         # ============================================
                         # 7. Check duplicate MedicineUnit (medicine + category)
                         # ============================================
-                        if skip_duplicates and not dry_run:
-                            if MedicineUnit.objects.filter(medicine=medicine, category=category).exists():
+                        existing_unit = None
+                        if not dry_run:
+                            existing_unit = MedicineUnit.objects.filter(medicine=medicine, category=category).first()
+                        
+                        if existing_unit:
+                            if update_existing:
+                                # Update existing MedicineUnit với data mới (ghi đè)
+                                # Đặc biệt hữu ích để fix truncated data
+                                # NOTE: Chỉ dùng --update-existing khi cần fix data, không dùng thường xuyên
+                                pass  # Sẽ update ở phần dưới
+                            elif skip_duplicates:
                                 skipped_count += 1
                                 continue
                         
                         # ============================================
-                        # Create MedicineUnit (với transaction cho từng row)
+                        # Create/Update MedicineUnit (với transaction cho từng row)
                         # ============================================
                         if not dry_run:
                             # Dùng transaction cho từng row để tránh rollback toàn bộ file
                             try:
                                 with transaction.atomic():
-                                    unit = MedicineUnit.objects.create(
-                                medicine=medicine,
-                                category=category,
-                                price_display=price_display,
-                                price_value=price_value,
-                                package_size=row.get('pricing.packageSize', '').strip(),
-                                prices=prices,
-                                price_obj=price_obj if price_obj else {},
-                                image=cloudinary_image_id,  # Cloudinary public_id
-                                images=images,
-                                link=row.get('metadata.link', '').strip(),
-                                product_ranking=product_ranking,
-                                display_code=display_code,
-                                is_published=is_published,
-                                registration_number=row.get('specifications.registrationNumber', '').strip(),
-                                origin=row.get('specifications.origin', '').strip(),
-                                manufacturer=row.get('specifications.manufacturer', '').strip(),
-                                shelf_life=row.get('specifications.shelfLife', '').strip(),
-                                specifications={},  # Có thể thêm sau nếu cần
-                                in_stock=100,  # Default stock
-                                    )
-                                    imported_count += 1
-                                    if (row_num - 1) % 100 == 0:
-                                        self.stdout.write(f'  ✓ Progress: {row_num - 1}/{total_rows} rows processed')
+                                    # Field limits sau khi update model: manufacturer=TextField (không giới hạn), origin=200, registration_number=100, shelf_life=100, package_size=100
+                                    package_size = row.get('pricing.packageSize', '').strip()[:100] if row.get('pricing.packageSize') else ''
+                                    registration_number = row.get('specifications.registrationNumber', '').strip()[:100] if row.get('specifications.registrationNumber') else ''
+                                    origin = row.get('specifications.origin', '').strip()[:200] if row.get('specifications.origin') else ''
+                                    manufacturer = row.get('specifications.manufacturer', '').strip()  # TextField - không cần truncate
+                                    shelf_life = row.get('specifications.shelfLife', '').strip()[:100] if row.get('specifications.shelfLife') else ''
+                                    link = row.get('metadata.link', '').strip()[:500] if row.get('metadata.link') else ''
+                                    
+                                    if existing_unit and update_existing:
+                                        # Update existing MedicineUnit (ghi đè data)
+                                        existing_unit.price_display = price_display
+                                        existing_unit.price_value = price_value
+                                        existing_unit.package_size = package_size
+                                        existing_unit.prices = prices
+                                        existing_unit.price_obj = price_obj if price_obj else {}
+                                        existing_unit.image = cloudinary_image_id
+                                        existing_unit.images = images
+                                        existing_unit.link = link
+                                        existing_unit.product_ranking = product_ranking
+                                        existing_unit.display_code = display_code
+                                        existing_unit.is_published = is_published
+                                        existing_unit.registration_number = registration_number
+                                        existing_unit.origin = origin
+                                        existing_unit.manufacturer = manufacturer  # Update với full data (không truncate)
+                                        existing_unit.shelf_life = shelf_life
+                                        existing_unit.save()
+                                        imported_count += 1
+                                        if (row_num - 1) % 100 == 0:
+                                            self.stdout.write(f'  ✓ Progress: {row_num - 1}/{total_rows} rows processed (updated)')
+                                    else:
+                                        # Create new MedicineUnit
+                                        unit = MedicineUnit.objects.create(
+                                    medicine=medicine,
+                                    category=category,
+                                    price_display=price_display,
+                                    price_value=price_value,
+                                    package_size=package_size,
+                                    prices=prices,
+                                    price_obj=price_obj if price_obj else {},
+                                    image=cloudinary_image_id,  # Cloudinary public_id
+                                    images=images,
+                                    link=link,
+                                    product_ranking=product_ranking,
+                                    display_code=display_code,
+                                    is_published=is_published,
+                                    registration_number=registration_number,
+                                    origin=origin,
+                                    manufacturer=manufacturer,
+                                    shelf_life=shelf_life,
+                                    specifications={},  # Có thể thêm sau nếu cần
+                                    in_stock=100,  # Default stock
+                                        )
+                                        imported_count += 1
+                                        if (row_num - 1) % 100 == 0:
+                                            self.stdout.write(f'  ✓ Progress: {row_num - 1}/{total_rows} rows processed')
                             except Exception as e:
                                 # Nếu lỗi ở MedicineUnit, raise để catch ở ngoài
                                 raise
@@ -347,6 +511,7 @@ class Command(BaseCommand):
         dry_run = options.get('dry_run', False)
         skip_duplicates = options.get('skip_duplicates', True)
         skip_image_upload = options.get('skip_image_upload', False)
+        update_existing = options.get('update_existing', False)
         
         if dry_run:
             self.stdout.write(self.style.WARNING('🔍 DRY RUN MODE - No data will be saved'))
@@ -357,6 +522,10 @@ class Command(BaseCommand):
         if skip_image_upload:
             self.stdout.write(self.style.WARNING('⏭️  IMAGE UPLOAD: DISABLED (will skip image upload for faster import)'))
             self.stdout.write(self.style.WARNING('   Note: Images will be uploaded later using a separate script'))
+        
+        if update_existing:
+            self.stdout.write(self.style.WARNING('🔄 UPDATE MODE: Will update existing MedicineUnits (overwrite data)'))
+            self.stdout.write(self.style.WARNING('   Use this to fix truncated data or update existing records'))
         
         # Determine files to import
         csv_files = []
@@ -392,6 +561,8 @@ class Command(BaseCommand):
         
         # Category cache để tối ưu performance (shared across all files)
         category_cache = {}
+        # Brand cache để tối ưu performance (shared across all files)
+        brand_cache = {}
         
         # Total stats
         total_imported = 0
@@ -410,7 +581,9 @@ class Command(BaseCommand):
                 dry_run=dry_run,
                 skip_duplicates=skip_duplicates,
                 skip_image_upload=skip_image_upload,
-                category_cache=category_cache
+                update_existing=update_existing,
+                category_cache=category_cache,
+                brand_cache=brand_cache
             )
             
             total_imported += stats['imported']
@@ -440,7 +613,7 @@ class Command(BaseCommand):
         
         # Summary of issues handled
         self.stdout.write(self.style.SUCCESS(f'\n📋 Issues handled:'))
-        self.stdout.write(f'  ✓ brand_id: Set to None (temporary)')
+        self.stdout.write(f'  ✓ brand_id: Auto-mapped from basicInfo.brand (Brand created if not exists)')
         self.stdout.write(f'  ✓ pricing.packageOptions: Skipped')
         self.stdout.write(f'  ✓ Image upload: From URL to Cloudinary')
         self.stdout.write(f'  ✓ JSON parsing: category, images, prices, price_obj')

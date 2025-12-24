@@ -7,6 +7,7 @@ from mainApp.models import BaseModel
 class Brand(BaseModel):
     """Thương hiệu sản phẩm"""
     name = models.CharField(max_length=120, null=False, blank=False, unique=True, db_column='name')
+    country = models.CharField(max_length=100, null=True, blank=True, db_column='country', help_text="Quốc gia sản phẩm")
     active = models.BooleanField(default=True, db_column='active')
 
     def __str__(self):
@@ -16,6 +17,9 @@ class Brand(BaseModel):
         db_table = 'store_brand'
         verbose_name = 'Brand'
         verbose_name_plural = 'Brands'
+        indexes = [
+            models.Index(fields=['country', 'active']), 
+        ]
 
 
 class ShippingMethod(BaseModel):

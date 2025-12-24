@@ -352,9 +352,9 @@ class MedicineUnit(BaseModel):
     
     # specifications
     registration_number = models.CharField(max_length=100, null=True, blank=True, help_text="specifications.registrationNumber - Số đăng ký")
-    origin = models.CharField(max_length=100, null=True, blank=True, help_text="specifications.origin - Xuất xứ")
-    manufacturer = models.CharField(max_length=200, null=True, blank=True, help_text="specifications.manufacturer - Nhà sản xuất")
-    shelf_life = models.CharField(max_length=50, null=True, blank=True, help_text="specifications.shelfLife - Hạn sử dụng")
+    origin = models.CharField(max_length=200, null=True, blank=True, help_text="specifications.origin - Xuất xứ")
+    manufacturer = models.TextField(null=True, blank=True, help_text="specifications.manufacturer - Nhà sản xuất (TextField để lưu trữ đầy đủ)")
+    shelf_life = models.CharField(max_length=100, null=True, blank=True, help_text="specifications.shelfLife - Hạn sử dụng")
     specifications = models.JSONField(default=dict, null=True, blank=True, help_text="specifications.specifications - Object specification (JSON object)")
     
     # metadata
