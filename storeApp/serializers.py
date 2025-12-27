@@ -1,13 +1,14 @@
+from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
 from .models import MedicineBatch, Brand, ShippingMethod, PaymentMethod, Order, OrderItem, Notification
 from mainApp.serializers import UserSerializer, MedicineSerializer, CategorySerializer
-from mainApp.models import User, MedicineUnit
+from mainApp.models import User, MedicineUnit, Category
 
 
 class BrandSerializer(ModelSerializer):
     class Meta:
         model = Brand
-        fields = ['id', 'name', 'active', 'created_date', 'updated_date']
+        fields = ['id', 'name', 'active', 'country']
 
 
 class ShippingMethodSerializer(ModelSerializer):
@@ -112,7 +113,8 @@ class ProductSerializer(ModelSerializer):
                 brand = Brand.objects.get(id=obj.medicine.brand_id, active=True)
                 return {
                     'id': brand.id,
-                    'name': brand.name
+                    'name': brand.name,
+                    'country': brand.country
                 }
             except Brand.DoesNotExist:
                 return None
@@ -140,3 +142,98 @@ class ProductSerializer(ModelSerializer):
             'categoryPath': '',
             'categorySlug': ''
         }
+
+
+class CategoryLevel2Serializer(ModelSerializer):
+    """Serializer cho category level 2 với thông tin total"""
+    total = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Category
+        fields = ['id', 'name', 'slug', 'path_slug', 'total']
+    
+    def get_total(self, obj):
+        if hasattr(obj, '_level2_total'):
+            return obj._level2_total
+        return None
+
+
+class CategoryLevel1Serializer(ModelSerializer):
+    """Serializer cho category level 1 với children level 2 (top 5)"""
+    level2 = SerializerMethodField()
+    
+    class Meta:
+        model = Category
+        fields = ['id', 'name', 'slug', 'path_slug', 'level2']
+    
+    def get_level2(self, obj):
+        """Lấy top 5 categories level 2 thuộc category này"""
+        if hasattr(obj, '_prefetched_objects_cache') and 'children' in obj._prefetched_objects_cache:
+            level2_categories = [
+                child for child in obj._prefetched_objects_cache['children']
+                if child.level == 2 and child.active
+            ][:5]
+        else:
+            level2_categories = Category.objects.using('default').filter(
+                parent=obj,
+                level=2,
+                active=True
+            ).order_by('name')[:5]
+        
+        return CategoryLevel2Serializer(level2_categories, many=True).data
+
+
+class CategoryLevel0Serializer(ModelSerializer):
+    """Serializer cho category level 0 với children level 1"""
+    level1 = SerializerMethodField()
+    
+    class Meta:
+        model = Category
+        fields = ['id', 'name', 'slug', 'path_slug', 'level1']
+    
+    def get_level1(self, obj):
+        """Lấy tất cả categories level 1 thuộc category này"""
+        if hasattr(obj, '_prefetched_objects_cache') and 'children' in obj._prefetched_objects_cache:
+            level1_categories = list(obj._prefetched_objects_cache['children'])
+        else:
+            level1_categories = list(Category.objects.using('default').filter(
+                parent=obj,
+                level=1,
+                active=True
+            ).order_by('name'))
+        
+        if level1_categories:
+            level1_ids = [cat.id for cat in level1_categories]
+            level2_all = Category.objects.using('default').filter(
+                parent_id__in=level1_ids,
+                level=2,
+                active=True
+            ).order_by('parent_id', 'name')
+            
+            from django.db.models import Count
+            level2_counts = Category.objects.using('default').filter(
+                level=2,
+                active=True,
+                parent_id__in=level1_ids
+            ).values('parent_id').annotate(total=Count('id'))
+            
+            count_dict = {item['parent_id']: item['total'] for item in level2_counts}
+            
+            level2_by_parent = {}
+            for l2 in level2_all:
+                parent_id = l2.parent_id
+                if parent_id not in level2_by_parent:
+                    level2_by_parent[parent_id] = []
+                
+                if len(level2_by_parent[parent_id]) < 5:
+                    total = count_dict.get(parent_id, 0)
+                    if total > 5:
+                        l2._level2_total = total
+                    level2_by_parent[parent_id].append(l2)
+            
+            for l1 in level1_categories:
+                if not hasattr(l1, '_prefetched_objects_cache'):
+                    l1._prefetched_objects_cache = {}
+                l1._prefetched_objects_cache['children'] = level2_by_parent.get(l1.id, [])
+        
+        return CategoryLevel1Serializer(level1_categories, many=True).data
