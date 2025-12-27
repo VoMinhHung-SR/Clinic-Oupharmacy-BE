@@ -35,4 +35,3 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
                 queryset = queryset.filter(in_stock__gt=0)
         
         return queryset.order_by('-created_date')
-

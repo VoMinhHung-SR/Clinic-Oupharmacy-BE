@@ -4,9 +4,9 @@ from mainApp.admin import admin_site
 
 
 class BrandAdmin(admin.ModelAdmin):
-    list_display = ['name', 'active', 'created_date']
-    list_filter = ['active', 'created_date']
-    search_fields = ['name']
+    list_display = ['name', 'country', 'active', 'created_date']
+    list_filter = ['country', 'active']
+    search_fields = ['name', 'country']
     list_editable = ['active']
 
 
