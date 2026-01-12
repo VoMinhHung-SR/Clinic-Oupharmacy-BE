@@ -243,8 +243,9 @@ class MedicineUnitSerializer(ModelSerializer):
         model = MedicineUnit
         fields = [
             "id", "in_stock", "image", "image_path",
-            "price_display", "price_value", "package_size", "prices", "price_obj",
-            "images", "link", "product_ranking", "display_code", "is_published",
+            "price_display", "price_value", "original_price", "original_price_value",
+            "package_size", "package_options", "prices", "price_obj",
+            "images", "link", "product_ranking", "display_code", "is_published", "is_hot",
             "registration_number", "origin", "manufacturer", "shelf_life", "specifications",
             "medicine", "category", "active", "created_date", "updated_date"
         ]

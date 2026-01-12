@@ -7,6 +7,7 @@ from .medicine_batch import MedicineBatchViewSet
 from .notification import NotificationViewSet
 from .product import ProductViewSet
 from .category import CategoryViewSet
+from .dynamic_filters import DynamicFiltersViewSet
 
 __all__ = [
     'BrandViewSet',
@@ -18,4 +19,5 @@ __all__ = [
     'NotificationViewSet',
     'ProductViewSet',
     'CategoryViewSet',
+    'DynamicFiltersViewSet',
 ]
