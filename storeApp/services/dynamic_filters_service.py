@@ -3,74 +3,26 @@ Dynamic Filters Service Layer
 Business logic for dynamic filters feature
 """
 import logging
+from collections import defaultdict
 from django.db import models
 from django.db.models import Count, Min, Max, Avg, Q
 from django.core.cache import cache
-from django.conf import settings
-from mainApp.models import Category, MedicineUnit
+from mainApp.models import Category, MedicineUnit, Medicine
 from storeApp.models import Brand
+from storeApp.services.filter_constants import (
+    CACHE_TIMEOUT,
+    CACHE_PREFIX,
+    FILTER_CONFIGS,
+    PRICE_RANGES,
+    CATEGORY_TYPE_FILTER_CONFIGS,
+    DEFAULT_FILTER_CONFIG,
+    FILTER_VARIANT_MAP,
+    TARGET_AUDIENCE_PATTERNS,
+    INDICATION_KEYWORDS,
+    SPECIFICATION_KEYS
+)
 
 logger = logging.getLogger(__name__)
-
-# Cache configuration
-CACHE_TIMEOUT = getattr(settings, 'DYNAMIC_FILTERS_CACHE_TTL', 3600)  # 1 hour
-CACHE_PREFIX = 'dynamic_filters'
-
-# Filter configuration
-FILTER_CONFIGS = {
-    'brandOrigin': {
-        'field': 'origin',
-        'label': 'Xuất xứ thương hiệu',
-        'type': 'checkbox',
-        'searchable': True,
-        'limit': 20
-    },
-    'manufacturer': {
-        'field': 'manufacturer',
-        'label': 'Nước sản xuất',
-        'type': 'checkbox',
-        'searchable': False,
-        'limit': 20
-    },
-    'brand': {
-        'field': 'brand',
-        'label': 'Thương hiệu',
-        'type': 'checkbox',
-        'searchable': True,
-        'limit': 20
-    },
-    'priceRange': {
-        'field': 'price_value',
-        'label': 'Giá bán',
-        'type': 'checkbox',
-        'searchable': False,
-        'limit': None
-    }
-}
-
-# Price range configuration
-PRICE_RANGES = {
-    'under_100k': {
-        'label': 'Dưới 100.000₫',
-        'min': 0,
-        'max': 100000
-    },
-    '100k_to_300k': {
-        'label': '100.000₫ - 300.000₫',
-        'min': 100000,
-        'max': 300000
-    },
-    '300k_to_500k': {
-        'label': '300.000₫ - 500.000₫',
-        'min': 300000,
-        'max': 500000
-    },
-    'over_500k': {
-        'label': 'Trên 500.000₫',
-        'min': 500000,
-        'max': None
-    }
-}
 
 
 class DynamicFiltersService:
@@ -111,11 +63,19 @@ class DynamicFiltersService:
         queryset = DynamicFiltersService._get_category_queryset(category)
         product_count = queryset.count()
         
-        # Extract variants
-        variants = DynamicFiltersService._extract_variants(queryset)
+        # Extract variants with pre-computed brand data
+        brand_ids_list, brands_dict = DynamicFiltersService._get_brand_data(queryset)
+        variants = DynamicFiltersService._extract_variants(queryset, brand_ids_list, brands_dict)
         
-        # Build filters
-        filters = DynamicFiltersService._build_filters(queryset, variants)
+        # Build filters với category object and pre-computed data
+        filters = DynamicFiltersService._build_filters(
+            queryset, 
+            variants, 
+            category_slug=category_slug,
+            category=category,
+            brand_ids_list=brand_ids_list,
+            brands_dict=brands_dict
+        )
         
         # Build response
         response_data = {
@@ -144,6 +104,99 @@ class DynamicFiltersService:
         ).first()
     
     @staticmethod
+    def _get_root_category(category_slug: str = None, category=None):
+        """
+        Lấy root category (level = 0) từ database
+        
+        Args:
+            category_slug: Category slug (optional)
+            category: Category object (optional)
+        
+        Returns:
+            Category: Root category object hoặc None
+        """
+        root_slug = None
+        
+        # Nếu đã có category object
+        if category:
+            # Nếu đã là root category (level = 0), return luôn
+            if category.level == 0:
+                return category
+            
+            # Lấy root slug từ path_slug (nhanh nhất, không cần query thêm)
+            if category.path_slug:
+                root_slug = category.path_slug.split('/')[0]
+            elif category.slug:
+                root_slug = category.slug
+        
+        # Nếu chỉ có category_slug, lấy root slug từ đó
+        elif category_slug:
+            root_slug = category_slug.split('/')[0]
+        
+        # Query root category từ database (level = 0, parent = None)
+        if root_slug:
+            return Category.objects.using('default').filter(
+                active=True,
+                level=0,
+                parent__isnull=True,
+                slug=root_slug
+            ).first()
+        
+        return None
+    
+    @staticmethod
+    def _get_category_type_from_root_slug(root_slug: str):
+        """
+        Map root category slug sang category type
+        Logic: Dựa vào slug pattern để xác định type
+        """
+        if not root_slug:
+            return 'default'
+        
+        slug_lower = root_slug.lower()
+        
+        if 'thuoc' in slug_lower:
+            return 'medicine'
+        elif 'duoc-mi-pham' in slug_lower or 'cosmetics' in slug_lower:
+            return 'cosmetics'
+        elif 'thuc-pham-chuc-nang' in slug_lower or 'supplements' in slug_lower:
+            return 'supplements'
+        
+        return 'default'
+    
+    @staticmethod
+    def _get_category_type(category_slug: str):
+        """Xác định category type từ slug"""
+        if not category_slug:
+            return 'default'
+        
+        root_category = DynamicFiltersService._get_root_category(category_slug=category_slug)
+        if not root_category:
+            return 'default'
+        
+        return DynamicFiltersService._get_category_type_from_root_slug(root_category.slug)
+    
+    @staticmethod
+    def _get_category_type_from_category(category):
+        """Xác định category type từ Category object"""
+        if not category:
+            return 'default'
+        
+        root_category = DynamicFiltersService._get_root_category(category=category)
+        if not root_category:
+            return 'default'
+        
+        return DynamicFiltersService._get_category_type_from_root_slug(root_category.slug)
+    
+    @staticmethod
+    def _has_variants(variants, filter_id):
+        """Check xem filter có variants không"""
+        variant_key = FILTER_VARIANT_MAP.get(filter_id)
+        if not variant_key:
+            return False
+        return bool(variants.get(variant_key))
+    
+    @staticmethod
     def _get_category_queryset(category):
         """Get MedicineUnit queryset for category (including subcategories)"""
         category_path_slug = category.path_slug or category.slug
@@ -164,42 +217,95 @@ class DynamicFiltersService:
         ).select_related('medicine', 'category')
     
     @staticmethod
-    def _extract_variants(queryset):
+    def _get_brand_data(queryset):
         """
-        Extract variants from queryset with optimized queries
-        Returns: dict with brands, origins, manufacturers, priceRanges, priceStats
+        Get brand IDs and brand data in one optimized query
+        Returns: (brand_ids_list, brands_dict) where brands_dict maps brand_id -> (name, country)
         """
-        variants = {
-            'brands': [],
-            'origins': [],
-            'manufacturers': [],
-            'priceRanges': [],
-            'priceStats': {}
-        }
-        
-        # Extract unique origins (optimized)
-        origins = queryset.exclude(
-            Q(origin__isnull=True) | Q(origin='')
-        ).values_list('origin', flat=True).distinct()
-        variants['origins'] = sorted([o for o in origins if o])
-        
-        # Extract unique manufacturers (optimized)
-        manufacturers = queryset.exclude(
-            Q(manufacturer__isnull=True) | Q(manufacturer='')
-        ).values_list('manufacturer', flat=True).distinct()
-        variants['manufacturers'] = sorted([m for m in manufacturers if m])
-        
-        # Extract brands (optimized with prefetch)
         brand_ids = queryset.exclude(
             Q(medicine__brand_id__isnull=True) | Q(medicine__brand_id=0)
         ).values_list('medicine__brand_id', flat=True).distinct()
         
-        if brand_ids:
-            brands = Brand.objects.using('default').filter(
-                id__in=brand_ids,
+        brand_ids_list = list(brand_ids)
+        brands_dict = {}
+        
+        if brand_ids_list:
+            # Get all brand data in single query
+            brands_data = Brand.objects.using('store').filter(
+                id__in=brand_ids_list,
                 active=True
-            ).values_list('name', flat=True)
-            variants['brands'] = sorted([b for b in brands if b])
+            ).values_list('id', 'name', 'country')
+            
+            brands_dict = {
+                brand_id: (name, country)
+                for brand_id, name, country in brands_data
+            }
+        
+        return brand_ids_list, brands_dict
+    
+    @staticmethod
+    def _extract_variants(queryset, brand_ids_list, brands_dict):
+        """
+        Extract variants from queryset with optimized queries
+        Returns: dict with countries, brands, priceRanges, priceStats,
+                 targetAudiences, flavors, indications
+        """
+        variants = {
+            'countries': set(),
+            'brands': [],
+            'priceRanges': [],
+            'priceStats': {},
+            'targetAudiences': set(),
+            'flavors': set(),
+            'indications': set()
+        }
+        
+        # Extract brands and countries from pre-computed brand data
+        brands_list = []
+        for brand_id, (brand_name, country) in brands_dict.items():
+            if brand_name:
+                brands_list.append(brand_name)
+            if country:
+                variants['countries'].add(country)
+        
+        variants['brands'] = sorted(brands_list)
+        variants['countries'] = sorted(list(variants['countries']))
+        
+        # Pre-extract text-based filters in single pass with iterator for memory efficiency
+        target_audience_counts = defaultdict(int)
+        flavor_counts = defaultdict(int)
+        indication_counts = defaultdict(int)
+        
+        # Use iterator to avoid loading all objects into memory
+        queryset_with_medicine = queryset.select_related('medicine').iterator(chunk_size=100)
+        
+        for unit in queryset_with_medicine:
+            # Extract targetAudience
+            target_audiences = DynamicFiltersService._extract_target_audience(unit)
+            for audience in target_audiences:
+                target_audience_counts[audience] += 1
+                variants['targetAudiences'].add(audience)
+            
+            # Extract flavor
+            flavors = DynamicFiltersService._extract_flavor(unit)
+            for flavor in flavors:
+                flavor_counts[flavor] += 1
+                variants['flavors'].add(flavor)
+            
+            # Extract indication
+            indications = DynamicFiltersService._extract_indication(unit)
+            for indication in indications:
+                indication_counts[indication] += 1
+                variants['indications'].add(indication)
+        
+        variants['targetAudiences'] = sorted(list(variants['targetAudiences']))
+        variants['flavors'] = sorted(list(variants['flavors']))
+        variants['indications'] = sorted(list(variants['indications']))
+        
+        # Store counts for later use in filter building
+        variants['_target_audience_counts'] = dict(target_audience_counts)
+        variants['_flavor_counts'] = dict(flavor_counts)
+        variants['_indication_counts'] = dict(indication_counts)
         
         # Calculate price stats (single query)
         price_stats = queryset.exclude(price_value=0).aggregate(
@@ -209,9 +315,15 @@ class DynamicFiltersService:
         )
         
         if price_stats['min'] is not None:
-            # Calculate median
-            all_prices = list(queryset.exclude(price_value=0).values_list('price_value', flat=True))
-            median = DynamicFiltersService._calculate_median(all_prices)
+            # Optimize median calculation: use exact for small datasets, average for large
+            price_count = queryset.exclude(price_value=0).count()
+            if price_count > 1000:
+                # For large datasets, use average as approximation (already computed)
+                median = price_stats['avg'] if price_stats['avg'] else 0
+            else:
+                # Use exact median for small datasets
+                all_prices = list(queryset.exclude(price_value=0).values_list('price_value', flat=True))
+                median = DynamicFiltersService._calculate_median(all_prices)
             
             variants['priceStats'] = {
                 'min': int(price_stats['min']),
@@ -220,7 +332,6 @@ class DynamicFiltersService:
                 'median': median
             }
             
-            # Generate price ranges
             variants['priceRanges'] = DynamicFiltersService._generate_price_ranges(
                 price_stats['min'],
                 price_stats['max']
@@ -245,7 +356,6 @@ class DynamicFiltersService:
     def _generate_price_ranges(min_price, max_price):
         """Generate price range keys based on min/max prices"""
         ranges = []
-        
         if min_price < 100000:
             ranges.append('under_100k')
         if min_price < 300000 or max_price >= 100000:
@@ -254,100 +364,195 @@ class DynamicFiltersService:
             ranges.append('300k_to_500k')
         if max_price >= 500000:
             ranges.append('over_500k')
-        
         return sorted(set(ranges))
     
     @staticmethod
-    def _build_filters(queryset, variants):
+    def _extract_target_audience(medicine_unit):
+        """Extract target audience from specifications JSON or usage field"""
+        audiences = []
+        
+        # Try to get from specifications JSON
+        if medicine_unit.specifications and isinstance(medicine_unit.specifications, dict):
+            for key in SPECIFICATION_KEYS['targetAudience']:
+                value = medicine_unit.specifications.get(key)
+                if value:
+                    if isinstance(value, list):
+                        audiences.extend([str(v).strip() for v in value if v])
+                    elif isinstance(value, str):
+                        audiences.append(value.strip())
+        
+        # Fallback to usage field
+        if not audiences and medicine_unit.medicine and medicine_unit.medicine.usage:
+            usage_text = medicine_unit.medicine.usage.lower()
+            for audience, keywords in TARGET_AUDIENCE_PATTERNS.items():
+                if any(keyword in usage_text for keyword in keywords):
+                    audiences.append(audience)
+        
+        return [a for a in audiences if a]
+    
+    @staticmethod
+    def _extract_flavor(medicine_unit):
+        """Extract flavor from specifications JSON"""
+        flavors = []
+        
+        if medicine_unit.specifications and isinstance(medicine_unit.specifications, dict):
+            for key in SPECIFICATION_KEYS['flavor']:
+                value = medicine_unit.specifications.get(key)
+                if value:
+                    if isinstance(value, list):
+                        flavors.extend([str(v).strip() for v in value if v])
+                    elif isinstance(value, str):
+                        flavors.append(value.strip())
+        
+        return [f for f in flavors if f]
+    
+    @staticmethod
+    def _extract_indication(medicine_unit):
+        """Extract indication from usage or description field"""
+        indications = []
+        
+        # Check usage field first
+        text_to_check = ''
+        if medicine_unit.medicine and medicine_unit.medicine.usage:
+            text_to_check = medicine_unit.medicine.usage.lower()
+        
+        # Fallback to description
+        if not text_to_check and medicine_unit.medicine and medicine_unit.medicine.description:
+            text_to_check = medicine_unit.medicine.description.lower()
+        
+        if text_to_check:
+            for indication, keywords in INDICATION_KEYWORDS.items():
+                if any(keyword in text_to_check for keyword in keywords):
+                    indications.append(indication)
+        
+        return indications
+    
+    @staticmethod
+    def _build_filters(queryset, variants, category_slug=None, category=None, brand_ids_list=None, brands_dict=None):
         """
         Build filters structure with optimized queries (no N+1)
-        Uses aggregation to get counts in single queries
+        Supports category-specific filter configuration
         """
+        # Get category type
+        if category:
+            category_type = DynamicFiltersService._get_category_type_from_category(category)
+        elif category_slug:
+            category_type = DynamicFiltersService._get_category_type(category_slug)
+        else:
+            category_type = 'default'
+        
+        # Get filter config cho category type
+        category_config = CATEGORY_TYPE_FILTER_CONFIGS.get(
+            category_type,
+            DEFAULT_FILTER_CONFIG
+        )
+        
+        enabled_filters = category_config.get('enabled_filters', [])
+        filter_priority = category_config.get('filter_priority', enabled_filters)
+        
         filters = []
         
-        # Filter: Xuất xứ thương hiệu (Brand Origin) - Optimized
-        if variants['origins']:
-            # Get counts in single query using aggregation
-            origin_counts = queryset.exclude(
-                Q(origin__isnull=True) | Q(origin='')
-            ).values('origin').annotate(
-                count=Count('id')
-            ).order_by('-count')[:FILTER_CONFIGS['brandOrigin']['limit']]
+        # Build filters theo priority và enabled list
+        for filter_id in filter_priority:
+            if filter_id not in enabled_filters:
+                continue
             
-            origin_count_map = {item['origin']: item['count'] for item in origin_counts}
+            if not DynamicFiltersService._has_variants(variants, filter_id):
+                continue
             
-            origin_options = []
-            for origin in sorted(variants['origins'])[:FILTER_CONFIGS['brandOrigin']['limit']]:
-                origin_options.append({
-                    'value': origin,
-                    'label': origin,
-                    'count': origin_count_map.get(origin, 0)
+            filter_obj = DynamicFiltersService._build_single_filter(
+                queryset, variants, filter_id, brand_ids_list, brands_dict
+            )
+            if filter_obj:
+                filters.append(filter_obj)
+        
+        return filters
+    
+    @staticmethod
+    def _build_single_filter(queryset, variants, filter_id, brand_ids_list=None, brands_dict=None):
+        """Build a single filter based on filter_id"""
+        # Filter: Nước sản xuất (Country) - Only from Brand.country (most reliable)
+        if filter_id == 'country' and variants['countries']:
+            if not brand_ids_list:
+                return None
+            
+            # Build country count map from Brand.country (optimized)
+            # Group brand_ids by country first to reduce queries
+            country_to_brand_ids = defaultdict(list)
+            for brand_id, (brand_name, country) in brands_dict.items():
+                if country:
+                    country_to_brand_ids[country].append(brand_id)
+            
+            # Count products for each country
+            country_count_map = {}
+            for country, brand_ids_for_country in country_to_brand_ids.items():
+                count = queryset.filter(
+                    medicine__brand_id__in=brand_ids_for_country
+                ).count()
+                country_count_map[country] = count
+            
+            # Build options
+            country_options = []
+            for country in sorted(variants['countries'])[:FILTER_CONFIGS['country']['limit']]:
+                country_options.append({
+                    'value': country,
+                    'label': country,
+                    'count': country_count_map.get(country, 0)
                 })
             
-            config = FILTER_CONFIGS['brandOrigin']
-            filters.append({
-                'id': 'brandOrigin',
+            config = FILTER_CONFIGS['country']
+            return {
+                'id': 'country',
                 'type': config['type'],
                 'label': config['label'],
                 'field': config['field'],
                 'searchable': config['searchable'],
-                'options': origin_options,
+                'options': country_options,
                 'defaultSelected': [],
-                'showMore': len(variants['origins']) > config['limit']
-            })
+                'showMore': len(variants['countries']) > config['limit']
+            }
         
-        # Filter: Nước sản xuất (Manufacturer) - Optimized
-        if variants['manufacturers']:
-            # Get counts in single query using aggregation
-            manufacturer_counts = queryset.exclude(
-                Q(manufacturer__isnull=True) | Q(manufacturer='')
-            ).values('manufacturer').annotate(
-                count=Count('id')
-            ).order_by('-count')[:FILTER_CONFIGS['manufacturer']['limit']]
+        # Filter: Thương hiệu (Brand)
+        if filter_id == 'brand' and variants['brands']:
+            if not brand_ids_list:
+                return None
             
-            manufacturer_count_map = {item['manufacturer']: item['count'] for item in manufacturer_counts}
-            
-            manufacturer_options = []
-            for manufacturer in sorted(variants['manufacturers'])[:FILTER_CONFIGS['manufacturer']['limit']]:
-                manufacturer_options.append({
-                    'value': manufacturer,
-                    'label': manufacturer,
-                    'count': manufacturer_count_map.get(manufacturer, 0)
-                })
-            
-            config = FILTER_CONFIGS['manufacturer']
-            filters.append({
-                'id': 'manufacturer',
-                'type': config['type'],
-                'label': config['label'],
-                'field': config['field'],
-                'searchable': config['searchable'],
-                'options': manufacturer_options,
-                'defaultSelected': [],
-                'showMore': len(variants['manufacturers']) > config['limit']
-            })
-        
-        # Filter: Thương hiệu (Brand) - Optimized
-        if variants['brands']:
-            # Get brand counts in single query using aggregation
-            brand_counts = queryset.exclude(
+            # Get brand_ids and count products per brand_id for ALL brands (not just top N)
+            # This ensures accurate counts for all brands in variants
+            brand_id_counts = queryset.exclude(
                 Q(medicine__brand_id__isnull=True) | Q(medicine__brand_id=0)
-            ).values('medicine__brand__name').annotate(
+            ).values('medicine__brand_id').annotate(
                 count=Count('id')
-            ).order_by('-count')[:FILTER_CONFIGS['brand']['limit']]
+            )
             
-            brand_count_map = {item['medicine__brand__name']: item['count'] for item in brand_counts if item['medicine__brand__name']}
+            # Build brand_count_map using pre-computed brands_dict
+            brand_count_map = {}
+            for item in brand_id_counts:
+                brand_id = item['medicine__brand_id']
+                brand_name = brands_dict.get(brand_id, (None, None))[0]
+                if brand_name:
+                    brand_count_map[brand_name] = item['count']
             
+            # Build options with counts for all brands, then sort by count descending
             brand_options = []
-            for brand_name in sorted(variants['brands'])[:FILTER_CONFIGS['brand']['limit']]:
-                brand_options.append({
-                    'value': brand_name,
-                    'label': brand_name,
-                    'count': brand_count_map.get(brand_name, 0)
-                })
+            for brand_name in variants['brands']:
+                count = brand_count_map.get(brand_name, 0)
+                if count > 0:  # Only include brands with products
+                    brand_options.append({
+                        'value': brand_name,
+                        'label': brand_name,
+                        'count': count
+                    })
+            
+            # Sort by count descending, then by name
+            brand_options.sort(key=lambda x: (-x['count'], x['label']))
+            
+            # Limit to top N brands
+            limit = FILTER_CONFIGS['brand']['limit']
+            brand_options = brand_options[:limit]
             
             config = FILTER_CONFIGS['brand']
-            filters.append({
+            return {
                 'id': 'brand',
                 'type': config['type'],
                 'label': config['label'],
@@ -355,11 +560,11 @@ class DynamicFiltersService:
                 'searchable': config['searchable'],
                 'options': brand_options,
                 'defaultSelected': [],
-                'showMore': len(variants['brands']) > config['limit']
-            })
+                'showMore': len(variants['brands']) > limit
+            }
         
-        # Filter: Giá bán (Price Range) - Optimized
-        if variants['priceRanges']:
+        # Filter: Giá bán (Price Range)
+        if filter_id == 'priceRange' and variants['priceRanges']:
             price_options = []
             for price_range_key in sorted(variants['priceRanges']):
                 count = DynamicFiltersService._count_by_price_range(queryset, price_range_key)
@@ -370,7 +575,7 @@ class DynamicFiltersService:
                 })
             
             config = FILTER_CONFIGS['priceRange']
-            filters.append({
+            return {
                 'id': 'priceRange',
                 'type': config['type'],
                 'label': config['label'],
@@ -379,9 +584,90 @@ class DynamicFiltersService:
                 'options': price_options,
                 'defaultSelected': [],
                 'showMore': False
-            })
+            }
         
-        return filters
+        # Filter: Đối tượng sử dụng (Target Audience)
+        if filter_id == 'targetAudience' and variants['targetAudiences']:
+            # Use pre-computed counts
+            counts = variants.get('_target_audience_counts', {})
+            target_audience_options = []
+            for variant_value in sorted(variants['targetAudiences'])[:FILTER_CONFIGS['targetAudience']['limit']]:
+                count = counts.get(variant_value, 0)
+                if count > 0:
+                    target_audience_options.append({
+                        'value': variant_value,
+                        'label': variant_value,
+                        'count': count
+                    })
+            
+            if target_audience_options:
+                config = FILTER_CONFIGS['targetAudience']
+                return {
+                    'id': 'targetAudience',
+                    'type': config['type'],
+                    'label': config['label'],
+                    'field': config['field'],
+                    'searchable': config['searchable'],
+                    'options': target_audience_options,
+                    'defaultSelected': [],
+                    'showMore': len(variants['targetAudiences']) > config['limit']
+                }
+        
+        # Filter: Mùi vị/Mùi hương (Flavor)
+        if filter_id == 'flavor' and variants['flavors']:
+            # Use pre-computed counts
+            counts = variants.get('_flavor_counts', {})
+            flavor_options = []
+            for variant_value in sorted(variants['flavors'])[:FILTER_CONFIGS['flavor']['limit']]:
+                count = counts.get(variant_value, 0)
+                if count > 0:
+                    flavor_options.append({
+                        'value': variant_value,
+                        'label': variant_value,
+                        'count': count
+                    })
+            
+            if flavor_options:
+                config = FILTER_CONFIGS['flavor']
+                return {
+                    'id': 'flavor',
+                    'type': config['type'],
+                    'label': config['label'],
+                    'field': config['field'],
+                    'searchable': config['searchable'],
+                    'options': flavor_options,
+                    'defaultSelected': [],
+                    'showMore': len(variants['flavors']) > config['limit']
+                }
+        
+        # Filter: Chỉ định (Indication)
+        if filter_id == 'indication' and variants['indications']:
+            # Use pre-computed counts
+            counts = variants.get('_indication_counts', {})
+            indication_options = []
+            for variant_value in sorted(variants['indications'])[:FILTER_CONFIGS['indication']['limit']]:
+                count = counts.get(variant_value, 0)
+                if count > 0:
+                    indication_options.append({
+                        'value': variant_value,
+                        'label': variant_value,
+                        'count': count
+                    })
+            
+            if indication_options:
+                config = FILTER_CONFIGS['indication']
+                return {
+                    'id': 'indication',
+                    'type': config['type'],
+                    'label': config['label'],
+                    'field': config['field'],
+                    'searchable': config['searchable'],
+                    'options': indication_options,
+                    'defaultSelected': [],
+                    'showMore': len(variants['indications']) > config['limit']
+                }
+        
+        return None
     
     @staticmethod
     def _count_by_price_range(queryset, price_range_key):
@@ -399,16 +685,10 @@ class DynamicFiltersService:
     
     @staticmethod
     def invalidate_cache(category_slug: str = None):
-        """
-        Invalidate cache for dynamic filters
-        
-        Args:
-            category_slug: Category slug to invalidate. If None, invalidate all (not implemented)
-        """
+        """Invalidate cache for dynamic filters"""
         if category_slug:
             cache_key = f'{CACHE_PREFIX}:{category_slug}'
             cache.delete(cache_key)
             logger.info(f'Invalidated cache for category: {category_slug}')
         else:
-            # TODO: Implement pattern-based cache invalidation if using Redis
             logger.warning('Invalidating all filters cache not implemented')
