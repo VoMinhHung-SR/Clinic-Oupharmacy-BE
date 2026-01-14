@@ -28,6 +28,8 @@ class DynamicFiltersViewSet(viewsets.ViewSet):
         
         Query Parameters:
             - use_cache: bool (default: True) - Whether to use cache
+            - include_variants: bool (default: True) - Include variants in response
+            - include_counts: bool (default: True) - Include count fields in variants
         """
         if not category_slug:
             return Response(
@@ -37,14 +39,18 @@ class DynamicFiltersViewSet(viewsets.ViewSet):
         
         category_slug = category_slug.rstrip('/')
         
-        # Check if cache should be used
+        # Parse query parameters
         use_cache = request.query_params.get('use_cache', 'true').lower() != 'false'
+        include_variants = request.query_params.get('include_variants', 'true').lower() != 'false'
+        include_counts = request.query_params.get('include_counts', 'true').lower() != 'false'
         
         try:
             # Get filters from service layer
             filters_data = DynamicFiltersService.get_category_filters(
                 category_slug=category_slug,
-                use_cache=use_cache
+                use_cache=use_cache,
+                include_variants=include_variants,
+                include_counts=include_counts
             )
             
             if filters_data is None:

@@ -1,0 +1,199 @@
+"""
+Filter Helper Utilities
+Helper methods for category, queryset, and data retrieval
+"""
+import logging
+from collections import defaultdict
+from django.db import models
+from django.db.models import Q
+from mainApp.models import Category, MedicineUnit
+from storeApp.models import Brand
+from storeApp.services.filter_constants import (
+    FILTER_VARIANT_MAP,
+    CATEGORY_TYPE_MAPPING
+)
+
+logger = logging.getLogger(__name__)
+
+
+class FilterHelpers:
+    """Helper utilities for dynamic filters"""
+    
+    @staticmethod
+    def get_category_from_slug(category_slug: str):
+        """Get category from slug"""
+        return Category.objects.using('default').filter(
+            active=True
+        ).filter(
+            models.Q(path_slug__iexact=category_slug) | 
+            models.Q(slug__iexact=category_slug)
+        ).first()
+    
+    @staticmethod
+    def get_root_category(category_slug: str = None, category=None):
+        """
+        Lấy root category (level = 0) từ database
+        
+        Args:
+            category_slug: Category slug (optional)
+            category: Category object (optional)
+        
+        Returns:
+            Category: Root category object hoặc None
+        """
+        root_slug = None
+        
+        # Nếu đã có category object
+        if category:
+            # Nếu đã là root category (level = 0), return luôn
+            if category.level == 0:
+                return category
+            
+            # Lấy root slug từ path_slug (nhanh nhất, không cần query thêm)
+            if category.path_slug:
+                root_slug = category.path_slug.split('/')[0]
+            elif category.slug:
+                root_slug = category.slug
+        
+        # Nếu chỉ có category_slug, lấy root slug từ đó
+        elif category_slug:
+            root_slug = category_slug.split('/')[0]
+        
+        # Query root category từ database (level = 0, parent = None)
+        if root_slug:
+            return Category.objects.using('default').filter(
+                active=True,
+                level=0,
+                parent__isnull=True,
+                slug=root_slug
+            ).first()
+        
+        return None
+    
+    @staticmethod
+    def get_category_type_from_root_slug(root_slug: str):
+        """
+        Map root category slug sang category type
+        Logic: Dựa vào CATEGORY_TYPE_MAPPING để xác định type
+        """
+        if not root_slug:
+            return 'default'
+        
+        slug_lower = root_slug.lower()
+        
+        # Check exact match first
+        if slug_lower in CATEGORY_TYPE_MAPPING:
+            return CATEGORY_TYPE_MAPPING[slug_lower]
+        
+        # Check partial match (for nested slugs)
+        for pattern, category_type in CATEGORY_TYPE_MAPPING.items():
+            if pattern in slug_lower:
+                return category_type
+        
+        return 'default'
+    
+    @staticmethod
+    def get_category_type(category_slug: str):
+        """Xác định category type từ slug"""
+        if not category_slug:
+            return 'default'
+        
+        root_category = FilterHelpers.get_root_category(category_slug=category_slug)
+        if not root_category:
+            return 'default'
+        
+        return FilterHelpers.get_category_type_from_root_slug(root_category.slug)
+    
+    @staticmethod
+    def get_category_type_from_category(category):
+        """Xác định category type từ Category object"""
+        if not category:
+            return 'default'
+        
+        root_category = FilterHelpers.get_root_category(category=category)
+        if not root_category:
+            return 'default'
+        
+        return FilterHelpers.get_category_type_from_root_slug(root_category.slug)
+    
+    @staticmethod
+    def has_variants(variants, filter_id):
+        """Check xem filter có variants không"""
+        variant_key = FILTER_VARIANT_MAP.get(filter_id)
+        if not variant_key:
+            return False
+        return bool(variants.get(variant_key))
+    
+    @staticmethod
+    def get_category_queryset(category):
+        """Get MedicineUnit queryset for category (including subcategories)"""
+        category_path_slug = category.path_slug or category.slug
+        
+        # Get all category IDs (including subcategories)
+        category_ids = [category.id]
+        subcategories = Category.objects.using('default').filter(
+            active=True,
+            path_slug__istartswith=f"{category_path_slug}/"
+        ).values_list('id', flat=True)
+        category_ids.extend(list(subcategories))
+        
+        # Get MedicineUnits in these categories
+        return MedicineUnit.objects.using('default').filter(
+            active=True,
+            is_published=True,
+            category_id__in=category_ids
+        ).select_related('medicine', 'category')
+    
+    @staticmethod
+    def get_brand_data(queryset):
+        """
+        Get brand IDs and brand data in one optimized query
+        Returns: (brand_ids_list, brands_dict) where brands_dict maps brand_id -> (name, country)
+        """
+        brand_ids = queryset.exclude(
+            Q(medicine__brand_id__isnull=True) | Q(medicine__brand_id=0)
+        ).values_list('medicine__brand_id', flat=True).distinct()
+        
+        brand_ids_list = list(brand_ids)
+        brands_dict = {}
+        
+        if brand_ids_list:
+            # Get all brand data in single query
+            brands_data = Brand.objects.using('store').filter(
+                id__in=brand_ids_list,
+                active=True
+            ).values_list('id', 'name', 'country')
+            
+            brands_dict = {
+                brand_id: (name, country)
+                for brand_id, name, country in brands_data
+            }
+        
+        return brand_ids_list, brands_dict
+    
+    @staticmethod
+    def calculate_median(values):
+        """Calculate median from values"""
+        if not values:
+            return 0
+        values_list = sorted([v for v in values if v])
+        n = len(values_list)
+        if n == 0:
+            return 0
+        if n % 2 == 0:
+            return (values_list[n//2 - 1] + values_list[n//2]) / 2
+        return values_list[n//2]
+    
+    @staticmethod
+    def generate_price_ranges(min_price, max_price):
+        """Generate price range keys based on min/max prices"""
+        ranges = []
+        if min_price < 100000:
+            ranges.append('under_100k')
+        if min_price < 300000 or max_price >= 100000:
+            ranges.append('100k_to_300k')
+        if min_price < 500000 or max_price >= 300000:
+            ranges.append('300k_to_500k')
+        if max_price >= 500000:
+            ranges.append('over_500k')
+        return sorted(set(ranges))

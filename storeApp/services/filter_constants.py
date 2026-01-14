@@ -51,6 +51,27 @@ FILTER_CONFIGS = {
         'type': 'checkbox',
         'searchable': True,
         'limit': 20
+    },
+    'skinType': {
+        'field': 'skinType',
+        'label': 'Loại da',
+        'type': 'checkbox',
+        'searchable': True,
+        'limit': 10
+    },
+    'medicineType': {
+        'field': 'medicineType',
+        'label': 'Loại thuốc',
+        'type': 'checkbox',
+        'searchable': True,
+        'limit': 20
+    },
+    'ingredients': {
+        'field': 'ingredients',
+        'label': 'Thành phần',
+        'type': 'checkbox',
+        'searchable': True,
+        'limit': 30
     }
 }
 
@@ -83,19 +104,21 @@ CATEGORY_TYPE_FILTER_CONFIGS = {
     'medicine': {
         'enabled_filters': [
             'priceRange', 'brand', 'country',
-            'targetAudience', 'indication'
+            'targetAudience', 'indication', 'medicineType', 'ingredients'
         ],
         'filter_priority': [
-            'priceRange', 'brand', 'indication', 'targetAudience', 'country'
+            'priceRange', 'medicineType', 'brand', 'indication',
+            'ingredients', 'targetAudience', 'country'
         ]
     },
     'cosmetics': {
         'enabled_filters': [
             'priceRange', 'brand', 'country',
-            'targetAudience', 'indication'
+            'targetAudience', 'indication', 'skinType'
         ],
         'filter_priority': [
-            'priceRange', 'brand', 'targetAudience', 'country', 'indication'
+            'priceRange', 'skinType', 'brand', 'targetAudience',
+            'country', 'indication'
         ]
     },
     'supplements': {
@@ -167,5 +190,42 @@ INDICATION_KEYWORDS = {
 # Specification keys for extraction
 SPECIFICATION_KEYS = {
     'targetAudience': ['targetAudience', 'target_audience', 'audience', 'target', 'for'],
-    'flavor': ['flavor', 'flavour', 'taste', 'mùi vị', 'mùi hương', 'hương vị']
+    'flavor': ['flavor', 'flavour', 'taste', 'mùi vị', 'mùi hương', 'hương vị'],
+    'skinType': ['skinType', 'skin_type', 'loại da', 'skin'],
+    'ingredients': ['ingredients', 'ingredient', 'thành phần', 'active_ingredient']
+}
+
+# Skin type patterns
+SKIN_TYPE_PATTERNS = {
+    'Da dầu': ['da dầu', 'dầu', 'oily skin', 'sebum'],
+    'Da khô': ['da khô', 'khô', 'dry skin'],
+    'Da hỗn hợp': ['da hỗn hợp', 'hỗn hợp', 'combination skin'],
+    'Da nhạy cảm': ['da nhạy cảm', 'nhạy cảm', 'sensitive skin'],
+    'Da thường': ['da thường', 'normal skin']
+}
+
+# Medicine type patterns
+MEDICINE_TYPE_PATTERNS = {
+    'Thuốc kê đơn': ['kê đơn', 'prescription', 'theo đơn'],
+    'Thuốc không kê đơn': ['không kê đơn', 'otc', 'over the counter'],
+    'Thuốc bổ': ['thuốc bổ', 'bổ sung', 'supplement'],
+    'Thuốc kháng sinh': ['kháng sinh', 'antibiotic'],
+    'Thuốc giảm đau': ['giảm đau', 'pain relief', 'analgesic']
+}
+
+# Ingredient keywords (common active ingredients)
+INGREDIENT_KEYWORDS = [
+    'paracetamol', 'acetaminophen', 'ibuprofen', 'aspirin',
+    'cetirizine', 'loratadine', 'diphenhydramine',
+    'amoxicillin', 'azithromycin', 'penicillin',
+    'vitamin c', 'vitamin d', 'calcium', 'iron', 'zinc'
+]
+
+# Category type mapping - Map root slug patterns to category types
+CATEGORY_TYPE_MAPPING = {
+    'thuoc': 'medicine',
+    'duoc-mi-pham': 'cosmetics',
+    'cosmetics': 'cosmetics',
+    'thuc-pham-chuc-nang': 'supplements',
+    'supplements': 'supplements'
 }
