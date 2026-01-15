@@ -2,7 +2,6 @@
 Filter Builders
 Methods for building filter objects from extracted variants
 """
-import logging
 from collections import defaultdict
 from django.db.models import Count, Q, Case, When, CharField, Value
 from storeApp.services.filter_constants import (
@@ -13,8 +12,6 @@ from storeApp.services.filter_constants import (
     FILTER_VARIANT_MAP
 )
 from storeApp.services.filter_helpers import FilterHelpers
-
-logger = logging.getLogger(__name__)
 
 
 class FilterBuilders:

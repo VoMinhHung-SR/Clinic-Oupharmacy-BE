@@ -2,17 +2,15 @@
 Dynamic Filters Service Layer
 Main orchestration service for dynamic filters feature
 """
-import logging
 from django.core.cache import cache
 from storeApp.services.filter_constants import (
     CACHE_TIMEOUT,
-    CACHE_PREFIX
+    CACHE_PREFIX,
+    LARGE_CATEGORY_THRESHOLD
 )
 from storeApp.services.filter_helpers import FilterHelpers
 from storeApp.services.filter_extractors import FilterExtractors
 from storeApp.services.filter_builders import FilterBuilders
-
-logger = logging.getLogger(__name__)
 
 
 class DynamicFiltersService:
@@ -43,7 +41,6 @@ class DynamicFiltersService:
         if use_cache:
             cached_data = cache.get(cache_key)
             if cached_data:
-                logger.debug(f'Cache hit for category: {category_slug}')
                 # Apply response filtering if needed
                 return DynamicFiltersService._filter_response_data(
                     cached_data, include_variants, include_counts
@@ -52,47 +49,68 @@ class DynamicFiltersService:
         # Get category
         category = FilterHelpers.get_category_from_slug(category_slug)
         if not category:
-            logger.warning(f'Category not found: {category_slug}')
             return None
         
         # Get queryset
         queryset = FilterHelpers.get_category_queryset(category)
         product_count = queryset.count()
         
-        # Extract variants with pre-computed brand data
-        brand_ids_list, brands_dict = FilterHelpers.get_brand_data(queryset)
-        variants = FilterExtractors.extract_variants(queryset, brand_ids_list, brands_dict)
+        # Get subcategories (always needed for navigation)
+        subcategories = FilterHelpers.get_immediate_subcategories(category)
+        has_subcategories = len(subcategories) > 0
         
-        # Pre-compute price range counts if price ranges exist
-        if variants.get('priceRanges'):
-            variants['_price_range_counts'] = FilterBuilders.compute_all_price_range_counts(
-                queryset, variants['priceRanges']
+        # Check if category is too large - skip expensive filter extraction
+        # This prevents long processing time for large categories (5000+ products)
+        if product_count > LARGE_CATEGORY_THRESHOLD:
+            # Build response without filters (skip expensive extraction)
+            response_data = {
+                'categorySlug': category.path_slug or category.slug,
+                'categoryName': category.path or category.name,
+                'productCount': product_count,
+                'hasSubcategories': has_subcategories,
+                'subcategories': subcategories,
+                'variants': None,  # Not extracted for large categories
+                'filters': None,  # Not extracted for large categories (UI should not render filters)
+                'overLimit': True  # Flag to indicate category is over limit
+            }
+        else:
+            # Normal flow: extract filters and variants for categories <= 1000 products
+            # Extract variants with pre-computed brand data
+            brand_ids_list, brands_dict = FilterHelpers.get_brand_data(queryset)
+            variants = FilterExtractors.extract_variants(queryset, brand_ids_list, brands_dict)
+            
+            # Pre-compute price range counts if price ranges exist
+            if variants.get('priceRanges'):
+                variants['_price_range_counts'] = FilterBuilders.compute_all_price_range_counts(
+                    queryset, variants['priceRanges']
+                )
+            
+            # Build filters với category object and pre-computed data
+            filters = FilterBuilders.build_filters(
+                queryset, 
+                variants, 
+                category_slug=category_slug,
+                category=category,
+                brand_ids_list=brand_ids_list,
+                brands_dict=brands_dict
             )
-        
-        # Build filters với category object and pre-computed data
-        filters = FilterBuilders.build_filters(
-            queryset, 
-            variants, 
-            category_slug=category_slug,
-            category=category,
-            brand_ids_list=brand_ids_list,
-            brands_dict=brands_dict
-        )
-        
-        # Build response (always include full data, filter later)
-        response_data = {
-            'categorySlug': category.path_slug or category.slug,
-            'categoryName': category.path or category.name,
-            'productCount': product_count,
-            'variants': variants,  # Always include full variants for cache
-            'filters': filters
-        }
+            
+            # Build response (always include full data, filter later)
+            response_data = {
+                'categorySlug': category.path_slug or category.slug,
+                'categoryName': category.path or category.name,
+                'productCount': product_count,
+                'hasSubcategories': has_subcategories,
+                'subcategories': subcategories,  # Include for navigation
+                'variants': variants,  # Always include full variants for cache
+                'filters': filters,
+                'overLimit': False  # Flag to indicate category is within limit
+            }
         
         # Cache the full response (always cache full data for flexibility)
         # Must cache BEFORE filtering response for client
         if use_cache:
             cache.set(cache_key, response_data.copy(), timeout=CACHE_TIMEOUT)
-            logger.debug(f'Cached filters for category: {category_slug}')
         
         # Apply response filtering and return
         return DynamicFiltersService._filter_response_data(
@@ -124,6 +142,3 @@ class DynamicFiltersService:
         if category_slug:
             cache_key = f'{CACHE_PREFIX}:{category_slug}'
             cache.delete(cache_key)
-            logger.info(f'Invalidated cache for category: {category_slug}')
-        else:
-            logger.warning('Invalidating all filters cache not implemented')

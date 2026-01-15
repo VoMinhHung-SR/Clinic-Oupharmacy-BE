@@ -1,14 +1,11 @@
 """
 Dynamic Filters ViewSet - API endpoint for dynamic filters
 """
-import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from storeApp.services.dynamic_filters_service import DynamicFiltersService
-
-logger = logging.getLogger(__name__)
 
 
 class DynamicFiltersViewSet(viewsets.ViewSet):
@@ -62,7 +59,6 @@ class DynamicFiltersViewSet(viewsets.ViewSet):
             return Response(filters_data)
             
         except Exception as e:
-            logger.error(f'Error getting filters for category {category_slug}: {str(e)}', exc_info=True)
             return Response(
                 {'detail': f'Lỗi khi lấy filters: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

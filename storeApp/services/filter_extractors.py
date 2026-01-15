@@ -2,7 +2,6 @@
 Filter Extractors
 Methods for extracting filter values from product data
 """
-import logging
 from collections import defaultdict
 from django.db.models import Min, Max, Avg
 from storeApp.services.filter_constants import (
@@ -14,8 +13,6 @@ from storeApp.services.filter_constants import (
     INGREDIENT_KEYWORDS
 )
 from storeApp.services.filter_helpers import FilterHelpers
-
-logger = logging.getLogger(__name__)
 
 
 class FilterExtractors:

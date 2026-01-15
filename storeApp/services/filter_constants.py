@@ -8,6 +8,10 @@ from django.conf import settings
 CACHE_TIMEOUT = getattr(settings, 'DYNAMIC_FILTERS_CACHE_TTL', 3600)  # 1 hour
 CACHE_PREFIX = 'dynamic_filters'
 
+# Large category optimization
+LARGE_CATEGORY_THRESHOLD = getattr(settings, 'LARGE_CATEGORY_THRESHOLD', 1000)  # Show subcategories only if > this
+SUBCATEGORY_LEVEL_DEPTH = 1  # Get immediate children only (level + 1)
+
 # Filter configuration
 FILTER_CONFIGS = {
     'country': {

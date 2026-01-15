@@ -9,6 +9,8 @@ from storeApp.filters import ProductFilter
 from storeApp.viewsets.product import ProductPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
+from storeApp.services.filter_helpers import FilterHelpers
+from storeApp.services.filter_constants import LARGE_CATEGORY_THRESHOLD
 
 
 @api_view(['GET'])
@@ -72,19 +74,38 @@ def products_by_category_slug(request, category_slug):
         
         category_path_slug = category.path_slug or category.slug
         
-        category_ids = [category.id]
-        
-        subcategories = Category.objects.using('default').filter(
+        # Get all subcategory IDs (including nested) for product filtering
+        # Use set for efficient duplicate handling
+        category_ids = {category.id}
+        subcategory_ids = Category.objects.using('default').filter(
             active=True,
             path_slug__istartswith=f"{category_path_slug}/"
         ).values_list('id', flat=True)
-        
-        category_ids.extend(list(subcategories))
+        category_ids.update(subcategory_ids)
         
         queryset = MedicineUnit.objects.using('default').filter(
             active=True, 
-            category_id__in=category_ids
+            category_id__in=list(category_ids)
         ).select_related('medicine', 'category')
+        
+        # Get immediate subcategories (always needed for navigation)
+        immediate_subcategories = FilterHelpers.get_immediate_subcategories(category)
+        has_subcategories = bool(immediate_subcategories)
+        
+        # Check if category is too large - return subcategories only
+        product_count = queryset.count()
+        
+        if product_count > LARGE_CATEGORY_THRESHOLD:
+            # Return subcategories only (no products) when over threshold
+            return Response({
+                'categorySlug': category_path_slug,
+                'categoryName': category.path or category.name,
+                'productCount': product_count,
+                'hasSubcategories': has_subcategories,
+                'subcategories': immediate_subcategories,
+                'products': [],  # Empty products list when over threshold
+                'overLimit': True
+            })
         
     except Exception as e:
         return Response(
@@ -92,6 +113,8 @@ def products_by_category_slug(request, category_slug):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     
+    # Normal flow: return products (product_count <= LARGE_CATEGORY_THRESHOLD)
+    # Subcategories already fetched above, reuse them
     filter_backend = DjangoFilterBackend()
     queryset = filter_backend.filter_queryset(request, queryset, ProductFilter)
     
@@ -108,7 +131,19 @@ def products_by_category_slug(request, category_slug):
     page = paginator.paginate_queryset(queryset, request)
     if page is not None:
         serializer = ProductSerializer(page, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        response = paginator.get_paginated_response(serializer.data)
+        # Add subcategories to paginated response
+        response.data['hasSubcategories'] = has_subcategories
+        response.data['subcategories'] = immediate_subcategories
+        return response
     
     serializer = ProductSerializer(queryset, many=True)
-    return Response(serializer.data)
+    return Response({
+        'categorySlug': category_path_slug,
+        'categoryName': category.path or category.name,
+        'productCount': product_count,
+        'hasSubcategories': has_subcategories,
+        'subcategories': immediate_subcategories,  # Always include subcategories
+        'products': serializer.data,
+        'overLimit': False
+    })
