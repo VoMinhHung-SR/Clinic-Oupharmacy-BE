@@ -146,4 +146,3 @@ def get_unread_notifications(limit=10):
         QuerySet: Notification objects chưa đọc
     """
     return Notification.objects.filter(is_read=False).order_by('-created_date')[:limit]
-
