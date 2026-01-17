@@ -1,14 +1,11 @@
 """
 Dynamic Filters ViewSet - API endpoint for dynamic filters
 """
-import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from storeApp.services.dynamic_filters_service import DynamicFiltersService
-
-logger = logging.getLogger(__name__)
 
 
 class DynamicFiltersViewSet(viewsets.ViewSet):
@@ -28,6 +25,8 @@ class DynamicFiltersViewSet(viewsets.ViewSet):
         
         Query Parameters:
             - use_cache: bool (default: True) - Whether to use cache
+            - include_variants: bool (default: True) - Include variants in response
+            - include_counts: bool (default: True) - Include count fields in variants
         """
         if not category_slug:
             return Response(
@@ -37,14 +36,18 @@ class DynamicFiltersViewSet(viewsets.ViewSet):
         
         category_slug = category_slug.rstrip('/')
         
-        # Check if cache should be used
+        # Parse query parameters
         use_cache = request.query_params.get('use_cache', 'true').lower() != 'false'
+        include_variants = request.query_params.get('include_variants', 'true').lower() != 'false'
+        include_counts = request.query_params.get('include_counts', 'true').lower() != 'false'
         
         try:
             # Get filters from service layer
             filters_data = DynamicFiltersService.get_category_filters(
                 category_slug=category_slug,
-                use_cache=use_cache
+                use_cache=use_cache,
+                include_variants=include_variants,
+                include_counts=include_counts
             )
             
             if filters_data is None:
@@ -56,7 +59,6 @@ class DynamicFiltersViewSet(viewsets.ViewSet):
             return Response(filters_data)
             
         except Exception as e:
-            logger.error(f'Error getting filters for category {category_slug}: {str(e)}', exc_info=True)
             return Response(
                 {'detail': f'Lỗi khi lấy filters: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
