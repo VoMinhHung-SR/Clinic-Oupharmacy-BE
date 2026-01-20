@@ -8,3 +8,4 @@ class MainappConfig(AppConfig):
     def ready(self):
         import mainApp.firebase.signals.users.signals  # noqa: F401
         import mainApp.firebase.signals.doctor_schedule.signals
+        import mainApp.signals

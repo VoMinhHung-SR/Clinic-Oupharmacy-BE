@@ -24,7 +24,7 @@ from io import BytesIO
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils.text import slugify
-from mainApp.models import Medicine, MedicineUnit, Category
+from mainApp.models import Medicine, MedicineUnit, Category, MedicineUnitStats
 from storeApp.models import Brand
 import cloudinary
 import cloudinary.uploader
@@ -443,6 +443,10 @@ class Command(BaseCommand):
                                         existing_unit.manufacturer = manufacturer  # Update với full data (không truncate)
                                         existing_unit.shelf_life = shelf_life
                                         existing_unit.save()
+                                        
+                                        # Ensure stats exist (especially for old records without stats)
+                                        MedicineUnitStats.objects.get_or_create(unit=existing_unit)
+                                        
                                         imported_count += 1
                                         if (row_num - 1) % 100 == 0:
                                             self.stdout.write(f'  ✓ Progress: {row_num - 1}/{total_rows} rows processed (updated)')
@@ -469,6 +473,10 @@ class Command(BaseCommand):
                                     specifications={},  # Có thể thêm sau nếu cần
                                     in_stock=100,  # Default stock
                                         )
+                                        
+                                        # Ensure stats exist (signal should handle this, but explicit check for safety)
+                                        MedicineUnitStats.objects.get_or_create(unit=unit)
+                                        
                                         imported_count += 1
                                         if (row_num - 1) % 100 == 0:
                                             self.stdout.write(f'  ✓ Progress: {row_num - 1}/{total_rows} rows processed')

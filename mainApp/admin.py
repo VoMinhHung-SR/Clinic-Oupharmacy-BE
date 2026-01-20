@@ -169,6 +169,10 @@ class MedicineUnitAdmin(admin.ModelAdmin):
     search_fields = ['medicine__name', 'package_size', 'registration_number', 'origin', 'manufacturer']
     readonly_fields = ['created_date', 'updated_date']
 
+class MedicineUnitStatsAdmin(admin.ModelAdmin):
+    list_display = ['id', 'unit', 'sold_7d', 'sold_30d', 'sold_total', 'view_count', 'wishlist_count']
+    search_fields = ['unit__medicine__name']
+
 
 class CategoryAdmin(admin.ModelAdmin):
     list_display = ['id', 'name', 'slug', 'parent', 'level', 'path_slug', 'active', 'created_date']
@@ -297,6 +301,7 @@ admin_site.register(Bill, BillAdmin)
 admin_site.register(Category, CategoryAdmin)
 admin_site.register(Medicine, MedicineAdmin)
 admin_site.register(MedicineUnit, MedicineUnitAdmin)
+admin_site.register(MedicineUnitStats, MedicineUnitStatsAdmin)
 admin_site.register(Examination, ExaminationAdmin)
 admin_site.register(Diagnosis, DiagnosisAdmin)
 admin_site.register(Prescribing, PrescribingAdmin)

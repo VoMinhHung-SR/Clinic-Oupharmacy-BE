@@ -396,6 +396,22 @@ class MedicineUnit(BaseModel):
             models.Index(fields=['is_hot', 'is_published']),  # For hot products filtering
         ]
 
+class MedicineUnitStats(models.Model):
+    unit = models.OneToOneField(
+        MedicineUnit,
+        on_delete=models.CASCADE,
+        related_name='stats'
+    )
+
+    sold_total = models.IntegerField(default=0, db_index=True)
+    sold_30d = models.IntegerField(default=0, db_index=True)
+    sold_7d = models.IntegerField(default=0, db_index=True)
+
+    view_count = models.IntegerField(default=0, db_index=True)
+    wishlist_count = models.IntegerField(default=0)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
 
 # Phieu ke toa
 class Prescribing(BaseModel):
