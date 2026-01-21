@@ -170,8 +170,13 @@ class MedicineUnitAdmin(admin.ModelAdmin):
     readonly_fields = ['created_date', 'updated_date']
 
 class MedicineUnitStatsAdmin(admin.ModelAdmin):
-    list_display = ['id', 'unit', 'sold_7d', 'sold_30d', 'sold_total', 'view_count', 'wishlist_count']
+    list_display = ['id', 'get_unit_medicine_name', 'sold_7d', 'sold_30d', 'sold_total', 'view_count', 'wishlist_count']
     search_fields = ['unit__medicine__name']
+    
+    def get_unit_medicine_name(self, obj):
+        return obj.unit.medicine.name
+    get_unit_medicine_name.short_description = 'Unit'
+    get_unit_medicine_name.admin_order_field = 'unit__medicine__name'
 
 
 class CategoryAdmin(admin.ModelAdmin):
