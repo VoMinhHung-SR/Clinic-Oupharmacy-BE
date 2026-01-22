@@ -180,20 +180,21 @@ class MinimalMedicineUnitSerializer(serializers.ModelSerializer):
     def get_thumbnail(self, obj):
         if obj.image:
             try:
-                return obj.image.url
+                from mainApp import cloud_context
+                return f"{cloud_context}{obj.image}"
             except Exception:
                 pass
 
         images = obj.images or []
-        if images:
+        if images and isinstance(images, list):
             first = images[0]
-
             if isinstance(first, str):
-                return first
-
+                from mainApp import cloud_context
+                if first.startswith('http'):
+                    return first
+                return f"{cloud_context}{first}"
             if isinstance(first, dict):
                 return first.get("url")
-
         return None
 
     def get_discount_percent(self, obj):
@@ -250,7 +251,7 @@ class CategoryLevel1Serializer(ModelSerializer):
         return CategoryLevel2Serializer(level2_categories, many=True).data
 
     def get_top_products(self, obj):
-        from services.medicine_ranking import get_top5_medicine_units_for_category
+        from .services.medicine_ranking import get_top5_medicine_units_for_category
 
         products = get_top5_medicine_units_for_category(obj)
         return MinimalMedicineUnitSerializer(products, many=True).data

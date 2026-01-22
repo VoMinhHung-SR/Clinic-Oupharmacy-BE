@@ -1,4 +1,4 @@
-from django.db.models import Case, When, Value, FloatField, Q
+from django.db.models import Case, When, Value, FloatField, Q, F
 from mainApp.models import MedicineUnit
 
 
@@ -19,8 +19,8 @@ def get_top5_medicine_units_for_category(category):
     # ------------------------
     qs = qs.annotate(
         sold_score=Case(
-            When(product_ranking__gte=100, then=Value(100)),
-            default="product_ranking",
+            When(product_ranking__gte=100, then=Value(100.0)),
+            default=F("product_ranking"),
             output_field=FloatField(),
         ),
 
