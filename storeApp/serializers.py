@@ -161,6 +161,7 @@ class MinimalMedicineUnitSerializer(serializers.ModelSerializer):
     medicine_id = serializers.IntegerField(source="medicine.id")
     name = serializers.SerializerMethodField()
     slug = serializers.CharField(source="medicine.slug")
+    web_slug = serializers.SerializerMethodField()
 
     thumbnail = serializers.SerializerMethodField()
     discount_percent = serializers.SerializerMethodField()
@@ -169,13 +170,24 @@ class MinimalMedicineUnitSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MedicineUnit
-        fields = ["id", "medicine_id", "name", "slug", 
+        fields = ["id", "medicine_id", "name", "slug", "web_slug",
         "thumbnail", "price_value", "original_price_value", 
         "discount_percent", "package_size", "in_stock", 
         "is_out_of_stock", "is_hot", "product_ranking", "badges"]
 
     def get_name(self, obj):
         return obj.medicine.web_name or obj.medicine.name
+
+    def get_web_slug(self, obj):
+        category_slug = obj.category.path_slug if obj.category else ""
+        medicine_slug = obj.medicine.slug
+        if category_slug:
+            return f"{category_slug}/{medicine_slug}"
+        return medicine_slug
+        data = super().to_representation(instance)
+        if 'web_slug' in data:
+            data['web-slug'] = data.pop('web_slug')
+        return data
 
     def get_thumbnail(self, obj):
         if obj.image:
