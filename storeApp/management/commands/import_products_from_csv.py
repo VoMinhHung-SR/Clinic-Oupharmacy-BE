@@ -24,7 +24,7 @@ from io import BytesIO
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils.text import slugify
-from mainApp.models import Medicine, MedicineUnit, Category
+from mainApp.models import Medicine, MedicineUnit, Category, MedicineUnitStats
 from storeApp.models import Brand
 import cloudinary
 import cloudinary.uploader
@@ -150,31 +150,56 @@ class Command(BaseCommand):
         
         # Common country patterns in Vietnamese
         country_patterns = {
-            'Úc': 'Australia',
-            'Australia': 'Australia',
-            'Pháp': 'France',
-            'France': 'France',
-            'Đức': 'Germany',
-            'Germany': 'Germany',
-            'Mỹ': 'USA',
-            'USA': 'USA',
-            'Hoa Kỳ': 'USA',
-            'Anh': 'UK',
-            'UK': 'UK',
-            'Nhật': 'Japan',
-            'Japan': 'Japan',
-            'Hàn Quốc': 'South Korea',
-            'Korea': 'South Korea',
-            'Trung Quốc': 'China',
-            'China': 'China',
-            'Ấn Độ': 'India',
-            'India': 'India',
-            'Thái Lan': 'Thailand',
-            'Thailand': 'Thailand',
+            'Úc': 'Úc',
+            'Australia': 'Úc',
+            'Pháp': 'Pháp',
+            'France': 'Pháp',
+            'Đức': 'Đức',
+            'Germany': 'Đức',
+            'Mỹ': 'Mỹ',
+            'USA': 'Mỹ',
+            'Hoa Kỳ': 'Mỹ',
+            'Anh': 'Anh',
+            'UK': 'Anh',
+            'England': 'Anh',
+            'Nhật': 'Nhật Bản',
+            'Japan': 'Nhật Bản',
+            'Hàn Quốc': 'Hàn Quốc',
+            'Korea': 'Hàn Quốc',
+            'Trung Quốc': 'Trung Quốc',
+            'China': 'Trung Quốc',
+            'Ấn Độ': 'Ấn Độ',
+            'India': 'Ấn Độ',
+            'Thái Lan': 'Thái Lan',
+            'Thailand': 'Thái Lan',
             'Pakistan': 'Pakistan',
             'Parkistan': 'Pakistan',
-            'Việt Nam': 'Vietnam',
-            'Vietnam': 'Vietnam',
+            'Việt Nam': 'Việt Nam',
+            'Vietnam': 'Việt Nam',
+            'Canada': 'Canada',
+            'Tây Ban Nha': 'Tây Ban Nha',
+            'Spain': 'Tây Ban Nha',
+            'Ý': 'Ý',
+            'Italy': 'Ý',
+            'Thụy Sĩ': 'Thụy Sĩ',
+            'Switzerland': 'Thụy Sĩ',
+            'Nga': 'Nga',
+            'Russia': 'Nga',
+            'Singapore': 'Singapore',
+            'Malaysia': 'Malaysia',
+            'Indonesia': 'Indonesia',
+            'Đài Loan': 'Đài Loan',
+            'Taiwan': 'Đài Loan',
+            'Hồng Kông': 'Hồng Kông',
+            'Hong Kong': 'Hồng Kông',
+            'Bỉ': 'Bỉ',
+            'Belgium': 'Bỉ',
+            'Hà Lan': 'Hà Lan',
+            'Netherlands': 'Hà Lan',
+            'Hungary': 'Hungary',
+            'Ba Lan': 'Ba Lan',
+            'Poland': 'Ba Lan',
+            'New Zealand': 'New Zealand',
         }
         
         text_lower = text.lower()
@@ -250,10 +275,12 @@ class Command(BaseCommand):
                                         if brand_cache is not None:
                                             brand_cache[brand_name] = brand_id
                                         
-                                        # If brand exists but country is None, try to update it (nếu có country mới)
-                                        if not created and not brand.country and country:
-                                            brand.country = country
-                                            brand.save(update_fields=['country'])
+                                        # If brand exists, update country if found in CSV
+                                        if not created and country:
+                                            if brand.country != country:
+                                                old_country = brand.country
+                                                brand.country = country
+                                                brand.save(update_fields=['country'])
                         
                         # ============================================
                         # 2. VẤN ĐỀ NGHIÊM TRỌNG: Bỏ qua pricing.packageOptions
@@ -443,6 +470,10 @@ class Command(BaseCommand):
                                         existing_unit.manufacturer = manufacturer  # Update với full data (không truncate)
                                         existing_unit.shelf_life = shelf_life
                                         existing_unit.save()
+                                        
+                                        # Ensure stats exist (especially for old records without stats)
+                                        MedicineUnitStats.objects.get_or_create(unit=existing_unit)
+                                        
                                         imported_count += 1
                                         if (row_num - 1) % 100 == 0:
                                             self.stdout.write(f'  ✓ Progress: {row_num - 1}/{total_rows} rows processed (updated)')
@@ -469,6 +500,10 @@ class Command(BaseCommand):
                                     specifications={},  # Có thể thêm sau nếu cần
                                     in_stock=100,  # Default stock
                                         )
+                                        
+                                        # Ensure stats exist (signal should handle this, but explicit check for safety)
+                                        MedicineUnitStats.objects.get_or_create(unit=unit)
+                                        
                                         imported_count += 1
                                         if (row_num - 1) % 100 == 0:
                                             self.stdout.write(f'  ✓ Progress: {row_num - 1}/{total_rows} rows processed')
@@ -536,8 +571,8 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f'❌ Directory not found: {csv_dir}'))
                 return
             
-            pattern = os.path.join(csv_dir, '*.csv')
-            csv_files = sorted(glob.glob(pattern))
+            pattern = os.path.join(csv_dir, '**/*.csv')
+            csv_files = sorted(glob.glob(pattern, recursive=True))
             
             if not csv_files:
                 self.stdout.write(self.style.ERROR(f'❌ No CSV files found in {csv_dir}'))
