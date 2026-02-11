@@ -24,10 +24,39 @@ class PaymentMethodSerializer(ModelSerializer):
 
 
 class OrderItemSerializer(ModelSerializer):
+    name = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = OrderItem
-        fields = ['id', 'medicine_unit_id', 'quantity', 'price', 'subtotal', 'created_date', 'updated_date']
-        read_only_fields = ['subtotal']
+        fields = ['id', 'medicine_unit_id', 'quantity', 'price', 'subtotal', 'name', 'image_url', 'created_date', 'updated_date']
+        read_only_fields = ['subtotal', 'name', 'image_url']
+
+    def get_name(self, obj):
+        try:
+            unit = MedicineUnit.objects.using('default').filter(id=obj.medicine_unit_id).select_related('medicine').first()
+            if unit and unit.medicine:
+                return unit.medicine.web_name or unit.medicine.name
+        except Exception:
+            pass
+        return None
+
+    def get_image_url(self, obj):
+        try:
+            unit = MedicineUnit.objects.using('default').filter(id=obj.medicine_unit_id).first()
+            if unit and unit.image:
+                from mainApp import cloud_context
+                return f'{cloud_context}{unit.image}'
+            if unit and unit.images and isinstance(unit.images, list) and unit.images:
+                from mainApp import cloud_context
+                first = unit.images[0]
+                url = first.get('url') if isinstance(first, dict) else (first if isinstance(first, str) else None)
+                if url and not url.startswith('http'):
+                    return f'{cloud_context}{url}'
+                return url or None
+        except Exception:
+            pass
+        return None
 
 
 class OrderSerializer(ModelSerializer):
@@ -53,7 +82,9 @@ class OrderSerializer(ModelSerializer):
             validated_data['shipping_method'] = self._shipping_method
         if hasattr(self, '_payment_method'):
             validated_data['payment_method'] = self._payment_method
-            
+        request = self.context.get('request')
+        if request and getattr(request, 'user', None) and request.user.is_authenticated:
+            validated_data['user_id'] = request.user.id
         return super().create(validated_data)
     
     def get_user(self, obj):
