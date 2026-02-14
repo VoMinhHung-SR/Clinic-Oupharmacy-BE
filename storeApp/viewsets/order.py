@@ -1,8 +1,9 @@
 from rest_framework import viewsets, generics, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
-from django.db import transaction, models
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.serializers import ValidationError as DRFValidationError
+from django.db import transaction, models, IntegrityError
 from django.utils import timezone
 from storeApp.models import Order, OrderItem, MedicineBatch, ShippingMethod, PaymentMethod
 from storeApp.serializers import OrderSerializer, OrderItemSerializer
@@ -16,20 +17,36 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
 
     def get_permissions(self):
         """
-        Instantiates and returns the list of permissions that this view requires.
-        - list, retrieve: AllowAny (public)
-        - create: IsAuthenticated (user)
-        - update, destroy: IsAdminUser (admin)
-        - by_user: IsAuthenticated (user)
-        - update_status: IsAdminUser (admin)
+        - list: IsAdminUser (only admin sees all orders)
+        - retrieve: IsAuthenticated (owner or admin only, enforced via get_queryset)
+        - create, by_user: IsAuthenticated
+        - update, destroy, update_status: IsAdminUser
         """
-        if self.action in ['list', 'retrieve']:
-            permission_classes = [AllowAny]
-        elif self.action in ['create', 'by_user']:
+        if self.action == 'list':
+            permission_classes = [IsAdminUser]
+        elif self.action in ['retrieve', 'create', 'by_user', 'cancel']:
             permission_classes = [IsAuthenticated]
         else:
             permission_classes = [IsAdminUser]
         return [permission() for permission in permission_classes]
+
+    def get_queryset(self):
+        """Restrict list to admin; restrict retrieve to owner or admin."""
+        if self.action == 'list':
+            if self.request.user.is_authenticated and self.request.user.is_staff:
+                return Order.objects.all()
+            return Order.objects.none()
+        if self.action == 'retrieve':
+            if self.request.user.is_authenticated and self.request.user.is_staff:
+                return Order.objects.all()
+            if self.request.user.is_authenticated:
+                return Order.objects.filter(user_id=self.request.user.id)
+            return Order.objects.none()
+        if self.action == 'cancel':
+            if self.request.user.is_authenticated:
+                return Order.objects.filter(user_id=self.request.user.id)
+            return Order.objects.none()
+        return Order.objects.all()
     
     def _validate_order_item(self, item_data, idx):
         """Validate một order item"""
@@ -51,23 +68,26 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         except MedicineUnit.DoesNotExist:
             return {'item_index': idx, 'medicine_unit_id': medicine_unit_id, 'error': 'MedicineUnit not found or inactive'}
         
-        # Validate price
-        if abs(float(price) - float(medicine_unit.price)) > 0.01:
+        # Validate price (MedicineUnit has price_value)
+        expected_price = medicine_unit.price_value
+        if abs(float(price) - float(expected_price)) > 0.01:
             return {
                 'item_index': idx,
                 'medicine_unit_id': medicine_unit_id,
                 'field': 'price',
-                'error': f'Price mismatch. Expected: {medicine_unit.price}, Got: {price}'
+                'error': f'Price mismatch. Expected: {expected_price}, Got: {price}'
             }
         
         # Validate stock availability
         today = timezone.now().date()
-        total_available = MedicineBatch.objects.filter(
+        batch_total = MedicineBatch.objects.filter(
             medicine_unit_id=medicine_unit_id,
             active=True,
             remaining_quantity__gt=0,
             expiry_date__gte=today
         ).aggregate(total=models.Sum('remaining_quantity'))['total'] or 0
+        unit_stock = getattr(medicine_unit, 'in_stock', 0) or 0
+        total_available = max(int(batch_total), int(unit_stock))
         
         if total_available < quantity:
             return {
@@ -82,18 +102,18 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
     def _deduct_stock(self, medicine_unit_id, quantity):
         """Trừ tồn kho theo FIFO"""
         today = timezone.now().date()
-        available_batches = MedicineBatch.objects.filter(
-            medicine_unit_id=medicine_unit_id,
-            active=True,
-            remaining_quantity__gt=0,
-            expiry_date__gte=today
-        ).order_by('expiry_date', 'import_date')
-        
+        available_batches = list(
+            MedicineBatch.objects.filter(
+                medicine_unit_id=medicine_unit_id,
+                active=True,
+                remaining_quantity__gt=0,
+                expiry_date__gte=today
+            ).order_by('expiry_date', 'import_date')
+        )
         remaining = quantity
         for batch in available_batches:
             if remaining <= 0:
                 break
-            
             if batch.remaining_quantity >= remaining:
                 batch.remaining_quantity -= remaining
                 batch.save(update_fields=['remaining_quantity'])
@@ -102,13 +122,53 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                 remaining -= batch.remaining_quantity
                 batch.remaining_quantity = 0
                 batch.save(update_fields=['remaining_quantity'])
-        
         if remaining > 0:
-            raise ValueError(f'Insufficient stock for medicine_unit_id {medicine_unit_id}. Could not deduct {remaining} units.')
+            unit = MedicineUnit.objects.using('default').filter(id=medicine_unit_id).first()
+            if unit is not None and getattr(unit, 'in_stock', 0) >= remaining:
+                unit.in_stock -= remaining
+                unit.save(update_fields=['in_stock'])
+                remaining = 0
+            if remaining > 0:
+                raise ValueError(
+                    f'Insufficient stock for medicine_unit_id {medicine_unit_id}. Could not deduct {remaining} units.'
+                )
+
+    def _restore_stock(self, order):
+        """Hoàn tồn kho khi đơn bị hủy: cộng lại vào batch (FIFO) hoặc MedicineUnit.in_stock nếu không có batch."""
+        today = timezone.now().date()
+        for item in order.items.all():
+            medicine_unit_id = item.medicine_unit_id
+            quantity = item.quantity
+            batches = list(
+                MedicineBatch.objects.filter(
+                    medicine_unit_id=medicine_unit_id,
+                    active=True,
+                    expiry_date__gte=today,
+                ).order_by('expiry_date', 'import_date')
+            )
+            if not batches:
+                unit = MedicineUnit.objects.using('default').filter(id=medicine_unit_id).first()
+                if unit is not None:
+                    unit.in_stock = (getattr(unit, 'in_stock', 0) or 0) + quantity
+                    unit.save(update_fields=['in_stock'])
+                continue
+            remaining = quantity
+            for batch in batches:
+                if remaining <= 0:
+                    break
+                batch.remaining_quantity += remaining
+                remaining = 0
+                batch.save(update_fields=['remaining_quantity'])
+            if remaining > 0:
+                unit = MedicineUnit.objects.using('default').filter(id=medicine_unit_id).first()
+                if unit is not None:
+                    unit.in_stock = (getattr(unit, 'in_stock', 0) or 0) + remaining
+                    unit.save(update_fields=['in_stock'])
     
     def create(self, request, *args, **kwargs):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
-        items_data = data.pop('items', [])
+        raw_items = data.pop('items', [])
+        items_data = raw_items if isinstance(raw_items, list) else ([raw_items] if raw_items else [])
         
         if not items_data:
             return Response(
@@ -128,46 +188,66 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Validate và lấy shipping_method, payment_method
-        shipping_method_obj = None
-        payment_method_obj = None
+        shipping_id = data.pop('shipping_method_id', None) or data.pop('shipping_method', None)
+        payment_id = data.pop('payment_method_id', None) or data.pop('payment_method', None)
         
-        if 'shipping_method_id' in data:
-            try:
-                shipping_method_obj = ShippingMethod.objects.get(id=data.pop('shipping_method_id'))
-            except ShippingMethod.DoesNotExist:
-                return Response(
-                    {'error': 'ShippingMethod not found'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        if shipping_id is None:
+            return Response(
+                {'error': 'shipping_method or shipping_method_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if payment_id is None:
+            return Response(
+                {'error': 'payment_method or payment_method_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-        if 'payment_method_id' in data:
-            try:
-                payment_method_obj = PaymentMethod.objects.get(id=data.pop('payment_method_id'))
-            except PaymentMethod.DoesNotExist:
-                return Response(
-                    {'error': 'PaymentMethod not found'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        try:
+            shipping_method_obj = ShippingMethod.objects.get(id=shipping_id)
+        except (ShippingMethod.DoesNotExist, TypeError, ValueError):
+            return Response(
+                {'error': 'ShippingMethod not found', 'shipping_method_id': shipping_id},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            payment_method_obj = PaymentMethod.objects.get(id=payment_id)
+        except (PaymentMethod.DoesNotExist, TypeError, ValueError):
+            return Response(
+                {'error': 'PaymentMethod not found', 'payment_method_id': payment_id},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Create order and items in transaction
-        with transaction.atomic(using='store'):
-            serializer = self.get_serializer(data=data)
-            if shipping_method_obj:
+        try:
+            with transaction.atomic(using='store'):
+                serializer = self.get_serializer(data=data)
                 serializer._shipping_method = shipping_method_obj
-            if payment_method_obj:
                 serializer._payment_method = payment_method_obj
-            
-            serializer.is_valid(raise_exception=True)
-            order = serializer.save()
-            
-            # Create order items and deduct stock
-            for item_data in items_data:
-                OrderItem.objects.create(order=order, **item_data)
-                self._deduct_stock(
-                    item_data['medicine_unit_id'],
-                    item_data['quantity']
-                )
+                serializer.is_valid(raise_exception=True)
+                order = serializer.save()
+                # Create order items and deduct stock
+                for item_data in items_data:
+                    OrderItem.objects.create(order=order, **item_data)
+                    self._deduct_stock(
+                        item_data['medicine_unit_id'],
+                        item_data['quantity']
+                    )
+        except DRFValidationError as e:
+            return Response(
+                {'error': 'Validation failed', 'details': e.detail},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except IntegrityError as e:
+            return Response(
+                {'error': 'Invalid data', 'details': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         headers = self.get_success_headers(serializer.data)
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED, headers=headers)
@@ -179,12 +259,37 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         
         if new_status not in dict(Order.STATUS_CHOICES):
             return Response(
-                {'error': 'Invalid status'}, 
+                {'error': 'Invalid status'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        order.status = new_status
-        order.save()
+        if new_status == Order.CANCELLED:
+            with transaction.atomic(using='store'):
+                self._restore_stock(order)
+                order.status = new_status
+                order.save(update_fields=['status'])
+        else:
+            order.status = new_status
+            order.save(update_fields=['status'])
+        return Response(OrderSerializer(order).data)
+
+    @action(methods=['post'], detail=True, url_path='cancel')
+    def cancel(self, request, pk=None):
+        """User hủy đơn (chỉ đơn PENDING, chỉ chủ đơn)."""
+        order = self.get_object()
+        if order.user_id != request.user.id:
+            return Response(
+                {'error': 'You can only cancel your own order'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if order.status != Order.PENDING:
+            return Response(
+                {'error': 'Only PENDING orders can be cancelled'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        with transaction.atomic(using='store'):
+            self._restore_stock(order)
+            order.status = Order.CANCELLED
+            order.save(update_fields=['status'])
         return Response(OrderSerializer(order).data)
     
     @action(methods=['get'], detail=False, url_path='by-user/(?P<user_id>[^/.]+)')
