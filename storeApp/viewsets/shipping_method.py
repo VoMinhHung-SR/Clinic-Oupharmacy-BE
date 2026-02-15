@@ -6,8 +6,13 @@ from storeApp.serializers import ShippingMethodSerializer
 
 class ShippingMethodViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView,
                             generics.CreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
-    queryset = ShippingMethod.objects.filter(active=True)
+    queryset = ShippingMethod.objects.all()
     serializer_class = ShippingMethodSerializer
+
+    def get_queryset(self):
+        if self.request.user.is_authenticated and self.request.user.is_staff:
+            return ShippingMethod.objects.all()
+        return ShippingMethod.objects.filter(active=True)
     
     def get_permissions(self):
         """
