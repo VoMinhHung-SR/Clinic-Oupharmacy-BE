@@ -24,6 +24,7 @@ venv.bak/
 /staticfiles/
 
 storeApp/test/
+.cursor/    
 
 # Database backups
 scripts/db/backups/*.sql
