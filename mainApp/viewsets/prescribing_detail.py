@@ -1,11 +1,12 @@
-from django.db import transaction
 from rest_framework import viewsets, generics
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser, MultiPartParser
-from mainApp.models import PrescriptionDetail
-from mainApp.serializers import PrescriptionDetailCRUDSerializer
 from rest_framework.response import Response
 from rest_framework import status
+
+from mainApp.models import PrescriptionDetail
+from mainApp.serializers import PrescriptionDetailCRUDSerializer
+from storeApp.services.stock import get_available_stock, deduct_stock
 
 class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
                                 generics.UpdateAPIView, generics.CreateAPIView, generics.DestroyAPIView):
@@ -23,21 +24,26 @@ class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
 
             medicine_unit = serializer.validated_data['medicine_unit']
             quantity = serializer.validated_data['quantity']
+            medicine_unit_id = medicine_unit.id
 
-            if medicine_unit.in_stock < quantity:
+            available = get_available_stock(medicine_unit_id)
+            if available < quantity:
                 return Response(
                     {"message": "Medicine quantity over the stock"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            with transaction.atomic():
-                medicine_unit.in_stock -= quantity
-                medicine_unit.save()
-                self.perform_create(serializer)
+            deduct_stock(medicine_unit_id, quantity)
+            self.perform_create(serializer)
 
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
+        except ValueError as ve:
+            return Response(
+                {"message": str(ve) or "Medicine quantity over the stock"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except ValidationError as ve:
             return Response(
                 {"message": ve.detail},

@@ -3,12 +3,12 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.serializers import ValidationError as DRFValidationError
-from django.db import transaction, models, IntegrityError
-from django.utils import timezone
-from storeApp.models import Order, OrderItem, MedicineBatch, ShippingMethod, PaymentMethod
+from rest_framework.generics import get_object_or_404
+from django.db import transaction, IntegrityError
+from storeApp.models import Order, OrderItem, ShippingMethod, PaymentMethod
 from storeApp.serializers import OrderSerializer, OrderItemSerializer
+from storeApp.services.stock import get_available_stock, deduct_stock, restore_stock
 from mainApp.models import MedicineUnit
-
 
 class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView,
                    generics.CreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
@@ -46,8 +46,21 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
             if self.request.user.is_authenticated:
                 return Order.objects.filter(user_id=self.request.user.id)
             return Order.objects.none()
+        if self.action in ['update_status']:
+            if self.request.user.is_authenticated and self.request.user.is_staff:
+                return Order.objects.all()
+            return Order.objects.none()
         return Order.objects.all()
-    
+
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        pk = self.kwargs.get('pk')
+        if pk is None:
+            raise AssertionError('Expected pk in URL kwargs')
+        if str(pk).isdigit():
+            return get_object_or_404(queryset, id=int(pk))
+        return get_object_or_404(queryset, order_number=pk)
+
     def _validate_order_item(self, item_data, idx):
         """Validate một order item"""
         medicine_unit_id = item_data.get('medicine_unit_id')
@@ -78,17 +91,8 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                 'error': f'Price mismatch. Expected: {expected_price}, Got: {price}'
             }
         
-        # Validate stock availability
-        today = timezone.now().date()
-        batch_total = MedicineBatch.objects.filter(
-            medicine_unit_id=medicine_unit_id,
-            active=True,
-            remaining_quantity__gt=0,
-            expiry_date__gte=today
-        ).aggregate(total=models.Sum('remaining_quantity'))['total'] or 0
-        unit_stock = getattr(medicine_unit, 'in_stock', 0) or 0
-        total_available = max(int(batch_total), int(unit_stock))
-        
+        # Validate stock availability (single source of truth: batches via stock service)
+        total_available = get_available_stock(medicine_unit_id)
         if total_available < quantity:
             return {
                 'item_index': idx,
@@ -100,70 +104,13 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         return None
     
     def _deduct_stock(self, medicine_unit_id, quantity):
-        """Trừ tồn kho theo FIFO"""
-        today = timezone.now().date()
-        available_batches = list(
-            MedicineBatch.objects.filter(
-                medicine_unit_id=medicine_unit_id,
-                active=True,
-                remaining_quantity__gt=0,
-                expiry_date__gte=today
-            ).order_by('expiry_date', 'import_date')
-        )
-        remaining = quantity
-        for batch in available_batches:
-            if remaining <= 0:
-                break
-            if batch.remaining_quantity >= remaining:
-                batch.remaining_quantity -= remaining
-                batch.save(update_fields=['remaining_quantity'])
-                remaining = 0
-            else:
-                remaining -= batch.remaining_quantity
-                batch.remaining_quantity = 0
-                batch.save(update_fields=['remaining_quantity'])
-        if remaining > 0:
-            unit = MedicineUnit.objects.using('default').filter(id=medicine_unit_id).first()
-            if unit is not None and getattr(unit, 'in_stock', 0) >= remaining:
-                unit.in_stock -= remaining
-                unit.save(update_fields=['in_stock'])
-                remaining = 0
-            if remaining > 0:
-                raise ValueError(
-                    f'Insufficient stock for medicine_unit_id {medicine_unit_id}. Could not deduct {remaining} units.'
-                )
+        """Trừ tồn kho qua stock service (FIFO trên batches + sync cache)."""
+        deduct_stock(medicine_unit_id, quantity)
 
     def _restore_stock(self, order):
-        """Hoàn tồn kho khi đơn bị hủy: cộng lại vào batch (FIFO) hoặc MedicineUnit.in_stock nếu không có batch."""
-        today = timezone.now().date()
+        """Hoàn tồn kho khi đơn bị hủy: gọi restore_stock cho từng item (LIFO/ADJ + sync cache)."""
         for item in order.items.all():
-            medicine_unit_id = item.medicine_unit_id
-            quantity = item.quantity
-            batches = list(
-                MedicineBatch.objects.filter(
-                    medicine_unit_id=medicine_unit_id,
-                    active=True,
-                    expiry_date__gte=today,
-                ).order_by('expiry_date', 'import_date')
-            )
-            if not batches:
-                unit = MedicineUnit.objects.using('default').filter(id=medicine_unit_id).first()
-                if unit is not None:
-                    unit.in_stock = (getattr(unit, 'in_stock', 0) or 0) + quantity
-                    unit.save(update_fields=['in_stock'])
-                continue
-            remaining = quantity
-            for batch in batches:
-                if remaining <= 0:
-                    break
-                batch.remaining_quantity += remaining
-                remaining = 0
-                batch.save(update_fields=['remaining_quantity'])
-            if remaining > 0:
-                unit = MedicineUnit.objects.using('default').filter(id=medicine_unit_id).first()
-                if unit is not None:
-                    unit.in_stock = (getattr(unit, 'in_stock', 0) or 0) + remaining
-                    unit.save(update_fields=['in_stock'])
+            restore_stock(item.medicine_unit_id, item.quantity)
     
     def create(self, request, *args, **kwargs):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
