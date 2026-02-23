@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
-from .models import MedicineBatch, Brand, ShippingMethod, PaymentMethod, Order, OrderItem, Notification
+from .models import MedicineBatch, Brand, ShippingMethod, PaymentMethod, Order, OrderItem, Notification, SearchKeyword
 from mainApp.serializers import UserSerializer, MedicineSerializer, CategorySerializer
 from mainApp.models import User, MedicineUnit, Category, Medicine
 
@@ -116,6 +116,17 @@ class NotificationSerializer(ModelSerializer):
             'title', 'message', 'is_read', 'read_at', 
             'created_date', 'updated_date'
         ]
+
+
+class SearchKeywordSerializer(ModelSerializer):
+    class Meta:
+        model = SearchKeyword
+        fields = ['id', 'keyword', 'hit_count', 'last_searched_at']
+
+
+class RecordSearchSerializer(serializers.Serializer):
+    """Body cho POST record search: gửi keyword người dùng vừa tìm."""
+    keyword = serializers.CharField(max_length=120, allow_blank=False, trim_whitespace=True)
 
 
 class ProductSerializer(ModelSerializer):

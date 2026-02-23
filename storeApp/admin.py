@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Brand, ShippingMethod, PaymentMethod, Order, OrderItem, MedicineBatch, Notification
+from .models import Brand, ShippingMethod, PaymentMethod, Order, OrderItem, MedicineBatch, Notification, SearchKeyword
 from mainApp.admin import admin_site
 
 
@@ -74,6 +74,13 @@ class NotificationAdmin(admin.ModelAdmin):
     readonly_fields = ['created_date', 'updated_date']
 
 
+class SearchKeywordAdmin(admin.ModelAdmin):
+    list_display = ['keyword', 'hit_count', 'last_searched_at', 'created_date']
+    list_filter = ['created_date']
+    search_fields = ['keyword']
+    ordering = ['-hit_count']
+
+
 # Đăng ký với custom admin site
 admin_site.register(Brand, BrandAdmin)
 admin_site.register(ShippingMethod, ShippingMethodAdmin)
@@ -82,3 +89,4 @@ admin_site.register(Order, OrderAdmin)
 admin_site.register(OrderItem)
 admin_site.register(MedicineBatch, MedicineBatchAdmin)
 admin_site.register(Notification, NotificationAdmin)
+admin_site.register(SearchKeyword, SearchKeywordAdmin)
