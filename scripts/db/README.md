@@ -7,11 +7,17 @@ Thư mục này chứa các script để quản lý database: backup, sync, rest
 ```
 scripts/db/
 ├── config.sh          # File cấu hình chung (load env, colors, utilities)
-├── backup.sh          # Backup databases từ container
-├── sync.sh            # Đồng bộ databases từ local sang container
-├── restore.sh         # Restore database từ backup file
-├── db-manager.sh      # Script master để quản lý tất cả
-└── backups/           # Thư mục chứa các file backup (tự động tạo)
+├── backup.sh          # Backup từ container (cần psql/pg_dump trên máy)
+├── backup-docker.sh   # Backup bằng Docker — 2 DB (default + store), không cần cài PostgreSQL
+├── restore.sh         # Restore vào DB (cần psql trên máy)
+├── restore-docker.sh  # Restore vào container bằng Docker (cặp với backup-docker)
+├── fix-sequences.sql  # Đồng bộ sequence với max(id) (chạy tự động sau restore)
+├── sync.sh                  # Đồng bộ Local -> Container (full schema+data)
+├── sync-container-to-local.sh # Đồng bộ Container -> Local
+├── sync_and_drop.sh         # Drop bảng container rồi sync (ghi đè sạch)
+├── sync_existing_tables.sh  # Chỉ data, từng bảng (default DB)
+├── db-manager.sh            # Script master
+└── backups/                 # Thư mục backup (tự động tạo)
 ```
 
 ## Cài đặt
@@ -44,7 +50,23 @@ cd scripts/db
 
 ### 1. Backup
 
-Backup tất cả databases từ container:
+Backup **cả 2 database** (default + store) từ container DB.
+
+**Cách 1 – Backup bằng Docker (khuyến nghị, không cần cài PostgreSQL trên máy):**
+
+```bash
+./scripts/db/db-manager.sh backup-docker
+# hoặc trực tiếp
+./scripts/db/backup-docker.sh
+```
+
+Tạo **1 file** chứa cả 2 DB (pg_dumpall):
+
+```bash
+./scripts/db/backup-docker.sh --all
+```
+
+**Cách 2 – Backup từ máy host (cần cài `psql`, `pg_dump`):**
 
 ```bash
 ./scripts/db/db-manager.sh backup
@@ -52,33 +74,91 @@ Backup tất cả databases từ container:
 ./scripts/db/backup.sh
 ```
 
-Backup files sẽ được lưu trong `scripts/db/backups/` với format:
-- `oupharmacydb_YYYYMMDD_HHMMSS.sql.gz`
-- `oupharmacy_store_db_YYYYMMDD_HHMMSS.sql.gz`
+Backup files lưu trong `scripts/db/backups/` (hoặc thư mục truyền vào):
+- **2 file:** `oupharmacydb_YYYYMMDD_HHMMSS.sql.gz`, `oupharmacy_store_db_YYYYMMDD_HHMMSS.sql.gz`
+- **1 file (khi dùng `--all`):** `all_databases_YYYYMMDD_HHMMSS.sql.gz`
+
+#### Phòng drop nhầm data (backup + restore container)
+
+1. **Backup định kỳ** (schema + data + records) — chỉ cần Docker:
+   ```bash
+   ./scripts/db/backup-docker.sh
+   # hoặc: ./scripts/db/db-manager.sh backup-docker
+   ```
+   Tạo 2 file trong `backups/`: default DB và store DB. Có thể đặt cron (vd mỗi ngày).
+
+2. **Khi bị xóa/drop nhầm data** — restore từ file backup vào container (không cần cài psql trên máy):
+   ```bash
+   # Restore từng DB (tên DB tự đoán theo tên file)
+   ./scripts/db/restore-docker.sh backups/oupharmacydb_20251204_225103.sql.gz
+   ./scripts/db/restore-docker.sh backups/oupharmacy_store_db_20251204_225103.sql.gz
+   # hoặc chỉ định DB: restore-docker.sh <file> oupharmacydb
+   ./scripts/db/db-manager.sh restore-docker backups/oupharmacydb_20251204_225103.sql.gz
+   ```
+   Sau restore, script tự chạy **fix-sequences** để tránh lỗi duplicate key khi INSERT.
+
+3. **Xem danh sách backup:** `./scripts/db/db-manager.sh list-backups`
 
 ### 2. Sync
 
-Đồng bộ databases từ local PostgreSQL sang container:
+**Local → Container** (đồng bộ từ máy lên container):
 
 ```bash
 ./scripts/db/db-manager.sh sync
-# hoặc với force mode (xóa dữ liệu cũ)
+# hoặc với force mode (ghi đè dữ liệu cũ trên container)
 ./scripts/db/db-manager.sh sync --force
 ```
 
+**Container → Local** (kéo dữ liệu từ container về máy, ví dụ sau khi chạy production trong Docker):
+
+```bash
+./scripts/db/db-manager.sh sync-container-to-local
+# hoặc
+./scripts/db/sync-container-to-local.sh
+# force: ghi đè DB local
+./scripts/db/sync-container-to-local.sh --force
+```
+
+**Drop rồi sync (ghi đè sạch container):**
+
+```bash
+./scripts/db/db-manager.sh sync-drop
+# hoặc
+./scripts/db/sync_and_drop.sh
+```
+
+Script sẽ: drop toàn bộ bảng trong 2 DB trên container → gọi `sync.sh` (full sync + fix-sequences).
+
+**Chỉ cập nhật data cho bảng đã tồn tại** (default DB, data-only, từng bảng):
+
+```bash
+./scripts/db/sync_existing_tables.sh
+```
+
+Dùng khi schema trên container đã đúng, chỉ cần kéo data mới từ local cho các bảng có sẵn (không thay đổi schema, không sync store DB).
+
 **Lưu ý:**
 - Script sẽ tự động tạo target database nếu chưa tồn tại
-- `--force` sẽ drop và recreate database (mất dữ liệu cũ)
+- `--force` (sync / sync-container-to-local): dump dùng `--clean --if-exists` nên ghi đè schema/data đích
+- Sync full (sync / sync-container-to-local / sync-drop) dump **toàn bộ** schema + data và chạy **fix-sequences**
 
 ### 3. Restore
 
-Restore database từ backup file:
+**Restore vào container (Docker, không cần psql trên máy)** — khuyến nghị khi dùng backup-docker:
 
 ```bash
-./scripts/db/db-manager.sh restore backups/oupharmacydb_20251204_225103.sql.gz
-# hoặc chỉ định database name
+./scripts/db/restore-docker.sh backups/oupharmacydb_20251204_225103.sql.gz
+./scripts/db/restore-docker.sh backups/oupharmacy_store_db_20251204_225103.sql.gz
+# hoặc: ./scripts/db/db-manager.sh restore-docker <file> [database_name]
+```
+
+**Restore từ máy host** (cần cài `psql`):
+
+```bash
 ./scripts/db/db-manager.sh restore backups/oupharmacydb_20251204_225103.sql.gz oupharmacydb
 ```
+
+Sau khi restore, script tự chạy **fix-sequences** (đồng bộ sequence với `max(id)`) để tránh lỗi duplicate key khi INSERT.
 
 ### 4. List Backups
 
@@ -119,6 +199,7 @@ Các script tự động đọc cấu hình từ `.env.production` ở thư mụ
 
 ### Backup Settings (Optional)
 - `DB_BACKUP_DIR` - Thư mục lưu backup files (default: `scripts/db/backups`)
+- `DB_CONTAINER_NAME` - Tên container Postgres khi dùng backup-docker.sh (default: `postgres`)
 
 **Lưu ý:** Tất cả các giá trị đều có default, nên bạn không cần phải set tất cả trong `.env.production`. Chỉ cần set những giá trị khác với default.
 
@@ -144,9 +225,10 @@ Các script tự động đọc cấu hình từ `.env.production` ở thư mụ
 
 ## Yêu cầu
 
-- PostgreSQL client tools (`psql`, `pg_dump`, `pg_restore`)
-- Docker và Docker Compose (để chạy container database)
-- Bash shell
+- **backup-docker.sh / restore-docker.sh:** chỉ cần Docker (và container postgres đang chạy), không cần cài PostgreSQL trên máy.
+- **backup.sh / sync / restore:** cần PostgreSQL client (`psql`, `pg_dump`) trên máy.
+- Docker và Docker Compose (để chạy container database).
+- Bash shell.
 
 ## Troubleshooting
 
@@ -180,18 +262,22 @@ chmod +x scripts/db/*.sh
 
 ## Best Practices
 
-1. **Luôn backup trước khi sync/restore:**
+1. **Backup định kỳ** (phòng drop nhầm data): dùng backup-docker, có thể cron:
    ```bash
-   ./scripts/db/db-manager.sh backup
+   ./scripts/db/backup-docker.sh
+   ```
+2. **Luôn backup trước khi sync/restore:**
+   ```bash
+   ./scripts/db/db-manager.sh backup-docker
    ./scripts/db/db-manager.sh sync
    ```
 
-2. **Kiểm tra status trước khi thao tác:**
+3. **Kiểm tra status trước khi thao tác:**
    ```bash
    ./scripts/db/db-manager.sh status
    ```
 
-3. **Sử dụng script master (`db-manager.sh`) để dễ nhớ lệnh**
+4. **Sử dụng script master (`db-manager.sh`) để dễ nhớ lệnh**
 
-4. **Backup files được tự động compress để tiết kiệm dung lượng**
+5. **Backup files được tự động compress để tiết kiệm dung lượng**
 

@@ -31,6 +31,8 @@ load_env() {
     
     # Load backup directory setting
     export DB_BACKUP_DIR=$(grep "^DB_BACKUP_DIR=" "${env_file}" | cut -d '=' -f2- | tr -d '"' | tr -d "'" | head -1)
+    # Container name (for backup-docker.sh)
+    export DB_CONTAINER_NAME=$(grep "^DB_CONTAINER_NAME=" "${env_file}" | cut -d '=' -f2- | tr -d '"' | tr -d "'" | head -1)
     
     # Set defaults if not found
     export DB_PG_USER="${DB_PG_USER:-postgres}"
@@ -42,6 +44,7 @@ load_env() {
     export DB_CONTAINER_HOST="${DB_CONTAINER_HOST:-localhost}"
     export DB_CONTAINER_PORT="${DB_CONTAINER_PORT:-5433}"
     export DB_BACKUP_DIR="${DB_BACKUP_DIR:-${SCRIPT_DIR}/backups}"
+    export DB_CONTAINER_NAME="${DB_CONTAINER_NAME:-postgres}"
 }
 
 # Initialize connection settings after load_env is called

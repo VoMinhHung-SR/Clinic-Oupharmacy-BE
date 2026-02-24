@@ -79,15 +79,15 @@ sync_database() {
         fi
     fi
     
-    # Dump from source and restore to target in one pipe
-    log_info "Dumping and restoring data..."
+    # Dump from source and restore to target in one pipe (toàn bộ schema + data + setval)
+    log_info "Dumping and restoring data (full records)..."
     
     # Use temporary file for better error handling
     local temp_file=$(mktemp)
     local exit_code=0
     
     if PGPASSWORD="${LOCAL_PASSWORD}" pg_dump -h "${LOCAL_HOST}" -p "${LOCAL_PORT}" -U "${LOCAL_USER}" -d "${source_db}" \
-        --clean --if-exists --no-owner --no-acl 2>"${temp_file}" | \
+        --clean --if-exists --no-owner --no-acl -F p 2>"${temp_file}" | \
         PGPASSWORD="${CONTAINER_PASSWORD}" psql -h "${CONTAINER_HOST}" -p "${CONTAINER_PORT}" -U "${CONTAINER_USER}" \
         -d "${target_db}" -q >/dev/null 2>&1; then
         log_success "${db_name} synced successfully!"
@@ -96,13 +96,22 @@ sync_database() {
         if grep -q "FATAL\|ERROR" "${temp_file}" 2>/dev/null; then
             log_error "Failed to sync ${db_name}"
             cat "${temp_file}" >&2
-            exit_code=1
+            rm -f "${temp_file}"
+            return 1
         else
             log_warning "Some warnings occurred during sync, but operation completed"
         fi
     fi
     
     rm -f "${temp_file}"
+
+    local fix_seq="${SCRIPT_DIR}/fix-sequences.sql"
+    if [ -f "${fix_seq}" ]; then
+        log_info "Sync sequence for ${target_db}..."
+        if PGPASSWORD="${CONTAINER_PASSWORD}" psql -h "${CONTAINER_HOST}" -p "${CONTAINER_PORT}" -U "${CONTAINER_USER}" -d "${target_db}" -f "${fix_seq}" -q >/dev/null 2>&1; then
+            log_success "Sequence synced successfully."
+        fi
+    fi
     echo ""
     return ${exit_code}
 }

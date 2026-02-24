@@ -221,3 +221,19 @@ class Notification(BaseModel):
             models.Index(fields=['is_read', '-created_date']),
             models.Index(fields=['medicine_unit_id', 'notification_type']),
         ]
+
+
+class SearchKeyword(BaseModel):
+    """Từ khóa tìm kiếm — theo dõi lượt tìm để hiển thị 'Tìm kiếm phổ biến' (vd: Omega 3, Canxi)."""
+    keyword = models.CharField(max_length=120, null=False, blank=False, db_index=True, db_column='keyword')
+    hit_count = models.PositiveIntegerField(default=1, db_column='hit_count', help_text='Số lần người dùng tìm với từ khóa này')
+    last_searched_at = models.DateTimeField(auto_now=True, db_column='last_searched_at')
+
+    class Meta:
+        db_table = 'store_search_keyword'
+        verbose_name = 'Search Keyword'
+        verbose_name_plural = 'Search Keywords'
+        ordering = ['-hit_count', '-last_searched_at']
+        indexes = [
+            models.Index(fields=['-hit_count']),
+        ]
