@@ -52,6 +52,33 @@ class CommonLocation(models.Model):
         return self.address
 
 
+class UserAddress(models.Model):
+    created_date = models.DateTimeField(auto_now_add=True)
+    updated_date = models.DateTimeField(auto_now=True)
+    user = models.ForeignKey(
+        'User', on_delete=models.CASCADE, related_name='addresses'
+    )
+    address = models.CharField(max_length=500, null=False)
+    lat = models.FloatField(null=True, blank=True)
+    lng = models.FloatField(null=True, blank=True)
+    city = models.ForeignKey(CommonCity, on_delete=models.SET_NULL, null=True, blank=True)
+    district = models.ForeignKey(CommonDistrict, on_delete=models.SET_NULL, null=True, blank=True)
+    is_default = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-is_default', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user'],
+                condition=models.Q(is_default=True),
+                name='one_default_address_per_user',
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user_id}: {(self.address[:50] + '...') if len(self.address) > 50 else self.address}"
+
+
 class UserManager(BaseUserManager):
 
     def create_user(self, email, password=None, **extra_fields):
@@ -95,7 +122,6 @@ class User(AbstractUser):
     # Keep follow this format (UPPERCASE-ALL + PREFIX:ROLE_")
     # ex: (1:ROLE_USER; 2:ROLE_DOCTOR; 3:ROLE_NURSE)
     role = models.ForeignKey(UserRole, on_delete=models.SET_NULL, null=True)
-    location = models.ForeignKey(CommonLocation, on_delete=models.SET_NULL, null=True)
     objects = UserManager()
     is_admin = models.BooleanField(default=False)
     # Social Authentication fields

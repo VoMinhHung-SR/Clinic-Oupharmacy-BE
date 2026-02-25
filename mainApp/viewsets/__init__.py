@@ -22,6 +22,8 @@ from .prescribing_detail import PrescriptionDetailViewSet
 
 from .user import UserViewSet
 
+from .user_address import UserAddressViewSet
+
 from .user_role import UserRoleViewSet
 
 from .time_slot import TimeSlotViewSet

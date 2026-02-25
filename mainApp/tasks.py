@@ -37,21 +37,29 @@ def load_waiting_room():
         total_examinations = len(examinations)
         for index, examination in enumerate(examinations):
             user = examination.user
-            location = user.location
+            addr = user.addresses.filter(is_default=True).first() or user.addresses.first()
             doctor_availability = examination.doctor_availability
-            lat = location.lat
-            lng = location.lng
-            res = requests.get('https://rsapi.goong.io/Direction', params={
-                'origin': f'{os.getenv("MAP_ORIGIN_LAT")},{os.getenv("MAP_ORIGIN_LNG")}',
-                'destination': f'{lat},{lng}',
-                'vehicle': 'car',
-                'api_key': os.getenv('MAP_APIKEY')
-            })
-
-            res_data = json.loads(res.text)
-
             start_time_str = doctor_availability.start_time.strftime("%H:%M:%S") if doctor_availability else None
             end_time_str = doctor_availability.end_time.strftime("%H:%M:%S") if doctor_availability else None
+
+            distance_text = None
+            duration_value = None
+            if addr and addr.lat is not None and addr.lng is not None:
+                try:
+                    res = requests.get('https://rsapi.goong.io/Direction', params={
+                        'origin': f'{os.getenv("MAP_ORIGIN_LAT")},{os.getenv("MAP_ORIGIN_LNG")}',
+                        'destination': f'{addr.lat},{addr.lng}',
+                        'vehicle': 'car',
+                        'api_key': os.getenv('MAP_APIKEY')
+                    })
+                    res_data = json.loads(res.text)
+                    routes = res_data.get('routes') or []
+                    if routes and routes[0].get('legs'):
+                        leg = routes[0]['legs'][0]
+                        distance_text = leg.get('distance', {}).get('text')
+                        duration_value = leg.get('duration', {}).get('value')
+                except Exception:
+                    pass
 
             data = {
                 'isCommitted': False,
@@ -60,12 +68,12 @@ def load_waiting_room():
                 'examID': examination.id,
                 'author': examination.user.email,
                 'patientFullName': f'{examination.patient.first_name} {examination.patient.last_name}',
-                'startedDate': current_day.strftime("%Y-%m-%d"),  # Update the value as per your requirement
+                'startedDate': current_day.strftime("%Y-%m-%d"),
                 'startTime': start_time_str,
                 'endTime': end_time_str,
                 'doctorID': examination.doctor_availability.doctor.id if examination.doctor_availability else None,
-                'distance': res_data.get('routes')[0].get('legs')[0].get('distance').get('text'),
-                'duration': res_data.get('routes')[0].get('legs')[0].get('duration').get('value')
+                'distance': distance_text,
+                'duration': duration_value
             }
 
             exam_today.append(data)

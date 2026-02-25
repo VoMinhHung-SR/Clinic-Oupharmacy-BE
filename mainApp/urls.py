@@ -8,6 +8,8 @@ from .viewsets import *
 from storeApp import admin_views as store_admin_views
 
 router = routers.DefaultRouter()
+# Register users/me/addresses before users to avoid conflict with users/<pk>/
+router.register("users/me/addresses", UserAddressViewSet, basename="user-me-addresses")
 router.register("users", UserViewSet, basename="user")
 router.register("roles", UserRoleViewSet, basename="role")
 router.register("categories", CategoryViewSet, basename="category")

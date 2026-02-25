@@ -2,7 +2,7 @@ import os
 from django.conf import settings
 from rest_framework.serializers import ModelSerializer
 from . import cloud_context
-from .constant import CLOUDINARY_DEFAULT_AVATAR, ROLE_DOCTOR
+from .constant import CLOUDINARY_DEFAULT_AVATAR, LIMIT_USER_LOCATION, ROLE_DOCTOR
 from .models import *
 from rest_framework import serializers
 import cloudinary.uploader
@@ -56,6 +56,62 @@ class CommonLocationSerializer(ModelSerializer):
         }
 
 
+class UserAddressSerializer(ModelSerializer):
+    district_info = serializers.SerializerMethodField(source='district')
+    city_info = serializers.SerializerMethodField(source='city')
+
+    def get_district_info(self, obj):
+        district = obj.district
+        if district:
+            return {'id': district.id, 'name': district.name}
+        return {}
+
+    def get_city_info(self, obj):
+        city = obj.city
+        if city:
+            return {'id': city.id, 'name': city.name}
+        return {}
+
+    def validate_address(self, value):
+        if not value or not str(value).strip():
+            raise serializers.ValidationError("Địa chỉ không được để trống.")
+        return value.strip()
+
+    def _clear_other_default(self, user, exclude_pk=None):
+        qs = UserAddress.objects.filter(user=user)
+        if exclude_pk is not None:
+            qs = qs.exclude(pk=exclude_pk)
+        qs.update(is_default=False)
+
+    def create(self, validated_data):
+        user = self.context.get('request').user
+        if not user or not user.is_authenticated:
+            raise serializers.ValidationError("Bạn cần đăng nhập để thêm địa chỉ.")
+        if user.addresses.count() >= LIMIT_USER_LOCATION:
+            raise serializers.ValidationError(
+                {"address": f"Tối đa {LIMIT_USER_LOCATION} địa chỉ. Vui lòng xóa bớt trước khi thêm mới."}
+            )
+        if validated_data.get('is_default'):
+            self._clear_other_default(user)
+        validated_data['user'] = user
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if validated_data.get('is_default'):
+            self._clear_other_default(instance.user, exclude_pk=instance.pk)
+        return super().update(instance, validated_data)
+
+    class Meta:
+        model = UserAddress
+        fields = ["id", "address", "lat", "lng", "city", "district", "district_info", "city_info", "is_default"]
+        extra_kwargs = {
+            'city': {'write_only': True},
+            'district': {'write_only': True},
+            'district_info': {'read_only': True},
+            'city_info': {'read_only': True},
+        }
+
+
 class UserSerializer(ModelSerializer):
 
     def create(self, validated_data):
@@ -93,19 +149,22 @@ class UserSerializer(ModelSerializer):
             data['role'] = None
         return data
 
-    locationGeo = serializers.SerializerMethodField(source="location")
+    addresses = serializers.SerializerMethodField()
+    defaultAddress = serializers.SerializerMethodField()
 
-    def get_locationGeo(self, obj):
-        location = obj.location
-        if location:
-            city = location.city
-            district = location.district
-            return {'lat': location.lat, 'lng': location.lng,
-                    'address': location.address,
-                    'district': {'id': district.id, 'name': district.name},
-                    'city': {'id': city.id, 'name': city.name}}
-        else:
-            return {}
+    def get_addresses(self, obj):
+        qs = getattr(obj, 'addresses', None)
+        if qs is None:
+            return []
+        addresses = list(qs.all()[:LIMIT_USER_LOCATION])
+        return UserAddressSerializer(addresses, many=True).data
+
+    def get_defaultAddress(self, obj):
+        default = getattr(obj, 'addresses', None)
+        if default is None:
+            return None
+        addr = default.filter(is_default=True).first() or default.first()
+        return UserAddressSerializer(addr).data if addr else None
 
     avatar_path = serializers.SerializerMethodField(source='avatar')
 
@@ -127,14 +186,14 @@ class UserSerializer(ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "first_name", "last_name", "password",
-                  "email", "phone_number", "date_of_birth", "locationGeo",
-                  "date_joined", "gender", "avatar_path", "avatar", "is_admin", "role", "location"]
+                  "email", "phone_number", "date_of_birth", "addresses", "defaultAddress",
+                  "date_joined", "gender", "avatar_path", "avatar", "is_admin", "role"]
         extra_kwargs = {
             'password': {'write_only': 'true'},
             'avatar_path': {'read_only': 'true'},
-            'locationGeo': {'read_only': 'true'},
-            'avatar': {'write_only': 'true'},
-            'location': {'write_only': 'true'}
+            'addresses': {'read_only': 'true'},
+            'defaultAddress': {'read_only': 'true'},
+            'avatar': {'write_only': 'true'}
         }
 
 class UserDisplaySerializer(serializers.ModelSerializer):
@@ -328,25 +387,28 @@ class ExaminationSerializer(ModelSerializer):
         }
 
 class UserNormalSerializer(ModelSerializer):
-    locationGeo = serializers.SerializerMethodField(source="location")
+    addresses = serializers.SerializerMethodField()
+    defaultAddress = serializers.SerializerMethodField()
 
-    def get_locationGeo(self, obj):
-        location = obj.location
-        if location:
-            city = location.city
-            district = location.district
-            return {'lat': location.lat, 'lng': location.lng,
-                    'district': {'id': district.id, 'name': district.name} if district else None,
-                    'city': {'id': city.id, 'name': city.name} if city else None}
-        else:
-            return {}
+    def get_addresses(self, obj):
+        qs = getattr(obj, 'addresses', None)
+        if qs is None:
+            return []
+        return UserAddressSerializer(qs.all()[:LIMIT_USER_LOCATION], many=True).data
+
+    def get_defaultAddress(self, obj):
+        default = getattr(obj, 'addresses', None)
+        if default is None:
+            return None
+        addr = default.filter(is_default=True).first() or default.first()
+        return UserAddressSerializer(addr).data if addr else None
 
     class Meta:
         model = User
-        fields = ['id', "first_name", "last_name", "email", "location", "locationGeo"]
+        fields = ['id', "first_name", "last_name", "email", "addresses", "defaultAddress"]
         extra_kwargs = {
-            'locationGeo': {'read_only': 'true'},
-            'location': {'write_only': 'true'}
+            'addresses': {'read_only': 'true'},
+            'defaultAddress': {'read_only': 'true'}
         }
 
 class PrescribingSerializer(ModelSerializer):

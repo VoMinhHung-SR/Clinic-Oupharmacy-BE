@@ -4,10 +4,10 @@ from rest_framework.parsers import JSONParser, FormParser,MultiPartParser
 
 from rest_framework import permissions, status, filters
 from mainApp.filters import RecipientsFilter
-from mainApp.models import User, Examination, CommonLocation, Patient
+from mainApp.models import User, Examination, Patient
 from mainApp.paginator import ExaminationPaginator
 from mainApp.permissions import UserPermission, OwnerExaminationPermission
-from mainApp.serializers import UserSerializer, ExaminationSerializer, CommonLocationSerializer, PatientSerializer
+from mainApp.serializers import UserSerializer, ExaminationSerializer, PatientSerializer, UserAddressSerializer
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from ..tasks import load_waiting_room
@@ -58,8 +58,7 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView, generics.RetrieveAPI
     def get_examinations(self, request, pk):
         examinations = Examination.objects.filter(user=pk).all()
         paginator = ExaminationPaginator()
-        page_size = request.query_params.get('page_size',
-                                             10)  # Set the default page size to 10 if not specified in the URL
+        page_size = request.query_params.get('page_size', 10)
         paginator.page_size = page_size
         result_page = paginator.paginate_queryset(examinations, request)
         serializer = ExaminationSerializer(result_page, context={'request': request}, many=True)
@@ -68,25 +67,14 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView, generics.RetrieveAPI
     @action(methods=['get'], detail=True, url_path='location-info')
     def get_user_location_info(self, request, pk):
         user = self.get_object()
-        location_id = user.location_id
-        try:
-            location = CommonLocation.objects.get(id=location_id)
-            # Access the location properties
-            return Response(status=status.HTTP_200_OK, data=CommonLocationSerializer(location).data)
-        except CommonLocation.DoesNotExist:
-            # Handle the case when the location with the given ID doesn't exist
-            return Response(status=status.HTTP_200_OK, data=None)
+        default = user.addresses.filter(is_default=True).first() or user.addresses.first()
+        data = UserAddressSerializer(default).data if default else None
+        return Response(status=status.HTTP_200_OK, data=data)
 
     @action(methods=['get'], detail=False, url_path='demo')
     def demo (self, request):
         try:
             load_waiting_room.delay()
-            # res = requests.get('https://rsapi.goong.io/Direction', params={
-            #     'origin': '10.816905962180005,106.6786961439645',
-            #     'destination': '10.793500150986223,106.67777364026149',
-            #     'vehicle': 'car',
-            #     'api_key': 'SGj019RWMrUGpd9XYy7qmSeRYbbvEFkOaPnmB49N'
-            # })
         except Exception as ex:
             return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR, data=[])
         return Response(status=status.HTTP_200_OK, data=[])
