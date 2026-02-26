@@ -1,27 +1,12 @@
 from rest_framework import viewsets, generics
 from rest_framework.parsers import JSONParser, MultiPartParser
 
-from mainApp.models import CommonDistrict, CommonLocation
-from mainApp.serializers import CommonDistrictSerializer, CommonLocationSerializer
+from mainApp.models import CommonDistrict
+from mainApp.serializers import CommonDistrictSerializer
 from mainApp.constant import LIMIT_LOCATION_LIST
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
-
-
-class CommonLocationViewSet(viewsets.ViewSet, generics.RetrieveAPIView, generics.ListAPIView,
-                            generics.CreateAPIView, generics.DestroyAPIView, generics.UpdateAPIView):
-    serializer_class = CommonLocationSerializer
-    parser_classes = [JSONParser, MultiPartParser]
-
-    def get_queryset(self):
-        qs = CommonLocation.objects.all().order_by('-created_date')
-        if self.action == 'list':
-            return qs[:LIMIT_LOCATION_LIST]
-        return qs
-
-    def perform_create(self, serializer):
-        serializer.save()
 
 class CommonDistrictViewSet(viewsets.ViewSet):
     serializers = CommonDistrictSerializer

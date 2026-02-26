@@ -27,29 +27,14 @@ class BaseModel(models.Model):
 
 
 class CommonCity(models.Model):
-    created_date = models.DateTimeField(auto_now_add=True)
-    updated_date = models.DateTimeField(auto_now=True)
+    id_province = models.CharField(max_length=10, null=True, blank=True, db_index=True)
     name = models.CharField(max_length=50, null=False)
 
 
 class CommonDistrict(models.Model):
-    created_date = models.DateTimeField(auto_now_add=True)
-    updated_date = models.DateTimeField(auto_now=True)
+    id_commune = models.CharField(max_length=20, null=True, blank=True, db_index=True)
     name = models.CharField(max_length=50, null=False)
     city = models.ForeignKey(CommonCity, on_delete=models.CASCADE)
-
-
-class CommonLocation(models.Model):
-    created_date = models.DateTimeField(auto_now_add=True)
-    updated_date = models.DateTimeField(auto_now=True)
-    address = models.CharField(max_length=255, null=False)
-    lat = models.FloatField(null=False)
-    lng = models.FloatField(null=False)
-    city = models.ForeignKey(CommonCity, on_delete=models.SET_NULL, null=True)
-    district = models.ForeignKey(CommonDistrict, on_delete=models.SET_NULL, null=True)
-
-    def __str__(self):
-        return self.address
 
 
 class UserAddress(models.Model):

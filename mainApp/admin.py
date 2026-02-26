@@ -151,6 +151,17 @@ class UserRoleAdmin(admin.ModelAdmin):
     list_display = ['id', 'name', 'active']
 
 
+class UserAddressAdmin(admin.ModelAdmin):
+    list_display = ['id', 'user', 'address_short', 'is_default', 'created_date']
+    list_filter = ['user', 'is_default']
+    search_fields = ['address', 'user__email']
+    raw_id_fields = ['user', 'city', 'district']
+
+    def address_short(self, obj):
+        return (obj.address[:50] + '...') if obj.address and len(obj.address) > 50 else (obj.address or '')
+    address_short.short_description = 'Address'
+
+
 class ExaminationAdmin(admin.ModelAdmin):
     list_display = ['id', 'description', 'created_date', 'patient', 'time_slot']
     list_filter = ['patient', 'time_slot']
@@ -313,6 +324,7 @@ admin_site.register(Prescribing, PrescribingAdmin)
 admin_site.register(PrescriptionDetail, PrescriptionDetailAdmin)
 admin_site.register(Patient, PatientAdmin)
 admin_site.register(User, UserAdmin)
+admin_site.register(UserAddress, UserAddressAdmin)
 admin_site.register(UserRole, UserRoleAdmin)
 admin_site.register(DoctorSchedule, DoctorScheduleAdmin)
 admin_site.register(DoctorProfile, DoctorProfileAdmin)
