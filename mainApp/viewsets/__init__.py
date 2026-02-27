@@ -1,6 +1,8 @@
 from .bill import  BillViewSet
 
-from .common_districts import CommonDistrictViewSet
+from .common_cities import CommonCityViewSet
+
+# from .common_districts import CommonDistrictViewSet
 
 from .category import CategoryViewSet
 
