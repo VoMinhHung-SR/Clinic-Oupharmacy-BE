@@ -273,8 +273,8 @@ class MedicineUnitSerializer(ModelSerializer):
         model = MedicineUnit
         fields = [
             "id", "in_stock", "image", "image_path",
-            "price_display", "price_value", "original_price", "original_price_value",
-            "package_size", "package_options", "prices", "price_obj",
+            "price_display", "price_value", "original_price_value",
+            "package_size",
             "images", "link", "product_ranking", "display_code", "is_published", "is_hot",
             "registration_number", "origin", "manufacturer", "shelf_life", "specifications",
             "medicine", "category", "active", "created_date", "updated_date"
@@ -294,6 +294,58 @@ class MedicineUnitSerializer(ModelSerializer):
         representation['medicine'] = MedicineSerializer(instance.medicine).data
         representation['category'] = CategorySerializer(instance.category).data
         return representation
+
+
+class MedicineUnitOptionSerializer(ModelSerializer):
+    """Serializer cho unit option trong package_options"""
+    image_path = serializers.SerializerMethodField(source='image')
+
+    class Meta:
+        model = MedicineUnit
+        fields = [
+            "id", "in_stock", "image", "image_path",
+            "price_display", "price_value", "original_price_value",
+            "package_size",
+            "images", "link", "product_ranking", "display_code", "is_published", "is_hot",
+            "registration_number", "origin", "manufacturer", "shelf_life", "specifications",
+            "active", "created_date", "updated_date"
+        ]
+        extra_kwargs = {
+            'image_path': {'read_only': 'true'},
+            'image': {'write_only': 'true'},
+        }
+
+    def get_image_path(self, obj):
+        if obj.image:
+            path = '{cloud_context}{image_name}'.format(cloud_context=cloud_context, image_name=obj.image)
+            return path
+
+
+class MedicineWithUnitsSerializer(ModelSerializer):
+    """Serializer cho medicine với package_options (group units theo medicine)"""
+    package_options = serializers.SerializerMethodField()
+    category = serializers.SerializerMethodField()
+
+    def get_package_options(self, obj):
+        """Lấy tất cả units của medicine này"""
+        units = obj.units.filter(active=True).order_by('package_size')
+        return MedicineUnitOptionSerializer(units, many=True).data
+
+    def get_category(self, obj):
+        """Lấy category từ unit đầu tiên (assume cùng category)"""
+        first_unit = obj.units.filter(active=True).first()
+        if first_unit and first_unit.category:
+            return CategorySerializer(first_unit.category).data
+        return None
+
+    class Meta:
+        model = Medicine
+        fields = [
+            "id", "name", "mid", "slug", "web_name",
+            "description", "ingredients", "usage", "dosage",
+            "adverse_effect", "careful", "preservation",
+            "brand_id", "package_options", "category", "created_date", "updated_date"
+        ]
 
 class DoctorScheduleSerializer(ModelSerializer):
     class Meta:

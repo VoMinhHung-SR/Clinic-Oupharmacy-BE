@@ -250,9 +250,6 @@ def create_or_update_product_from_csv_row(row, category_cache=None, brand_cache=
         # ============================================
         category_array = parse_json_field(row.get('category.category', '[]'), default=[])
         images = parse_json_field(row.get('media.images', '[]'), default=[])
-        prices = parse_json_field(row.get('pricing.prices', '[]'), default=[])
-        package_options_str = row.get('pricing.packageOptions', '').strip()
-        package_options = parse_package_options(package_options_str) if package_options_str else []
         
         # ============================================
         # 2.1. Handle images: Skip image (CloudinaryField), only import to images (JSONField)
@@ -451,13 +448,10 @@ def create_or_update_product_from_csv_row(row, category_cache=None, brand_cache=
                     'category': category,
                     'price_display': price_display,
                     'price_value': price_value,
-                    'original_price': original_price if original_price else None,
                     'original_price_value': original_price_value,
                     'package_size': package_size,
-                    'package_options': package_options,
-                    'prices': prices,
-                    'image': None,  # Skip image (CloudinaryField) - luôn giữ default để tránh overload upload
-                    'images': images,  # Chỉ import vào images (JSONField) - array of URLs
+                    'image': None,  # Skip image (CloudinaryField)
+                    'images': images,  # Chỉ import vào images (JSONField)
                     'link': link,
                     'product_ranking': product_ranking,
                     'display_code': display_code,
@@ -665,15 +659,10 @@ def export_dry_run_to_json(
                 if image_url and image_url not in images:
                     images.insert(0, image_url)
                 
-                prices = parse_json_field(row.get('pricing.prices', '[]'), default=[])
-                
                 price_display = row.get('pricing.priceDisplay', '').strip()
                 price_value = parse_price_value(price_display)
                 original_price = row.get('pricing.originalPrice', '').strip()
                 original_price_value = parse_price_value(original_price) if original_price else None
-                
-                package_options_str = row.get('pricing.packageOptions', '').strip()
-                package_options = parse_package_options(package_options_str) if package_options_str else []
                 
                 # Extract brand info
                 brand_name = row.get('basicInfo.brand', '').strip()
@@ -708,11 +697,8 @@ def export_dry_run_to_json(
                         "price": row.get('pricing.price', '').strip() or price_display,
                         "priceDisplay": price_display,
                         "priceValue": price_value,
-                        "originalPrice": original_price or "",
                         "originalPriceValue": original_price_value if original_price_value is not None else None,
-                        "packageSize": row.get('pricing.packageSize', '').strip(),
-                        "packageOptions": package_options,
-                        "prices": prices
+                        "packageSize": row.get('pricing.packageSize', '').strip()
                     },
                     "rating": {
                         "rating": row.get('rating.rating', '').strip() or "",

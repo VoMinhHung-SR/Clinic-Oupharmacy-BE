@@ -141,7 +141,7 @@ class ProductSerializer(ModelSerializer):
         model = MedicineUnit
         fields = [
             'id', 'in_stock', 'image', 'image_url', 'images', 'images_urls',
-            'price_display', 'price_value', 'package_size', 'prices', 'price_obj',
+            'price_display', 'price_value', 'package_size',
             'link', 'product_ranking', 'display_code', 'is_published',
             'registration_number', 'origin', 'manufacturer', 'shelf_life', 'specifications',
             'medicine', 'category', 'category_info', 'brand', 'active',

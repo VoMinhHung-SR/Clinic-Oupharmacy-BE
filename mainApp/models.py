@@ -348,12 +348,8 @@ class MedicineUnit(BaseModel):
     # pricing
     price_display = models.CharField(max_length=50, null=True, blank=True, help_text="pricing.priceDisplay - Giá hiển thị: 567.000đ")
     price_value = models.FloatField(null=False, default=0, db_index=True, help_text="pricing.priceValue - Giá trị số (dùng để filter/sort)")
-    original_price = models.CharField(max_length=50, null=True, blank=True, help_text="pricing.originalPrice - Giá gốc (string)")
     original_price_value = models.FloatField(null=True, blank=True, db_index=True, help_text="pricing.originalPriceValue - Giá trị số của giá gốc")
     package_size = models.CharField(max_length=100, null=True, blank=True, help_text="pricing.packageSize - Quy cách đóng gói")
-    package_options = models.JSONField(default=list, blank=True, help_text="pricing.packageOptions - Danh sách các tùy chọn đóng gói (JSON array)")
-    prices = models.JSONField(default=list, blank=True, help_text="pricing.prices - Danh sách giá (JSON array)")
-    price_obj = models.JSONField(default=dict, null=True, blank=True, help_text="pricing.priceObj - Object giá (JSON object)")
     
     # media
     image = CloudinaryField('medicines', default='', null=True, folder='OUPharmacy/medicines/image', help_text="media.image - Ảnh chính")

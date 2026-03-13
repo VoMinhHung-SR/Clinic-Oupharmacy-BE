@@ -306,18 +306,27 @@ class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
                     
                     prescribing_total = 0
                     for detail in prescription_details:
-                        medicine_cost = detail.medicine_unit.price * detail.quantity
+                        medicine_cost = detail.medicine_unit.price_value * detail.quantity
                         prescribing_total += medicine_cost
                     
                     prescribing_amounts[prescribing.id] = prescribing_total
                     total_medicine_cost += prescribing_total
                 
-                service_fee = SERVICE_FEE_PER_PRESCRIBING  # Phí dịch vụ 1 lần cho 1 lần khám
+                service_fee = SERVICE_FEE_PER_PRESCRIBING
                 
                 created_bills = []
+                existing_bills = []
+                
                 for prescribing in prescribing_list:
-                    if not Bill.objects.filter(prescribing=prescribing).exists():
-                        # Chia đều phí khám cho các prescribing, tiền thuốc giữ nguyên
+                    bill = Bill.objects.filter(prescribing=prescribing).first()
+                    
+                    if bill:
+                        existing_bills.append({
+                            'prescribing_id': prescribing.id,
+                            'bill_id': bill.id,
+                            'amount': bill.amount
+                        })
+                    else:
                         service_fee_per_prescribing = service_fee / len(prescribing_list)
                         medicine_cost = prescribing_amounts.get(prescribing.id, 0)
                         total_amount = medicine_cost + service_fee_per_prescribing
@@ -328,10 +337,22 @@ class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
                         )
                         created_bills.append({
                             'prescribing_id': prescribing.id,
+                            'bill_id': bill.id,
                             'medicine_cost': medicine_cost,
                             'service_fee': service_fee_per_prescribing,
                             'total_amount': total_amount
                         })
+                
+                if len(created_bills) == 0 and len(existing_bills) > 0:
+                    return Response({
+                        'message': 'All bills already exist',
+                        'total_medicine_cost': total_medicine_cost,
+                        'total_service_fee': service_fee,
+                        'total_amount': total_medicine_cost + service_fee,
+                        'created_bills': [],
+                        'existing_bills': existing_bills,
+                        'created_bills_count': 0
+                    }, status=status.HTTP_200_OK)
                 
                 return Response({
                     'message': f'Successfully created {len(created_bills)} bills',
@@ -339,6 +360,7 @@ class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
                     'total_service_fee': service_fee,
                     'total_amount': total_medicine_cost + service_fee,
                     'created_bills': created_bills,
+                    'existing_bills': existing_bills,
                     'created_bills_count': len(created_bills)
                 }, status=status.HTTP_201_CREATED)
                 
@@ -351,7 +373,7 @@ class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
         except Exception as e:
             print(f"Error in bulk_payment: {str(e)}")
             return Response(
-                data={'errMsg': 'Internal server error'}, 
+                data={'errMsg': f'Internal server error: {str(e)}'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
