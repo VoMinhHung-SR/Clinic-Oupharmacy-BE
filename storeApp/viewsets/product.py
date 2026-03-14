@@ -2,7 +2,7 @@ from rest_framework import viewsets, generics, filters
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
-from mainApp.models import MedicineUnit
+from mainApp.models import Medicine, MedicineUnit
 from storeApp.serializers import ProductSerializer
 from storeApp.filters import ProductFilter
 from rest_framework.pagination import PageNumberPagination
@@ -27,7 +27,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
     ordering = ['-created_date']
     
     def get_queryset(self):
-        queryset = MedicineUnit.objects.using('default').filter(active=True).select_related('medicine', 'category')
+        queryset = Medicine.objects.filter(active=True).select_related("category", "brand").prefetch_related("units")
         
         in_stock_param = self.request.query_params.get('in_stock')
         if in_stock_param is not None:

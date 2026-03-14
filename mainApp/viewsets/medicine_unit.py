@@ -13,8 +13,13 @@ class MedicineUnitViewSet(viewsets.ViewSet, generics.ListAPIView, generics.Retri
     pagination_class = MedicineUnitPagination
     parser_classes = [JSONParser, MultiPartParser]
     ordering_fields = '__all__'
-    filterset_class = MedicineUnitFilter
+    # filterset_class = MedicineUnitFilter  # Removed to allow get_filterset_class to work properly
     filter_backends = [filters.OrderingFilter, DjangoFilterBackend]
+
+    def get_serializer_class(self):
+        if self.action in ['list', 'retrieve']:
+            return MedicineWithUnitsSerializer
+        return MedicineUnitSerializer
 
     def get_filterset_class(self):
         if self.action in ['list', 'retrieve']:

@@ -56,8 +56,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--skip-duplicates',
             action='store_true',
-            default=True,
-            help='Skip duplicate MedicineUnits (same medicine + category + package_size). Default: True'
+            default=False,
+            help='Skip duplicate MedicineUnits (same medicine + category + package_size). Default: False'
         )
         parser.add_argument(
             '--skip-image-upload',
@@ -68,8 +68,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--update-existing',
             action='store_true',
-            default=False,
-            help='Update existing MedicineUnits instead of skipping (use this to fix truncated data)'
+            default=True,
+            help='Update existing MedicineUnits instead of skipping (use this to fix truncated data). Default: True'
         )
         parser.add_argument(
             '--batch-size',
@@ -581,9 +581,9 @@ class Command(BaseCommand):
         csv_file = options.get('file')
         csv_dir = options.get('dir')
         dry_run = options.get('dry_run', False)
-        skip_duplicates = options.get('skip_duplicates', True)
+        skip_duplicates = options.get('skip_duplicates', False)
         skip_image_upload = options.get('skip_image_upload', False)
-        update_existing = options.get('update_existing', False)
+        update_existing = options.get('update_existing', True)
         self.batch_size = options.get('batch_size', 50)
 
         if dry_run:
@@ -591,12 +591,11 @@ class Command(BaseCommand):
 
         if skip_duplicates:
             self.stdout.write(self.style.SUCCESS('🛡️  DUPLICATE PROTECTION: Enabled (skip existing medicine + category + package_size)'))
+        else:
+            self.stdout.write(self.style.SUCCESS('🔄 UPDATE MODE: Enabled (will update existing medicine + category + package_size combinations)'))
 
         if skip_image_upload:
             self.stdout.write(self.style.WARNING('⏭️  IMAGE UPLOAD: DISABLED (will skip image upload for faster import)'))
-
-        if update_existing:
-            self.stdout.write(self.style.WARNING('🔄 UPDATE MODE: Will update existing MedicineUnits (overwrite data)'))
 
         # Determine files to import
         csv_files = []
@@ -694,4 +693,4 @@ class Command(BaseCommand):
         self.stdout.write(f'  ✓ JSON parsing: category, images, specifications')
         self.stdout.write(f'  ✓ Data conversion: boolean, integer, float')
         self.stdout.write(f'  ✓ Category hierarchy: level and path_slug auto-generated')
-        self.stdout.write(f'  ✓ Duplicate prevention: Skip existing (medicine + category + package_size)')
+        self.stdout.write(f'  ✓ Duplicate handling: Update existing (medicine + category + package_size) by default')

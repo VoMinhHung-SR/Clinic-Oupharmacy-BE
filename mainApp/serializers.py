@@ -227,7 +227,7 @@ class CategorySerializer(ModelSerializer):
     
     class Meta:
         model = Category
-        fields = ["id", "name", "slug", "parent", "level", "path", "path_slug", "category_array", "active"]
+        fields = ["id", "name", "slug", "parent", "level", "path", "path_slug", "category_array"]
     
     def get_category_array(self, obj):
         """Trả về category array format theo schema"""
@@ -243,7 +243,7 @@ class MedicineSerializer(ModelSerializer):
             "id", "name", "mid", "slug", "web_name", 
             "description", "ingredients", "usage", "dosage", 
             "adverse_effect", "careful", "preservation", 
-            "brand_id", "created_date", "updated_date"
+            "brand_id"
         ]
 
 
@@ -274,10 +274,10 @@ class MedicineUnitSerializer(ModelSerializer):
         fields = [
             "id", "in_stock", "image", "image_path",
             "price_display", "price_value", "original_price_value",
-            "package_size",
-            "images", "link", "product_ranking", "display_code", "is_published", "is_hot",
-            "registration_number", "origin", "manufacturer", "shelf_life", "specifications",
-            "medicine", "category", "active", "created_date", "updated_date"
+            "package_size", "images", "product_ranking", "display_code",
+            "is_published", "is_hot", "registration_number", "origin", "manufacturer",
+            "shelf_life", "specifications", "medicine", "category",
+            "created_date", "updated_date"
         ]
         extra_kwargs = {
             'image_path': {'read_only': 'true'},
@@ -305,10 +305,8 @@ class MedicineUnitOptionSerializer(ModelSerializer):
         fields = [
             "id", "in_stock", "image", "image_path",
             "price_display", "price_value", "original_price_value",
-            "package_size",
-            "images", "link", "product_ranking", "display_code", "is_published", "is_hot",
+            "package_size", "images", "product_ranking", "display_code", "is_published", "is_hot",
             "registration_number", "origin", "manufacturer", "shelf_life", "specifications",
-            "active", "created_date", "updated_date"
         ]
         extra_kwargs = {
             'image_path': {'read_only': 'true'},
@@ -400,7 +398,7 @@ class ExaminationSerializer(ModelSerializer):
 
     class Meta:
         model = Examination
-        fields = ["id", "active", "created_date", "updated_date", "description", 'mail_status',
+        fields = ["id", "created_date", "updated_date", "description", 'mail_status',
                   'time_slot', 'user', 'patient', 'patient_id', 'wage',
                   'reminder_email', 'schedule_appointment', 'diagnosis_info']
         exclude = []
