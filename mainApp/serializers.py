@@ -248,7 +248,7 @@ class MedicineSerializer(ModelSerializer):
 
 
 class MedicineUnitSerializer(ModelSerializer):
-    image_path = serializers.SerializerMethodField(source='image')
+    image_path = serializers.SerializerMethodField()
     medicine = serializers.PrimaryKeyRelatedField(queryset=Medicine.objects.all())
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
 
@@ -272,79 +272,115 @@ class MedicineUnitSerializer(ModelSerializer):
     class Meta:
         model = MedicineUnit
         fields = [
-            "id", "in_stock", "image", "image_path",
+            "id", "in_stock", "image", "image_path", "images",
             "price_display", "price_value", "original_price_value",
-            "package_size", "images", "product_ranking", "display_code",
+            "package_size", "product_ranking", "display_code",
             "is_published", "is_hot", "registration_number", "origin", "manufacturer",
             "shelf_life", "specifications", "medicine", "category",
             "created_date", "updated_date"
         ]
         extra_kwargs = {
-            'image_path': {'read_only': 'true'},
-            'image': {'write_only': 'true'},
+            'image_path': {'read_only': True},
+            'image': {'write_only': True}
         }
 
     def get_image_path(self, obj):
         if obj.image:
             path = '{cloud_context}{image_name}'.format(cloud_context=cloud_context, image_name=obj.image)
             return path
-
+        
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         representation['medicine'] = MedicineSerializer(instance.medicine).data
         representation['category'] = CategorySerializer(instance.category).data
         return representation
 
-
-class MedicineUnitOptionSerializer(ModelSerializer):
-    """Serializer cho unit option trong package_options"""
-    image_path = serializers.SerializerMethodField(source='image')
+class MedicineUnitOptionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MedicineUnit
         fields = [
-            "id", "in_stock", "image", "image_path",
-            "price_display", "price_value", "original_price_value",
-            "package_size", "images", "product_ranking", "display_code", "is_published", "is_hot",
-            "registration_number", "origin", "manufacturer", "shelf_life", "specifications",
+            "id",
+            "package_size",
+            "price_display",
+            "price_value",
+            "original_price_value",
+            "in_stock",
+            "is_hot",
         ]
-        extra_kwargs = {
-            'image_path': {'read_only': 'true'},
-            'image': {'write_only': 'true'},
-        }
-
-    def get_image_path(self, obj):
-        if obj.image:
-            path = '{cloud_context}{image_name}'.format(cloud_context=cloud_context, image_name=obj.image)
-            return path
+    
+from rest_framework import serializers
 
 
-class MedicineWithUnitsSerializer(ModelSerializer):
-    """Serializer cho medicine với package_options (group units theo medicine)"""
-    package_options = serializers.SerializerMethodField()
+class MedicineWithUnitsSerializer(serializers.ModelSerializer):
+
+    medicine = MedicineSerializer(read_only=True)
     category = serializers.SerializerMethodField()
+    package_options = serializers.SerializerMethodField()
 
-    def get_package_options(self, obj):
-        """Lấy tất cả units của medicine này"""
-        units = obj.units.filter(active=True).order_by('package_size')
-        return MedicineUnitOptionSerializer(units, many=True).data
-
-    def get_category(self, obj):
-        """Lấy category từ unit đầu tiên (assume cùng category)"""
-        first_unit = obj.units.filter(active=True).first()
-        if first_unit and first_unit.category:
-            return CategorySerializer(first_unit.category).data
-        return None
+    package_size = serializers.SerializerMethodField()
+    price_display = serializers.SerializerMethodField()
+    price_value = serializers.SerializerMethodField()
+    original_price_value = serializers.SerializerMethodField()
+    in_stock = serializers.SerializerMethodField()
+    is_hot = serializers.SerializerMethodField()
 
     class Meta:
         model = Medicine
         fields = [
-            "id", "name", "mid", "slug", "web_name",
-            "description", "ingredients", "usage", "dosage",
-            "adverse_effect", "careful", "preservation",
-            "brand_id", "package_options", "category", "created_date", "updated_date"
+            "id",
+
+            "package_size",
+            "price_display",
+            "price_value",
+            "original_price_value",
+            "in_stock",
+            "is_hot",
+
+            "medicine",
+            "category",
+            "package_options"
         ]
 
+    def get_default_unit(self, obj):
+        if not hasattr(obj, "_default_unit"):
+            obj._default_unit = next(iter(obj.units.all()), None)
+        return obj._default_unit
+
+    def get_package_size(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.package_size if unit else None
+
+    def get_price_display(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.price_display if unit else None
+
+    def get_price_value(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.price_value if unit else None
+
+    def get_original_price_value(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.original_price_value if unit else None
+
+    def get_in_stock(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.in_stock if unit else None
+
+    def get_is_hot(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.is_hot if unit else None
+
+    def get_package_options(self, obj):
+        units = obj.units.all()
+        return MedicineUnitOptionSerializer(units, many=True).data
+
+    def get_category(self, obj):
+        unit = self.get_default_unit(obj)
+        if unit and unit.category:
+            return CategorySerializer(unit.category).data
+        return None
+    
 class DoctorScheduleSerializer(ModelSerializer):
     class Meta:
         model = DoctorSchedule
