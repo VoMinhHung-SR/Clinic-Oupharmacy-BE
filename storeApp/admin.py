@@ -27,8 +27,8 @@ class PaymentMethodAdmin(admin.ModelAdmin):
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-    readonly_fields = ['medicine_unit_id', 'quantity', 'price', 'subtotal', 'created_date']
-    fields = ['medicine_unit_id', 'quantity', 'price', 'subtotal', 'created_date']
+    readonly_fields = ['product_variant', 'quantity', 'price', 'subtotal', 'created_date']
+    fields = ['product_variant', 'quantity', 'price', 'subtotal', 'created_date']
 
 
 class OrderAdmin(admin.ModelAdmin):
@@ -55,9 +55,9 @@ class OrderAdmin(admin.ModelAdmin):
 
 
 class MedicineBatchAdmin(admin.ModelAdmin):
-    list_display = ['batch_number', 'medicine_unit_id', 'import_date', 'expiry_date', 'quantity', 'remaining_quantity', 'is_expired', 'created_date']
+    list_display = ['batch_number', 'product_variant', 'import_date', 'expiry_date', 'quantity', 'remaining_quantity', 'is_expired', 'created_date']
     list_filter = ['import_date', 'expiry_date', 'created_date']
-    search_fields = ['batch_number', 'medicine_unit_id']
+    search_fields = ['batch_number', 'product_variant__sku_name']
     readonly_fields = ['is_expired', 'days_until_expiry']
     
     def is_expired(self, obj):
@@ -67,7 +67,7 @@ class MedicineBatchAdmin(admin.ModelAdmin):
 
 
 class NotificationAdmin(admin.ModelAdmin):
-    list_display = ['title', 'notification_type', 'is_read', 'medicine_unit_id', 'created_date']
+    list_display = ['title', 'notification_type', 'is_read', 'product_variant', 'created_date']
     list_filter = ['notification_type', 'is_read', 'created_date']
     search_fields = ['title', 'message']
     list_editable = ['is_read']
