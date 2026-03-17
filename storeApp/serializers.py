@@ -1,8 +1,7 @@
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
-from .models import MedicineBatch, Brand, ShippingMethod, PaymentMethod, Order, OrderItem, Notification, SearchKeyword
-from mainApp.serializers import UserSerializer, MedicineSerializer, CategorySerializer
-from mainApp.models import User, MedicineUnit, Category, Medicine
+from .models import MedicineBatch, Brand, ShippingMethod, PaymentMethod, Order, OrderItem, Notification, SearchKeyword, Product, ProductVariant, Category
+from mainApp.serializers import UserSerializer
 
 
 class BrandSerializer(ModelSerializer):
@@ -29,27 +28,25 @@ class OrderItemSerializer(ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'medicine_unit_id', 'quantity', 'price', 'subtotal', 'name', 'image_url', 'created_date', 'updated_date']
+        fields = ['id', 'product_variant', 'quantity', 'price', 'subtotal', 'name', 'image_url', 'created_date', 'updated_date']
         read_only_fields = ['subtotal', 'name', 'image_url']
 
     def get_name(self, obj):
         try:
-            unit = MedicineUnit.objects.using('default').filter(id=obj.medicine_unit_id).select_related('medicine').first()
-            if unit and unit.medicine:
-                return unit.medicine.web_name or unit.medicine.name
+            if obj.product_variant and obj.product_variant.product:
+                return f"{obj.product_variant.product.web_name or obj.product_variant.product.name} - {obj.product_variant.packing}"
         except Exception:
             pass
         return None
 
     def get_image_url(self, obj):
         try:
-            unit = MedicineUnit.objects.using('default').filter(id=obj.medicine_unit_id).first()
-            if unit and unit.image:
+            if obj.product_variant and obj.product_variant.image:
                 from mainApp import cloud_context
-                return f'{cloud_context}{unit.image}'
-            if unit and unit.images and isinstance(unit.images, list) and unit.images:
+                return f'{cloud_context}{obj.product_variant.image}'
+            if obj.product_variant and obj.product_variant.images and isinstance(obj.product_variant.images, list) and obj.product_variant.images:
                 from mainApp import cloud_context
-                first = unit.images[0]
+                first = obj.product_variant.images[0]
                 url = first.get('url') if isinstance(first, dict) else (first if isinstance(first, str) else None)
                 if url and not url.startswith('http'):
                     return f'{cloud_context}{url}'
@@ -101,7 +98,7 @@ class MedicineBatchSerializer(ModelSerializer):
     class Meta:
         model = MedicineBatch
         fields = [
-            'id', 'batch_number', 'medicine_unit_id', 'import_date', 
+            'id', 'batch_number', 'product_variant', 'import_date', 
             'expiry_date', 'quantity', 'remaining_quantity', 'import_price',
             'is_expired', 'days_until_expiry', 'created_date', 'updated_date'
         ]
@@ -112,7 +109,7 @@ class NotificationSerializer(ModelSerializer):
     class Meta:
         model = Notification
         fields = [
-            'id', 'notification_type', 'medicine_unit_id', 'batch_id',
+            'id', 'notification_type', 'product_variant', 'batch',
             'title', 'message', 'is_read', 'read_at', 
             'created_date', 'updated_date'
         ]
@@ -129,36 +126,56 @@ class RecordSearchSerializer(serializers.Serializer):
     keyword = serializers.CharField(max_length=120, allow_blank=False, trim_whitespace=True)
 
 
-class ProductSerializer(ModelSerializer):
-    medicine = MedicineSerializer(read_only=True)
+class CategorySerializer(ModelSerializer):
+    category_array = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Category
+        fields = ["id", "name", "slug", "parent", "level", "path", "path_slug", "category_array"]
+    
+    def get_category_array(self, obj):
+        if hasattr(obj, 'get_category_array'):
+            return obj.get_category_array()
+        return []
+
+class ProductSimpleSerializer(ModelSerializer):
+    class Meta:
+        model = Product
+        fields = [
+            "id", "name", "mid", "slug", "web_name", 
+            "description", "ingredients", "usage", "dosage", 
+            "adverse_effect", "careful", "preservation", 
+            "brand"
+        ]
+
+class ProductVariantSerializer(ModelSerializer):
+    product = ProductSimpleSerializer(read_only=True)
     category = CategorySerializer(read_only=True)
     brand = SerializerMethodField()
     image_url = SerializerMethodField()
     category_info = SerializerMethodField()
     
     class Meta:
-        model = MedicineUnit
+        model = ProductVariant
         fields = [
-            'id', 'in_stock', 'image', 'image_url', 'images',
-            'price_display', 'price_value', 'package_size',
+            'id', 'in_stock', 'image', 'image_url', 'images', "packing",
+            'price_display', 'price_value',
             'product_ranking', 'display_code', 'is_published',
             'registration_number', 'origin', 'manufacturer', 'shelf_life', 'specifications',
-            'medicine', 'category', 'category_info', 'brand', 'active',
+            'product', 'category', 'category_info', 'brand', 'active',
             'created_date', 'updated_date'
         ]
         read_only_fields = ['image_url', 'brand', 'category_info']
     
     def get_brand(self, obj):
-        if hasattr(obj, 'medicine') and obj.medicine and obj.medicine.brand_id:
-            try:
-                brand = Brand.objects.get(id=obj.medicine.brand_id, active=True)
+        if hasattr(obj, 'product') and obj.product and obj.product.brand:
+            brand = obj.product.brand
+            if brand.active:
                 return {
                     'id': brand.id,
                     'name': brand.name,
                     'country': brand.country
                 }
-            except Brand.DoesNotExist:
-                return None
         return None
     
     def get_image_url(self, obj):
@@ -168,7 +185,6 @@ class ProductSerializer(ModelSerializer):
         return None
     
     def get_category_info(self, obj):
-        """Get category info in format: {category: [...], categoryPath: '...', categorySlug: '...'}"""
         if hasattr(obj, 'get_category_info'):
             return obj.get_category_info()
         return {
@@ -191,10 +207,10 @@ class CategoryLevel2Serializer(ModelSerializer):
             return obj._level2_total
         return None
 
-class MinimalMedicineUnitSerializer(serializers.ModelSerializer):
-    medicine_id = serializers.IntegerField(source="medicine.id")
+class MinimalProductVariantSerializer(serializers.ModelSerializer):
+    product_id = serializers.IntegerField(source="product.id")
     name = serializers.SerializerMethodField()
-    slug = serializers.CharField(source="medicine.slug")
+    slug = serializers.CharField(source="product.slug")
     web_slug = serializers.SerializerMethodField()
 
     thumbnail = serializers.SerializerMethodField()
@@ -203,21 +219,23 @@ class MinimalMedicineUnitSerializer(serializers.ModelSerializer):
     badges = serializers.SerializerMethodField()
 
     class Meta:
-        model = MedicineUnit
-        fields = ["id", "medicine_id", "name", "slug", "web_slug",
-        "thumbnail", "price_value", "original_price_value", 
-        "discount_percent", "package_size", "in_stock", 
+        model = ProductVariant
+        fields = ["id", "product_id", "name", "slug", "web_slug",
+        "thumbnail", "price_value", 
+        "discount_percent", "packing", "in_stock", 
         "is_out_of_stock", "is_hot", "product_ranking", "badges"]
 
     def get_name(self, obj):
-        return obj.medicine.web_name or obj.medicine.name
+        return obj.product.web_name or obj.product.name
 
     def get_web_slug(self, obj):
-        category_slug = obj.category.path_slug if obj.category else ""
-        medicine_slug = obj.medicine.slug
+        category_slug = obj.product.category.path_slug if obj.product and obj.product.category else ""
+        medicine_slug = obj.product.slug
         if category_slug:
             return f"{category_slug}/{medicine_slug}"
         return medicine_slug
+
+    def to_representation(self, instance):
         data = super().to_representation(instance)
         if 'web_slug' in data:
             data['web-slug'] = data.pop('web_slug')
@@ -244,14 +262,6 @@ class MinimalMedicineUnitSerializer(serializers.ModelSerializer):
         return None
 
     def get_discount_percent(self, obj):
-        if (
-            obj.original_price_value
-            and obj.original_price_value > obj.price_value
-        ):
-            return int(
-                (obj.original_price_value - obj.price_value)
-                / obj.original_price_value * 100
-            )
         return 0
 
     def get_is_out_of_stock(self, obj):
@@ -297,10 +307,8 @@ class CategoryLevel1Serializer(ModelSerializer):
         return CategoryLevel2Serializer(level2_categories, many=True).data
 
     def get_top_products(self, obj):
-        from .services.medicine_ranking import get_top5_medicine_units_for_category
-
-        products = get_top5_medicine_units_for_category(obj)
-        return MinimalMedicineUnitSerializer(products, many=True).data
+        # We need to implement this or use a product ranking service in storeApp
+        return []
 
 
 class CategoryLevel0Serializer(ModelSerializer):

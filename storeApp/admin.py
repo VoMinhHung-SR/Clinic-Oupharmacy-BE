@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Brand, ShippingMethod, PaymentMethod, Order, OrderItem, MedicineBatch, Notification, SearchKeyword
+from .models import Brand, ShippingMethod, PaymentMethod, Order, OrderItem, MedicineBatch, Notification, SearchKeyword, Product, ProductVariant, Category
 from mainApp.admin import admin_site
 
 
@@ -53,6 +53,23 @@ class OrderAdmin(admin.ModelAdmin):
         }),
     )
 
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ['name', 'category', 'brand', 'active', 'created_date']
+    list_filter = ['active', 'created_date']
+    search_fields = ['name', 'category__name', 'brand__name']
+    list_editable = ['active']
+
+class ProductVariantAdmin(admin.ModelAdmin):
+    list_display = ['packing', 'product', 'price_value', 'in_stock', 'created_date']
+    list_filter = ['in_stock', 'created_date']
+    search_fields = ['packing', 'product__name']
+    list_editable = ['in_stock', 'price_value']
+
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ['name', 'parent', 'active', 'created_date']
+    list_filter = ['active', 'created_date']
+    search_fields = ['name']
+    list_editable = ['active']
 
 class MedicineBatchAdmin(admin.ModelAdmin):
     list_display = ['batch_number', 'product_variant', 'import_date', 'expiry_date', 'quantity', 'remaining_quantity', 'is_expired', 'created_date']
@@ -90,3 +107,6 @@ admin_site.register(OrderItem)
 admin_site.register(MedicineBatch, MedicineBatchAdmin)
 admin_site.register(Notification, NotificationAdmin)
 admin_site.register(SearchKeyword, SearchKeywordAdmin)
+admin_site.register(Category, CategoryAdmin)
+admin_site.register(Product, ProductAdmin)
+admin_site.register(ProductVariant, ProductVariantAdmin)

@@ -2,8 +2,8 @@ from rest_framework import viewsets, generics, filters
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
-from mainApp.models import Medicine, MedicineUnit
-from storeApp.serializers import ProductSerializer
+from storeApp.models import ProductVariant
+from storeApp.serializers import ProductVariantSerializer
 from storeApp.filters import ProductFilter
 from rest_framework.pagination import PageNumberPagination
 
@@ -16,18 +16,18 @@ class ProductPagination(PageNumberPagination):
 
 
 class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView):
-    serializer_class = ProductSerializer
+    serializer_class = ProductVariantSerializer
     pagination_class = ProductPagination
     parser_classes = [JSONParser]
     permission_classes = [AllowAny]
     filter_backends = [filters.OrderingFilter, DjangoFilterBackend, filters.SearchFilter]
     filterset_class = ProductFilter
-    search_fields = ['medicine__name', 'package_size', 'medicine__web_name']
+    search_fields = ['product__name', 'packing', 'product__web_name']
     ordering_fields = ['price_value', 'created_date', 'in_stock', 'product_ranking']
     ordering = ['-created_date']
     
     def get_queryset(self):
-        queryset = Medicine.objects.filter(active=True).select_related("category", "brand").prefetch_related("units")
+        queryset = ProductVariant.objects.filter(active=True).select_related("product__category", "product__brand")
         
         in_stock_param = self.request.query_params.get('in_stock')
         if in_stock_param is not None:

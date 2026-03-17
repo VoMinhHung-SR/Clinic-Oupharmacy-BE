@@ -279,8 +279,6 @@ def create_or_update_product_from_csv_row(row, category_cache=None, brand_cache=
         # ============================================
         price_display = row.get('pricing.priceDisplay', '').strip()
         price_value = parse_price_value(price_display)
-        original_price = row.get('pricing.originalPrice', '').strip()
-        original_price_value = parse_price_value(original_price) if original_price else None
         
         # ============================================
         # 5. Parse other fields
@@ -295,7 +293,7 @@ def create_or_update_product_from_csv_row(row, category_cache=None, brand_cache=
         display_code = convert_to_int(row.get('metadata.displayCode', ''), default=None)
         is_hot = convert_to_bool(row.get('metadata.isHot', 'false'), default=False)  # Optional field
         
-        package_size = row.get('pricing.packageSize', '').strip()[:100] if row.get('pricing.packageSize') else ''
+        packing = row.get('pricing.packageSize', '').strip()[:100] if row.get('pricing.packageSize') else ''
         registration_number = row.get('specifications.registrationNumber', '').strip()[:100] if row.get('specifications.registrationNumber') else ''
         origin = row.get('specifications.origin', '').strip()[:200] if row.get('specifications.origin') else ''
         manufacturer = row.get('specifications.manufacturer', '').strip()
@@ -448,8 +446,7 @@ def create_or_update_product_from_csv_row(row, category_cache=None, brand_cache=
                     'category': category,
                     'price_display': price_display,
                     'price_value': price_value,
-                    'original_price_value': original_price_value,
-                    'package_size': package_size,
+                    'packing': packing,
                     'image': None,  # Skip image (CloudinaryField)
                     'images': images,  # Chỉ import vào images (JSONField)
                     'link': link,
@@ -661,8 +658,6 @@ def export_dry_run_to_json(
                 
                 price_display = row.get('pricing.priceDisplay', '').strip()
                 price_value = parse_price_value(price_display)
-                original_price = row.get('pricing.originalPrice', '').strip()
-                original_price_value = parse_price_value(original_price) if original_price else None
                 
                 # Extract brand info
                 brand_name = row.get('basicInfo.brand', '').strip()
@@ -697,8 +692,7 @@ def export_dry_run_to_json(
                         "price": row.get('pricing.price', '').strip() or price_display,
                         "priceDisplay": price_display,
                         "priceValue": price_value,
-                        "originalPriceValue": original_price_value if original_price_value is not None else None,
-                        "packageSize": row.get('pricing.packageSize', '').strip()
+                        "packing": row.get('pricing.packageSize', '').strip()
                     },
                     "rating": {
                         "rating": row.get('rating.rating', '').strip() or "",

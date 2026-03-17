@@ -372,12 +372,11 @@ class Product(BaseModel):
 
 class ProductVariant(BaseModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='variants', db_index=True)
-    sku_name = models.CharField(max_length=100, null=True, blank=True, help_text="Tên biến thể hoặc quy cách, ví dụ: Hộp 30 viên")
+    packing = models.CharField(max_length=100, null=True, blank=True, help_text="Quy cách đóng gói, ví dụ: Hộp 30 viên")
     in_stock = models.IntegerField(null=False, default=0, db_index=True)
     
     price_display = models.CharField(max_length=50, null=True, blank=True)
     price_value = models.FloatField(null=False, default=0, db_index=True)
-    original_price_value = models.FloatField(null=True, blank=True, db_index=True)
     
     image = CloudinaryField('products', default='', null=True, folder='OUPharmacy/products/image')
     images = models.JSONField(default=list, blank=True)
@@ -395,7 +394,7 @@ class ProductVariant(BaseModel):
     is_default = models.BooleanField(default=True, db_index=True)
 
     def __str__(self):
-        return f"{self.product.name} - {self.sku_name}"
+        return f"{self.product.name} - {self.packing}"
 
     def get_category_info(self):
         cat = self.product.category
@@ -414,7 +413,6 @@ class ProductVariant(BaseModel):
         indexes = [
             models.Index(fields=['is_published', 'product_ranking']),
             models.Index(fields=['price_value', 'is_published']),
-            models.Index(fields=['original_price_value', 'is_published']),
             models.Index(fields=['is_hot', 'is_published']),
         ]
 
