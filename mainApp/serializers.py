@@ -2,7 +2,7 @@ import os
 from django.conf import settings
 from rest_framework.serializers import ModelSerializer
 from . import cloud_context
-from .constant import CLOUDINARY_DEFAULT_AVATAR, ROLE_DOCTOR
+from .constant import CLOUDINARY_DEFAULT_AVATAR, LIMIT_USER_LOCATION, ROLE_DOCTOR
 from .models import *
 from rest_framework import serializers
 import cloudinary.uploader
@@ -27,7 +27,7 @@ class CommonDistrictSerializer(ModelSerializer):
         fields = ["id", "name", "city"]
 
 
-class CommonLocationSerializer(ModelSerializer):
+class UserAddressSerializer(ModelSerializer):
     district_info = serializers.SerializerMethodField(source='district')
     city_info = serializers.SerializerMethodField(source='city')
 
@@ -35,24 +35,51 @@ class CommonLocationSerializer(ModelSerializer):
         district = obj.district
         if district:
             return {'id': district.id, 'name': district.name}
-        else:
-            return {}
+        return {}
 
     def get_city_info(self, obj):
         city = obj.city
         if city:
             return {'id': city.id, 'name': city.name}
-        else:
-            return {}
+        return {}
+
+    def validate_address(self, value):
+        if not value or not str(value).strip():
+            raise serializers.ValidationError("Địa chỉ không được để trống.")
+        return value.strip()
+
+    def _clear_other_default(self, user, exclude_pk=None):
+        qs = UserAddress.objects.filter(user=user)
+        if exclude_pk is not None:
+            qs = qs.exclude(pk=exclude_pk)
+        qs.update(is_default=False)
+
+    def create(self, validated_data):
+        user = self.context.get('request').user
+        if not user or not user.is_authenticated:
+            raise serializers.ValidationError("Bạn cần đăng nhập để thêm địa chỉ.")
+        if user.addresses.count() >= LIMIT_USER_LOCATION:
+            raise serializers.ValidationError(
+                {"address": f"Tối đa {LIMIT_USER_LOCATION} địa chỉ. Vui lòng xóa bớt trước khi thêm mới."}
+            )
+        if validated_data.get('is_default'):
+            self._clear_other_default(user)
+        validated_data['user'] = user
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if validated_data.get('is_default'):
+            self._clear_other_default(instance.user, exclude_pk=instance.pk)
+        return super().update(instance, validated_data)
 
     class Meta:
-        model = CommonLocation
-        fields = ["id", "address", "lat", "lng", "city", 'district', "district_info", "city_info"]
+        model = UserAddress
+        fields = ["id", "address", "lat", "lng", "city", "district", "district_info", "city_info", "is_default"]
         extra_kwargs = {
-            'city': {'write_only': 'true'},
-            'city_info': {'read_only': 'true'},
-            'district_info': {'read_only': 'true'},
-            'district': {'write_only': 'true'}
+            'city': {'write_only': True},
+            'district': {'write_only': True},
+            'district_info': {'read_only': True},
+            'city_info': {'read_only': True},
         }
 
 
@@ -93,19 +120,22 @@ class UserSerializer(ModelSerializer):
             data['role'] = None
         return data
 
-    locationGeo = serializers.SerializerMethodField(source="location")
+    addresses = serializers.SerializerMethodField()
+    defaultAddress = serializers.SerializerMethodField()
 
-    def get_locationGeo(self, obj):
-        location = obj.location
-        if location:
-            city = location.city
-            district = location.district
-            return {'lat': location.lat, 'lng': location.lng,
-                    'address': location.address,
-                    'district': {'id': district.id, 'name': district.name},
-                    'city': {'id': city.id, 'name': city.name}}
-        else:
-            return {}
+    def get_addresses(self, obj):
+        qs = getattr(obj, 'addresses', None)
+        if qs is None:
+            return []
+        addresses = list(qs.all()[:LIMIT_USER_LOCATION])
+        return UserAddressSerializer(addresses, many=True).data
+
+    def get_defaultAddress(self, obj):
+        default = getattr(obj, 'addresses', None)
+        if default is None:
+            return None
+        addr = default.filter(is_default=True).first() or default.first()
+        return UserAddressSerializer(addr).data if addr else None
 
     avatar_path = serializers.SerializerMethodField(source='avatar')
 
@@ -127,14 +157,14 @@ class UserSerializer(ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "first_name", "last_name", "password",
-                  "email", "phone_number", "date_of_birth", "locationGeo",
-                  "date_joined", "gender", "avatar_path", "avatar", "is_admin", "role", "location"]
+                  "email", "phone_number", "date_of_birth", "addresses", "defaultAddress",
+                  "date_joined", "gender", "avatar_path", "avatar", "is_admin", "role"]
         extra_kwargs = {
             'password': {'write_only': 'true'},
             'avatar_path': {'read_only': 'true'},
-            'locationGeo': {'read_only': 'true'},
-            'avatar': {'write_only': 'true'},
-            'location': {'write_only': 'true'}
+            'addresses': {'read_only': 'true'},
+            'defaultAddress': {'read_only': 'true'},
+            'avatar': {'write_only': 'true'}
         }
 
 class UserDisplaySerializer(serializers.ModelSerializer):
@@ -197,7 +227,7 @@ class CategorySerializer(ModelSerializer):
     
     class Meta:
         model = Category
-        fields = ["id", "name", "slug", "parent", "level", "path", "path_slug", "category_array", "active"]
+        fields = ["id", "name", "slug", "parent", "level", "path", "path_slug", "category_array"]
     
     def get_category_array(self, obj):
         """Trả về category array format theo schema"""
@@ -213,12 +243,12 @@ class MedicineSerializer(ModelSerializer):
             "id", "name", "mid", "slug", "web_name", 
             "description", "ingredients", "usage", "dosage", 
             "adverse_effect", "careful", "preservation", 
-            "brand_id", "created_date", "updated_date"
+            "brand_id"
         ]
 
 
 class MedicineUnitSerializer(ModelSerializer):
-    image_path = serializers.SerializerMethodField(source='image')
+    image_path = serializers.SerializerMethodField()
     medicine = serializers.PrimaryKeyRelatedField(queryset=Medicine.objects.all())
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
 
@@ -242,29 +272,115 @@ class MedicineUnitSerializer(ModelSerializer):
     class Meta:
         model = MedicineUnit
         fields = [
-            "id", "in_stock", "image", "image_path",
-            "price_display", "price_value", "original_price", "original_price_value",
-            "package_size", "package_options", "prices", "price_obj",
-            "images", "link", "product_ranking", "display_code", "is_published", "is_hot",
-            "registration_number", "origin", "manufacturer", "shelf_life", "specifications",
-            "medicine", "category", "active", "created_date", "updated_date"
+            "id", "in_stock", "image", "image_path", "images",
+            "price_display", "price_value", "original_price_value",
+            "package_size", "product_ranking", "display_code",
+            "is_published", "is_hot", "registration_number", "origin", "manufacturer",
+            "shelf_life", "specifications", "medicine", "category",
+            "created_date", "updated_date"
         ]
         extra_kwargs = {
-            'image_path': {'read_only': 'true'},
-            'image': {'write_only': 'true'},
+            'image_path': {'read_only': True},
+            'image': {'write_only': True}
         }
 
     def get_image_path(self, obj):
         if obj.image:
             path = '{cloud_context}{image_name}'.format(cloud_context=cloud_context, image_name=obj.image)
             return path
-
+        
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         representation['medicine'] = MedicineSerializer(instance.medicine).data
         representation['category'] = CategorySerializer(instance.category).data
         return representation
 
+class MedicineUnitOptionSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = MedicineUnit
+        fields = [
+            "id",
+            "package_size",
+            "price_display",
+            "price_value",
+            "original_price_value",
+            "in_stock",
+            "is_hot",
+        ]
+    
+from rest_framework import serializers
+
+
+class MedicineWithUnitsSerializer(serializers.ModelSerializer):
+
+    medicine = MedicineSerializer(read_only=True)
+    category = serializers.SerializerMethodField()
+    package_options = serializers.SerializerMethodField()
+
+    package_size = serializers.SerializerMethodField()
+    price_display = serializers.SerializerMethodField()
+    price_value = serializers.SerializerMethodField()
+    original_price_value = serializers.SerializerMethodField()
+    in_stock = serializers.SerializerMethodField()
+    is_hot = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Medicine
+        fields = [
+            "id",
+
+            "package_size",
+            "price_display",
+            "price_value",
+            "original_price_value",
+            "in_stock",
+            "is_hot",
+
+            "medicine",
+            "category",
+            "package_options"
+        ]
+
+    def get_default_unit(self, obj):
+        if not hasattr(obj, "_default_unit"):
+            obj._default_unit = next(iter(obj.units.all()), None)
+        return obj._default_unit
+
+    def get_package_size(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.package_size if unit else None
+
+    def get_price_display(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.price_display if unit else None
+
+    def get_price_value(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.price_value if unit else None
+
+    def get_original_price_value(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.original_price_value if unit else None
+
+    def get_in_stock(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.in_stock if unit else None
+
+    def get_is_hot(self, obj):
+        unit = self.get_default_unit(obj)
+        return unit.is_hot if unit else None
+
+    def get_package_options(self, obj):
+        units = obj.units.all()
+        return MedicineUnitOptionSerializer(units, many=True).data
+
+    def get_category(self, obj):
+        unit = self.get_default_unit(obj)
+        if unit and unit.category:
+            return CategorySerializer(unit.category).data
+        return None
+    
 class DoctorScheduleSerializer(ModelSerializer):
     class Meta:
         model = DoctorSchedule
@@ -318,7 +434,7 @@ class ExaminationSerializer(ModelSerializer):
 
     class Meta:
         model = Examination
-        fields = ["id", "active", "created_date", "updated_date", "description", 'mail_status',
+        fields = ["id", "created_date", "updated_date", "description", 'mail_status',
                   'time_slot', 'user', 'patient', 'patient_id', 'wage',
                   'reminder_email', 'schedule_appointment', 'diagnosis_info']
         exclude = []
@@ -328,25 +444,28 @@ class ExaminationSerializer(ModelSerializer):
         }
 
 class UserNormalSerializer(ModelSerializer):
-    locationGeo = serializers.SerializerMethodField(source="location")
+    addresses = serializers.SerializerMethodField()
+    defaultAddress = serializers.SerializerMethodField()
 
-    def get_locationGeo(self, obj):
-        location = obj.location
-        if location:
-            city = location.city
-            district = location.district
-            return {'lat': location.lat, 'lng': location.lng,
-                    'district': {'id': district.id, 'name': district.name} if district else None,
-                    'city': {'id': city.id, 'name': city.name} if city else None}
-        else:
-            return {}
+    def get_addresses(self, obj):
+        qs = getattr(obj, 'addresses', None)
+        if qs is None:
+            return []
+        return UserAddressSerializer(qs.all()[:LIMIT_USER_LOCATION], many=True).data
+
+    def get_defaultAddress(self, obj):
+        default = getattr(obj, 'addresses', None)
+        if default is None:
+            return None
+        addr = default.filter(is_default=True).first() or default.first()
+        return UserAddressSerializer(addr).data if addr else None
 
     class Meta:
         model = User
-        fields = ['id', "first_name", "last_name", "email", "location", "locationGeo"]
+        fields = ['id', "first_name", "last_name", "email", "addresses", "defaultAddress"]
         extra_kwargs = {
-            'locationGeo': {'read_only': 'true'},
-            'location': {'write_only': 'true'}
+            'addresses': {'read_only': 'true'},
+            'defaultAddress': {'read_only': 'true'}
         }
 
 class PrescribingSerializer(ModelSerializer):

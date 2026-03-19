@@ -27,29 +27,41 @@ class BaseModel(models.Model):
 
 
 class CommonCity(models.Model):
-    created_date = models.DateTimeField(auto_now_add=True)
-    updated_date = models.DateTimeField(auto_now=True)
+    id_province = models.CharField(max_length=10, null=True, blank=True, db_index=True)
     name = models.CharField(max_length=50, null=False)
 
 
 class CommonDistrict(models.Model):
-    created_date = models.DateTimeField(auto_now_add=True)
-    updated_date = models.DateTimeField(auto_now=True)
+    id_commune = models.CharField(max_length=20, null=True, blank=True, db_index=True)
     name = models.CharField(max_length=50, null=False)
     city = models.ForeignKey(CommonCity, on_delete=models.CASCADE)
 
 
-class CommonLocation(models.Model):
+class UserAddress(models.Model):
     created_date = models.DateTimeField(auto_now_add=True)
     updated_date = models.DateTimeField(auto_now=True)
-    address = models.CharField(max_length=255, null=False)
-    lat = models.FloatField(null=False)
-    lng = models.FloatField(null=False)
-    city = models.ForeignKey(CommonCity, on_delete=models.SET_NULL, null=True)
-    district = models.ForeignKey(CommonDistrict, on_delete=models.SET_NULL, null=True)
+    user = models.ForeignKey(
+        'User', on_delete=models.CASCADE, related_name='addresses'
+    )
+    address = models.CharField(max_length=500, null=False)
+    lat = models.FloatField(null=True, blank=True)
+    lng = models.FloatField(null=True, blank=True)
+    city = models.ForeignKey(CommonCity, on_delete=models.SET_NULL, null=True, blank=True)
+    district = models.ForeignKey(CommonDistrict, on_delete=models.SET_NULL, null=True, blank=True)
+    is_default = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-is_default', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user'],
+                condition=models.Q(is_default=True),
+                name='one_default_address_per_user',
+            )
+        ]
 
     def __str__(self):
-        return self.address
+        return f"{self.user_id}: {(self.address[:50] + '...') if len(self.address) > 50 else self.address}"
 
 
 class UserManager(BaseUserManager):
@@ -95,7 +107,6 @@ class User(AbstractUser):
     # Keep follow this format (UPPERCASE-ALL + PREFIX:ROLE_")
     # ex: (1:ROLE_USER; 2:ROLE_DOCTOR; 3:ROLE_NURSE)
     role = models.ForeignKey(UserRole, on_delete=models.SET_NULL, null=True)
-    location = models.ForeignKey(CommonLocation, on_delete=models.SET_NULL, null=True)
     objects = UserManager()
     is_admin = models.BooleanField(default=False)
     # Social Authentication fields
@@ -337,12 +348,8 @@ class MedicineUnit(BaseModel):
     # pricing
     price_display = models.CharField(max_length=50, null=True, blank=True, help_text="pricing.priceDisplay - Giá hiển thị: 567.000đ")
     price_value = models.FloatField(null=False, default=0, db_index=True, help_text="pricing.priceValue - Giá trị số (dùng để filter/sort)")
-    original_price = models.CharField(max_length=50, null=True, blank=True, help_text="pricing.originalPrice - Giá gốc (string)")
     original_price_value = models.FloatField(null=True, blank=True, db_index=True, help_text="pricing.originalPriceValue - Giá trị số của giá gốc")
     package_size = models.CharField(max_length=100, null=True, blank=True, help_text="pricing.packageSize - Quy cách đóng gói")
-    package_options = models.JSONField(default=list, blank=True, help_text="pricing.packageOptions - Danh sách các tùy chọn đóng gói (JSON array)")
-    prices = models.JSONField(default=list, blank=True, help_text="pricing.prices - Danh sách giá (JSON array)")
-    price_obj = models.JSONField(default=dict, null=True, blank=True, help_text="pricing.priceObj - Object giá (JSON object)")
     
     # media
     image = CloudinaryField('medicines', default='', null=True, folder='OUPharmacy/medicines/image', help_text="media.image - Ảnh chính")

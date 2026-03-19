@@ -1,6 +1,8 @@
 from .bill import  BillViewSet
 
-from .common_location import CommonDistrictViewSet, CommonLocationViewSet
+from .common_cities import CommonCityViewSet
+
+# from .common_districts import CommonDistrictViewSet
 
 from .category import CategoryViewSet
 
@@ -21,6 +23,8 @@ from .prescribing import PrescribingViewSet
 from .prescribing_detail import PrescriptionDetailViewSet
 
 from .user import UserViewSet
+
+from .user_address import UserAddressViewSet
 
 from .user_role import UserRoleViewSet
 

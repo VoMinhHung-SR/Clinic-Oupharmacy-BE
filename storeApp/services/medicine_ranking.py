@@ -31,20 +31,6 @@ def get_top5_medicine_units_for_category(category):
         ),
 
         discount_score=Case(
-            # >= 15%
-            When(
-                original_price_value__isnull=False,
-                original_price_value__gt=0,
-                price_value__lt=F("original_price_value") * 0.85,
-                then=Value(100),
-            ),
-            # 5–15%
-            When(
-                original_price_value__isnull=False,
-                original_price_value__gt=0,
-                price_value__lt=F("original_price_value") * 0.95,
-                then=Value(50),
-            ),
             default=Value(0),
             output_field=FloatField(),
         ),

@@ -5,10 +5,8 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.serializers import ValidationError as DRFValidationError
 from rest_framework.generics import get_object_or_404
 from django.db import transaction, IntegrityError
-from storeApp.models import Order, OrderItem, ShippingMethod, PaymentMethod
-from storeApp.serializers import OrderSerializer, OrderItemSerializer
-from storeApp.services.stock import get_available_stock, deduct_stock, restore_stock
-from mainApp.models import MedicineUnit
+from storeApp.models import Order, OrderItem, ShippingMethod, PaymentMethod, ProductVariant
+from storeApp.serializers import OrderSerializer
 
 class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView,
                    generics.CreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
@@ -63,54 +61,54 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
 
     def _validate_order_item(self, item_data, idx):
         """Validate một order item"""
-        medicine_unit_id = item_data.get('medicine_unit_id')
+        product_variant_id = item_data.get('product_variant') or item_data.get('product_variant_id')
         quantity = item_data.get('quantity')
         price = item_data.get('price')
         
         # Validate required fields
-        if not medicine_unit_id:
-            return {'item_index': idx, 'field': 'medicine_unit_id', 'error': 'medicine_unit_id is required'}
+        if not product_variant_id:
+            return {'item_index': idx, 'field': 'product_variant', 'error': 'product_variant is required'}
         if not quantity or quantity <= 0:
             return {'item_index': idx, 'field': 'quantity', 'error': 'quantity must be greater than 0'}
         if not price or price < 0:
             return {'item_index': idx, 'field': 'price', 'error': 'price must be greater than or equal to 0'}
         
-        # Validate MedicineUnit exists and active
+        # Validate ProductVariant exists and active
         try:
-            medicine_unit = MedicineUnit.objects.using('default').get(id=medicine_unit_id, active=True)
-        except MedicineUnit.DoesNotExist:
-            return {'item_index': idx, 'medicine_unit_id': medicine_unit_id, 'error': 'MedicineUnit not found or inactive'}
+            product_variant = ProductVariant.objects.get(id=product_variant_id, active=True)
+        except ProductVariant.DoesNotExist:
+            return {'item_index': idx, 'product_variant': product_variant_id, 'error': 'ProductVariant not found or inactive'}
         
-        # Validate price (MedicineUnit has price_value)
-        expected_price = medicine_unit.price_value
+        # Validate price (ProductVariant has price_value)
+        expected_price = product_variant.price_value
         if abs(float(price) - float(expected_price)) > 0.01:
             return {
                 'item_index': idx,
-                'medicine_unit_id': medicine_unit_id,
+                'product_variant': product_variant_id,
                 'field': 'price',
                 'error': f'Price mismatch. Expected: {expected_price}, Got: {price}'
             }
         
         # Validate stock availability (single source of truth: batches via stock service)
-        total_available = get_available_stock(medicine_unit_id)
+        total_available = get_available_stock(product_variant_id)
         if total_available < quantity:
             return {
                 'item_index': idx,
-                'medicine_unit_id': medicine_unit_id,
+                'product_variant': product_variant_id,
                 'field': 'quantity',
                 'error': f'Insufficient stock. Available: {total_available}, Requested: {quantity}'
             }
         
         return None
     
-    def _deduct_stock(self, medicine_unit_id, quantity):
+    def _deduct_stock(self, product_variant_id, quantity):
         """Trừ tồn kho qua stock service (FIFO trên batches + sync cache)."""
-        deduct_stock(medicine_unit_id, quantity)
+        deduct_stock(product_variant_id, quantity)
 
     def _restore_stock(self, order):
         """Hoàn tồn kho khi đơn bị hủy: gọi restore_stock cho từng item (LIFO/ADJ + sync cache)."""
         for item in order.items.all():
-            restore_stock(item.medicine_unit_id, item.quantity)
+            restore_stock(item.product_variant_id, item.quantity)
     
     def create(self, request, *args, **kwargs):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
@@ -175,9 +173,18 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                 order = serializer.save()
                 # Create order items and deduct stock
                 for item_data in items_data:
+                    from storeApp.models import ProductVariant # inline import to avoid circular dep
+                    # handle both product_variant and product_variant_id
+                    pv_id = item_data.pop('product_variant', None) or item_data.pop('product_variant_id', None)
+                    if pv_id:
+                        try:
+                            pv = ProductVariant.objects.get(id=pv_id)
+                            item_data['product_variant'] = pv
+                        except ProductVariant.DoesNotExist:
+                            pass
                     OrderItem.objects.create(order=order, **item_data)
                     self._deduct_stock(
-                        item_data['medicine_unit_id'],
+                        pv_id,
                         item_data['quantity']
                     )
         except DRFValidationError as e:

@@ -8,6 +8,8 @@ from .viewsets import *
 from storeApp import admin_views as store_admin_views
 
 router = routers.DefaultRouter()
+# Register users/me/addresses before users to avoid conflict with users/<pk>/
+router.register("users/me/addresses", UserAddressViewSet, basename="user-me-addresses")
 router.register("users", UserViewSet, basename="user")
 router.register("roles", UserRoleViewSet, basename="role")
 router.register("categories", CategoryViewSet, basename="category")
@@ -19,8 +21,8 @@ router.register("prescription-details", PrescriptionDetailViewSet, basename="pre
 router.register("medicines", MedicineViewSet, basename="medicine")
 router.register("medicine-units", MedicineUnitViewSet, basename="medicine-unit")
 router.register("bills", BillViewSet, basename="bill")
-router.register("common-districts", CommonDistrictViewSet, basename="common-districts")
-router.register("common-locations", CommonLocationViewSet, basename="common-location")
+router.register("common-cities", CommonCityViewSet, basename="common-city")
+# router.register("common-districts", CommonDistrictViewSet, basename="common-districts")
 router.register("doctor-schedules", DoctorScheduleViewSet, basename="doctor-schedule")
 router.register("time-slots", TimeSlotViewSet, basename="time-slot")
 router.register("specialization-tags", SpecializationTagViewSet, basename="specialization-tag")

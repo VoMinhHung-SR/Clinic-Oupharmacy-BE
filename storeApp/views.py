@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db import models
 from mainApp.models import MedicineUnit, Category, Medicine
-from storeApp.serializers import ProductSerializer
+from storeApp.serializers import ProductVariantSerializer
 from storeApp.filters import ProductFilter
 from storeApp.viewsets.product import ProductPagination
 from django_filters.rest_framework import DjangoFilterBackend
@@ -130,14 +130,14 @@ def products_by_category_slug(request, category_slug):
     paginator = ProductPagination()
     page = paginator.paginate_queryset(queryset, request)
     if page is not None:
-        serializer = ProductSerializer(page, many=True)
+        serializer = ProductVariantSerializer(page, many=True)
         response = paginator.get_paginated_response(serializer.data)
         # Add subcategories to paginated response
         response.data['hasSubcategories'] = has_subcategories
         response.data['subcategories'] = immediate_subcategories
         return response
     
-    serializer = ProductSerializer(queryset, many=True)
+    serializer = ProductVariantSerializer(queryset, many=True)
     return Response({
         'categorySlug': category_path_slug,
         'categoryName': category.path or category.name,

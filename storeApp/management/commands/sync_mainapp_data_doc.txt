@@ -1,0 +1,21 @@
+"""
+Script migration dữ liệu từ mainApp -> storeApp (Medicine -> Product)
+
+Kế hoạch map dữ liệu:
+1. mainApp Category -> storeApp Category (giữ nguyên ID)
+2. mainApp Medicine -> storeApp Product (giữ nguyên ID)
+   - Lưu ý: Lấy category từ MedicineUnit đầu tiên gán lên Product.
+3. mainApp MedicineUnit -> storeApp ProductVariant (giữ nguyên ID)
+   - Đổi `package_size` thành `sku_name`.
+   - Bổ sung logic gán `is_default = True` cho Unit đầu tiên của mỗi Medicine, các Unit sau `is_default = False`.
+4. mainApp MedicineUnitStats -> storeApp ProductVariantStats (giữ nguyên).
+5. mainApp Voucher -> storeApp Voucher.
+
+**Các vấn đề về dữ liệu hiện tại:**
+- Do ở bước Migrate model cho `storeApp` chúng ta dùng lệnh `RemoveField(medicine_unit_id)` và `AddField(product_variant)` trên các bảng như `MedicineBatch`, `OrderItem`, `Notification`, nên dữ liệu khóa ngoại cũ của các bảng này có thể đã bị reset thành Null/xóa trên Database (đặc biệt là SQLite/PostgreSQL).
+- Nếu system đang ở môi trường Dev thì không sao, nhưng nếu cần khôi phục, chúng ta phải sửa Data.
+
+**Cách chạy script (dự kiến):**
+Chạy như Django Management Command:
+`python manage.py sync_mainapp_data`
+"""
