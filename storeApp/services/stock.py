@@ -1,28 +1,27 @@
 """
 Stock service: single source of truth = Batches (store DB).
-- get_available_stock(medicine_unit_id)
-- deduct_stock(medicine_unit_id, quantity)  # FIFO on batches, then sync cache
-- restore_stock(medicine_unit_id, quantity)  # LIFO restore into nearest-expiry batch or create ADJ batch
-- sync_in_stock_cache(medicine_unit_id)      # Update MedicineUnit.in_stock from batch sum
+- get_available_stock(product_variant_id)
+- deduct_stock(product_variant_id, quantity)  # FIFO on batches, then sync cache
+- restore_stock(product_variant_id, quantity)  # LIFO restore into nearest-expiry batch or create ADJ batch
+- sync_in_stock_cache(product_variant_id)      # Update ProductVariant.in_stock from batch sum
 """
 from django.db import transaction, models
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 
-from mainApp.models import MedicineUnit
-from storeApp.models import MedicineBatch
+from storeApp.models import MedicineBatch, ProductVariant
 
 
-def get_available_stock(medicine_unit_id):
+def get_available_stock(product_variant_id):
     """
     Sum remaining_quantity from Batches (store): active, remaining_quantity > 0, expiry_date >= today.
-    Fallback: if no such batches, return MedicineUnit.in_stock (default DB).
+    Fallback: if no such batches, return ProductVariant.in_stock.
     """
     today = timezone.now().date()
     total = (
         MedicineBatch.objects.using('store')
         .filter(
-            medicine_unit_id=medicine_unit_id,
+            product_variant_id=product_variant_id,
             active=True,
             remaining_quantity__gt=0,
             expiry_date__gte=today,
@@ -32,16 +31,16 @@ def get_available_stock(medicine_unit_id):
     if total is not None:
         return int(total)
     try:
-        unit = MedicineUnit.objects.using('default').get(id=medicine_unit_id)
-        return getattr(unit, 'in_stock', 0) or 0
-    except MedicineUnit.DoesNotExist:
+        variant = ProductVariant.objects.using('store').get(id=product_variant_id)
+        return getattr(variant, 'in_stock', 0) or 0
+    except ProductVariant.DoesNotExist:
         return 0
 
 
-def deduct_stock(medicine_unit_id, quantity):
+def deduct_stock(product_variant_id, quantity):
     """
     Deduct quantity from batches (store) FIFO. Raise ValueError if insufficient.
-    Then sync MedicineUnit.in_stock cache (default DB).
+    Then sync ProductVariant.in_stock cache.
     """
     if quantity <= 0:
         return
@@ -49,7 +48,7 @@ def deduct_stock(medicine_unit_id, quantity):
     batches = list(
         MedicineBatch.objects.using('store')
         .filter(
-            medicine_unit_id=medicine_unit_id,
+            product_variant_id=product_variant_id,
             active=True,
             remaining_quantity__gt=0,
             expiry_date__gte=today,
@@ -70,16 +69,16 @@ def deduct_stock(medicine_unit_id, quantity):
             batch.save(update_fields=['remaining_quantity'])
     if remaining > 0:
         raise ValueError(
-            f'Insufficient stock for medicine_unit_id {medicine_unit_id}. Could not deduct {remaining} units.'
+            f'Insufficient stock for product_variant_id {product_variant_id}. Could not deduct {remaining} units.'
         )
-    sync_in_stock_cache(medicine_unit_id)
+    sync_in_stock_cache(product_variant_id)
 
 
-def restore_stock(medicine_unit_id, quantity):
+def restore_stock(product_variant_id, quantity):
     """
     Restore quantity: add to the batch with nearest expiry (LIFO restore).
-    If no suitable batch, create an adjustment batch (ADJ-{unit_id}-{timestamp}).
-    Then sync MedicineUnit.in_stock cache.
+    If no suitable batch, create an adjustment batch (ADJ-{variant_id}-{timestamp}).
+    Then sync ProductVariant.in_stock cache.
     """
     if quantity <= 0:
         return
@@ -87,7 +86,7 @@ def restore_stock(medicine_unit_id, quantity):
     batches = list(
         MedicineBatch.objects.using('store')
         .filter(
-            medicine_unit_id=medicine_unit_id,
+            product_variant_id=product_variant_id,
             active=True,
             expiry_date__gte=today,
         )
@@ -101,11 +100,11 @@ def restore_stock(medicine_unit_id, quantity):
     else:
         # No batch to restore into: create adjustment batch
         ts = timezone.now().strftime('%Y%m%d%H%M%S')
-        batch_number = f'ADJ-{medicine_unit_id}-{ts}'
+        batch_number = f'ADJ-{product_variant_id}-{ts}'
         expiry_date = today + relativedelta(months=12)
         MedicineBatch.objects.using('store').create(
             batch_number=batch_number,
-            medicine_unit_id=medicine_unit_id,
+            product_variant_id=product_variant_id,
             import_date=today,
             expiry_date=expiry_date,
             quantity=quantity,
@@ -113,19 +112,19 @@ def restore_stock(medicine_unit_id, quantity):
             import_price=None,
             active=True,
         )
-    sync_in_stock_cache(medicine_unit_id)
+    sync_in_stock_cache(product_variant_id)
 
 
-def sync_in_stock_cache(medicine_unit_id):
+def sync_in_stock_cache(product_variant_id):
     """
-    Set MedicineUnit.in_stock (default DB) to sum of remaining_quantity from Batches (store)
+    Set ProductVariant.in_stock to sum of remaining_quantity from Batches (store)
     where active, remaining_quantity > 0, expiry_date >= today.
     """
     today = timezone.now().date()
     total = (
         MedicineBatch.objects.using('store')
         .filter(
-            medicine_unit_id=medicine_unit_id,
+            product_variant_id=product_variant_id,
             active=True,
             remaining_quantity__gt=0,
             expiry_date__gte=today,
@@ -133,4 +132,4 @@ def sync_in_stock_cache(medicine_unit_id):
         .aggregate(total=models.Sum('remaining_quantity'))['total']
     )
     value = int(total) if total is not None else 0
-    MedicineUnit.objects.using('default').filter(id=medicine_unit_id).update(in_stock=value)
+    ProductVariant.objects.using('store').filter(id=product_variant_id).update(in_stock=value)
