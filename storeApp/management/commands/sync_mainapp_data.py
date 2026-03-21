@@ -32,6 +32,7 @@ from storeApp.models import (
     Category as StoreCategory,
     Product as StoreProduct,
     ProductVariant as StoreProductVariant,
+    ProductVariantUnit as StoreProductVariantUnit,
     ProductVariantStats as StoreProductVariantStats,
     Voucher as StoreVoucher,
 )
@@ -88,6 +89,7 @@ class Command(BaseCommand):
                 self.sync_categories()
                 self.sync_products()
                 self.sync_variants()
+                self.sync_variant_units()
                 self.sync_stats()
                 self.sync_vouchers()
 
@@ -108,6 +110,7 @@ class Command(BaseCommand):
     def _clear_store_data(self):
         self.stdout.write(self.style.WARNING("Xóa dữ liệu cũ trong storeApp (trừ Brand)..."))
         StoreProductVariantStats.objects.using("store").all().delete()
+        StoreProductVariantUnit.objects.using("store").all().delete()
         StoreProductVariant.objects.using("store").all().delete()
         StoreProduct.objects.using("store").all().delete()
         StoreCategory.objects.using("store").all().delete()
@@ -281,26 +284,26 @@ class Command(BaseCommand):
         to_create, to_update = [], []
 
         for mu in main_units:
-            is_default = mu.id == first_unit_id_by_medicine.get(mu.medicine_id)
+            first_unit_id = first_unit_id_by_medicine.get(mu.medicine_id)
+            variant_packing = mu.package_size or f"Variant-{mu.id}"
 
             defaults = {
                 "product_id": mu.medicine_id,
-                "packing": mu.package_size,
+                "packing": variant_packing,
+                "sku": f"MU-{mu.id}",
                 "in_stock": mu.in_stock,
-                "price_display": mu.price_display,
-                "price_value": mu.price_value,
                 "image": mu.image,
                 "images": mu.images,
                 "registration_number": mu.registration_number,
-                "origin": mu.origin,
-                "manufacturer": mu.manufacturer,
-                "shelf_life": mu.shelf_life,
-                "specifications": mu.specifications,
+                "base_unit": "unit",
+                "packing_meta": {
+                    "main_unit_id": mu.id,
+                    "source": "mainApp.sync",
+                    "is_primary_variant_of_product": mu.id == first_unit_id,
+                },
                 "product_ranking": mu.product_ranking,
-                "display_code": mu.display_code,
                 "is_published": mu.is_published,
                 "is_hot": mu.is_hot,
-                "is_default": is_default,
                 "created_date": mu.created_date,
                 "updated_date": mu.updated_date,
                 "active": mu.active,
@@ -319,10 +322,9 @@ class Command(BaseCommand):
                 to_create.append(StoreProductVariant(id=mu.id, **defaults))
 
         update_fields = [
-            "product_id", "packing", "in_stock", "price_display", "price_value",
-            "image", "images", "registration_number", "origin", "manufacturer",
-            "shelf_life", "specifications", "product_ranking", "display_code",
-            "is_published", "is_hot", "is_default", "created_date", "updated_date", "active",
+            "product_id", "packing", "sku", "in_stock", "image", "images",
+            "registration_number", "base_unit", "packing_meta", "product_ranking",
+            "is_published", "is_hot", "created_date", "updated_date", "active",
         ]
 
         for chunk in self._chunked(to_create, BATCH_SIZE):
@@ -333,7 +335,63 @@ class Command(BaseCommand):
         self._log("ProductVariants", len(to_create), len(to_update))
 
     # ------------------------------------------------------------------ #
-    #  5. Stats (MedicineUnitStats → ProductVariantStats)                  #
+    #  5. Variant Units (MedicineUnit pricing -> ProductVariantUnit)       #
+    # ------------------------------------------------------------------ #
+    def sync_variant_units(self):
+        self.stdout.write("Syncing Product Variant Units...")
+
+        main_units = list(MainMedicineUnit.objects.all())
+        existing_by_variant = {
+            obj.variant_id: obj
+            for obj in StoreProductVariantUnit.objects.using("store").filter(is_default=True)
+        }
+
+        to_create, to_update = [], []
+
+        for mu in main_units:
+            unit_name = (mu.package_size or "default")[:50]
+            defaults = {
+                "variant_id": mu.id,
+                "quantity_in_base": 1,
+                "unit_name": unit_name,
+                "unit_order": 0,
+                "price_value": mu.price_value or 0,
+                "price_display": mu.price_display or None,
+                "compare_at_price": mu.original_price_value,
+                "is_default": True,
+                "is_published": mu.is_published,
+                "created_date": mu.created_date,
+                "updated_date": mu.updated_date,
+                "active": mu.active,
+            }
+
+            existing = existing_by_variant.get(mu.id)
+            if existing:
+                changed = False
+                for field, val in defaults.items():
+                    if getattr(existing, field) != val:
+                        setattr(existing, field, val)
+                        changed = True
+                if changed:
+                    to_update.append(existing)
+            else:
+                to_create.append(StoreProductVariantUnit(**defaults))
+
+        update_fields = [
+            "quantity_in_base", "unit_name", "unit_order", "price_value",
+            "price_display", "compare_at_price", "is_default", "is_published",
+            "created_date", "updated_date", "active",
+        ]
+
+        for chunk in self._chunked(to_create, BATCH_SIZE):
+            StoreProductVariantUnit.objects.using("store").bulk_create(chunk, ignore_conflicts=False)
+        for chunk in self._chunked(to_update, BATCH_SIZE):
+            StoreProductVariantUnit.objects.using("store").bulk_update(chunk, update_fields)
+
+        self._log("ProductVariantUnits", len(to_create), len(to_update))
+
+    # ------------------------------------------------------------------ #
+    #  6. Stats (MedicineUnitStats → ProductVariantStats)                  #
     # ------------------------------------------------------------------ #
     def sync_stats(self):
         self.stdout.write("Syncing Product Variant Stats...")
@@ -379,7 +437,7 @@ class Command(BaseCommand):
         self._log("ProductVariantStats", len(to_create), len(to_update))
 
     # ------------------------------------------------------------------ #
-    #  6. Vouchers                                                          #
+    #  7. Vouchers                                                          #
     # ------------------------------------------------------------------ #
     def sync_vouchers(self):
         self.stdout.write("Syncing Vouchers...")

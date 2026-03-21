@@ -12,7 +12,7 @@ Rules:
 - 1 sản phẩm có thể thuộc nhiều danh mục (nhiều CSV rows cùng name/slug, category khác nhau).
 - 1 sản phẩm có thể có nhiều packing/variant (từ pricing.packageOptions hoặc nhiều row).
 - Batch cũ bị xóa trước khi tạo batch mới (tránh conflict), giữ logic random ngày.
-- Toàn bộ logic gom vào 1 file duy nhất.
+- Sau khi tạo batch: đồng bộ ProductVariant.in_stock = tổng remaining_quantity (theo storeApp.services.stock).
 
 Chạy:
   python manage.py store_import_csv [path] [--dry-run] [--update-existing] [--no-batches]
@@ -26,7 +26,6 @@ import json
 import logging
 import os
 import random
-import re
 from datetime import date, timedelta
 from typing import Optional
 
@@ -35,14 +34,22 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
+from .store_import_packaging import (
+    _build_variant_payloads,
+    _normalize_unit_name,
+    _parse_package_options,
+    _parse_price_value,
+)
 from storeApp.models import (
     Brand,
     Category,
     MedicineBatch,
     Product,
     ProductVariant,
+    ProductVariantUnit,
     ProductVariantStats,
 )
+from storeApp.services.stock import sync_in_stock_cache
 
 logger = logging.getLogger(__name__)
 
@@ -139,61 +146,6 @@ def _random_import_date(today: date) -> date:
     return start + timedelta(days=random.randint(0, delta))
 
 
-def _parse_package_options(raw: str, default_packing: str = "", default_price_display: str = "", default_price_value: float = 0.0):
-    """
-    Parse pricing.packageOptions thành list các dict:
-      [{'packing': str, 'price_display': str, 'price_value': float}, ...]
-
-    Formats handled:
-      - JSON array của objects
-      - Pipe-separated string: "Hộp 159.080đ / Hộp (Hộp 2 vỉ x 10 ống) | ..."
-    """
-    if not raw or not raw.strip():
-        return []
-
-    # JSON array?
-    if raw.strip().startswith("["):
-        try:
-            items = json.loads(raw)
-            if not isinstance(items, list):
-                return []
-            result = []
-            for item in items:
-                if isinstance(item, dict):
-                    pd = item.get("price", item.get("priceDisplay", default_price_display))
-                    pv = item.get("priceValue", _parse_price_value(pd))
-                    packing = (
-                        item.get("specification", "")
-                        or item.get("unit", "")
-                        or item.get("unitDisplay", default_packing)
-                    )
-                    result.append({
-                        "packing": str(packing)[:100],
-                        "price_display": str(pd)[:50],
-                        "price_value": float(pv) if pv else 0.0,
-                    })
-            return result
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    # Pipe-separated string
-    options = []
-    for part in raw.split("|"):
-        part = part.strip()
-        if not part:
-            continue
-        m = re.match(r"(.+?)\s+([\d.,]+đ)\s*/\s*(.+?)(?:\s*\((.+?)\))?$", part)
-        if m:
-            price_d = m.group(2).strip()
-            spec = (m.group(4) or m.group(3) or "").strip()
-            options.append({
-                "packing": spec[:100] or default_packing,
-                "price_display": price_d[:50],
-                "price_value": _parse_price_value(price_d),
-            })
-    return options
-
-
 # ============================================================
 # StoreApp Category helper (mirror of Category.get_or_create_from_array
 # but using StoreCategory via 'store' DB alias)
@@ -238,7 +190,7 @@ def _get_or_create_store_category(category_array: list, cache: dict) -> Optional
 class Command(BaseCommand):
     help = (
         "Import dữ liệu CSV trực tiếp vào storeApp models "
-        "(Brand, Category, Product, ProductVariant, MedicineBatch, ProductVariantStats)."
+        "(Brand, Category, Product, ProductVariant, ProductVariantUnit, MedicineBatch, ProductVariantStats)."
     )
 
     def add_arguments(self, parser):
@@ -487,14 +439,12 @@ class Command(BaseCommand):
             default_price_display=default_price_display,
             default_price_value=default_price_value,
         )
-
-        # Nếu không có packageOptions, dùng 1 option từ default fields
-        if not package_options:
-            package_options = [{
-                "packing": default_packing,
-                "price_display": default_price_display,
-                "price_value": default_price_value,
-            }]
+        variant_payloads = _build_variant_payloads(
+            package_options=package_options,
+            default_packing=default_packing,
+            default_price_display=default_price_display,
+            default_price_value=default_price_value,
+        )
 
         # Common variant metadata (không đổi theo packing)
         images = _parse_json_field(row.get("media.images", "[]"), default=[])
@@ -507,73 +457,38 @@ class Command(BaseCommand):
             "image": None,  # CloudinaryField — skip upload
             "images": images,
             "registration_number": (row.get("specifications.registrationNumber") or "").strip()[:100],
-            "origin": (row.get("specifications.origin") or "").strip()[:200],
-            "manufacturer": (row.get("specifications.manufacturer") or "").strip(),
-            "shelf_life": (row.get("specifications.shelfLife") or "").strip()[:100],
-            "specifications": _parse_json_field(row.get("specifications.specifications", "{}"), default={}),
+            "base_unit": "unit",
+            "packing_meta": {
+                "origin": (row.get("specifications.origin") or "").strip()[:200],
+                "manufacturer": (row.get("specifications.manufacturer") or "").strip(),
+                "shelf_life": (row.get("specifications.shelfLife") or "").strip()[:100],
+                "specifications": _parse_json_field(row.get("specifications.specifications", "{}"), default={}),
+            },
             "product_ranking": _to_int(row.get("metadata.productRanking"), 0),
-            "display_code": _to_int(row.get("metadata.displayCode"), None),
+            "sku": (row.get("basicInfo.sku") or "").strip()[:100] or None,
             "is_published": _to_bool(row.get("metadata.isPublish", "true"), True),
             "is_hot": _to_bool(row.get("metadata.isHot", "false"), False),
         }
 
         created_variants: list[ProductVariant] = []
 
-        for i, option in enumerate(package_options):
-            packing = option["packing"]
-            price_display = option["price_display"]
-            price_value = option["price_value"]
-
+        for payload in variant_payloads:
             if dry_run:
                 stats["variants_created"] += 1
                 continue
 
-            # is_default = first packing (theo thứ tự option)
-            is_default = (i == 0)
-
-            # Lookup existing variant keyed by (product, packing)
-            variant_fields = {
-                **variant_common,
-                "packing": packing,
-                "price_display": price_display,
-                "price_value": price_value,
-                "is_default": is_default,
-            }
-
-            existing_variant = (
-                ProductVariant.objects.using("store")
-                .filter(product=product, packing=packing)
-                .first()
+            variant_instance, created = self._upsert_variant_with_units(
+                product=product,
+                payload=payload,
+                variant_common=variant_common,
+                row=row,
+                update_existing=update_existing,
             )
-
-            if existing_variant:
-                if update_existing:
-                    for field, val in variant_fields.items():
-                        setattr(existing_variant, field, val)
-                    existing_variant.save(using="store")
-                    stats["variants_updated"] += 1
-                    created_variants.append(existing_variant)
-                else:
-                    created_variants.append(existing_variant)  # keep for batch
-            else:
-                variant = ProductVariant.objects.using("store").create(
-                    product=product,
-                    **variant_fields,
-                )
+            if created:
                 stats["variants_created"] += 1
-                created_variants.append(variant)
-
-            # Ensure ProductVariantStats exists
-            ProductVariantStats.objects.using("store").get_or_create(
-                variant=created_variants[-1],
-                defaults={
-                    "sold_total": 0,
-                    "sold_30d": 0,
-                    "sold_7d": 0,
-                    "view_count": 0,
-                    "wishlist_count": 0,
-                },
-            )
+            elif update_existing:
+                stats["variants_updated"] += 1
+            created_variants.append(variant_instance)
 
         # ── 5. MedicineBatch ──────────────────────────────────
         if not no_batches and not dry_run and created_variants:
@@ -581,6 +496,96 @@ class Command(BaseCommand):
             stats["batches_created"] += batch_count
 
         return stats
+
+    def _upsert_variant_with_units(
+        self,
+        product: Product,
+        payload: dict,
+        variant_common: dict,
+        row: dict,
+        update_existing: bool,
+    ) -> tuple[ProductVariant, bool]:
+        packing = payload["packing"]
+        units = payload["units"]
+        base_unit = payload["base_unit"]
+
+        variant_fields = {
+            **variant_common,
+            "packing": packing,
+            "base_unit": base_unit[:50],
+            "packing_meta": {
+                **variant_common.get("packing_meta", {}),
+                "units": [u["unit_name"] for u in units],
+            },
+        }
+
+        existing_variant = (
+            ProductVariant.objects.using("store")
+            .filter(product=product, packing=packing)
+            .first()
+        )
+
+        if existing_variant:
+            if update_existing:
+                for field, val in variant_fields.items():
+                    setattr(existing_variant, field, val)
+                existing_variant.save(using="store")
+            variant_instance = existing_variant
+            created = False
+        else:
+            variant_instance = ProductVariant.objects.using("store").create(
+                product=product,
+                **variant_fields,
+            )
+            created = True
+
+        ProductVariantStats.objects.using("store").get_or_create(
+            variant=variant_instance,
+            defaults={
+                "sold_total": 0,
+                "sold_30d": 0,
+                "sold_7d": 0,
+                "view_count": 0,
+                "wishlist_count": 0,
+            },
+        )
+        self._upsert_variant_units(
+            variant=variant_instance,
+            units=units,
+            is_published=_to_bool(row.get("metadata.isPublish", "true"), True),
+            update_existing=update_existing,
+        )
+        return variant_instance, created
+
+    def _upsert_variant_units(self, variant: ProductVariant, units: list, is_published: bool, update_existing: bool) -> None:
+        existing_units = {
+            _normalize_unit_name(unit.unit_name): unit
+            for unit in ProductVariantUnit.objects.using("store").filter(variant=variant)
+        }
+
+        for unit in units:
+            unit_key = _normalize_unit_name(unit["unit_name"])
+            unit_defaults = {
+                "quantity_in_base": unit.get("quantity_in_base", 1),
+                "unit_name": unit["unit_name"][:50],
+                "unit_order": unit.get("unit_order", 0),
+                "price_value": unit.get("price_value") or 0,
+                "price_display": unit.get("price_display") or None,
+                "compare_at_price": None,
+                "is_default": bool(unit.get("is_default")),
+                "is_published": is_published,
+            }
+            existing_unit = existing_units.get(unit_key)
+            if existing_unit:
+                if update_existing:
+                    for field, val in unit_defaults.items():
+                        setattr(existing_unit, field, val)
+                    existing_unit.save(using="store")
+            else:
+                ProductVariantUnit.objects.using("store").create(
+                    variant=variant,
+                    **unit_defaults,
+                )
 
     # ----------------------------------------------------------
     # Brand resolution
@@ -736,10 +741,13 @@ class Command(BaseCommand):
                     expiry_date=expiry_date,
                     quantity=quantity,
                     remaining_quantity=quantity,
-                    import_price=None,
+                    import_price_per_base_unit=None,
                     active=True,
                 )
                 created += 1
+
+            # Khớp cache tồn kho với nguồn sự thật = tổng batch (đơn vị cơ sở)
+            sync_in_stock_cache(variant.id)
 
         return created
 

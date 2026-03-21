@@ -1,4 +1,5 @@
 from django.db import models
+from django.db import IntegrityError
 from django.utils import timezone
 from django.core.validators import MinValueValidator
 from cloudinary.models import CloudinaryField
@@ -82,10 +83,18 @@ class Order(BaseModel):
     notes = models.TextField(null=True, blank=True, db_column='notes', help_text="Ghi chú của khách hàng")
 
     def save(self, *args, **kwargs):
-        # Tự động generate order_number nếu chưa có
-        if not self.order_number:
+        # Generate order_number với retry để giảm rủi ro race condition.
+        if self.order_number:
+            return super().save(*args, **kwargs)
+
+        for attempt in range(5):
             self.order_number = self.generate_order_number()
-        super().save(*args, **kwargs)
+            try:
+                return super().save(*args, **kwargs)
+            except IntegrityError as exc:
+                if "order_number" in str(exc) and attempt < 4:
+                    continue
+                raise
 
     @staticmethod
     def generate_order_number():
@@ -168,8 +177,12 @@ class MedicineBatch(BaseModel):
         return delta.days
 
     @property
-    def is_near_expiry(self, days_threshold=30):
-        """Kiểm tra thuốc sắp hết hạn (mặc định 30 ngày)"""
+    def is_near_expiry(self):
+        """Thuốc sắp hết hạn theo ngưỡng mặc định 30 ngày."""
+        return self.is_near_expiry_within(30)
+
+    def is_near_expiry_within(self, days_threshold=30):
+        """Kiểm tra thuốc sắp hết hạn với ngưỡng ngày tùy chỉnh."""
         return 0 <= self.days_until_expiry <= days_threshold
 
     class Meta:
@@ -268,6 +281,18 @@ class Category(BaseModel):
 
     def save(self, *args, **kwargs):
         """Auto-calculate level, path, và path_slug khi save"""
+        old_path_slug = None
+        hierarchy_changed = False
+        if self.pk:
+            previous = Category.objects.filter(pk=self.pk).values("name", "slug", "parent_id", "path_slug").first()
+            if previous:
+                old_path_slug = previous["path_slug"]
+                hierarchy_changed = (
+                    previous["name"] != self.name
+                    or previous["slug"] != self.slug
+                    or previous["parent_id"] != self.parent_id
+                )
+
         self._generate_slug_from_name()
         
         if self.parent:
@@ -279,6 +304,32 @@ class Category(BaseModel):
             self.path = self.name
             self.path_slug = self.slug
         super().save(*args, **kwargs)
+
+        if hierarchy_changed and old_path_slug and old_path_slug != self.path_slug:
+            self._refresh_descendant_paths(old_path_slug)
+
+    def _refresh_descendant_paths(self, old_path_slug):
+        """Cập nhật path/path_slug/level cho toàn bộ category con khi node cha đổi."""
+        prefix = f"{old_path_slug}/"
+        descendants = (
+            Category.objects
+            .select_related("parent")
+            .filter(path_slug__startswith=prefix)
+            .exclude(pk=self.pk)
+            .order_by("level", "id")
+        )
+        for node in descendants:
+            parent = node.parent
+            if not parent:
+                continue
+            new_level = parent.level + 1
+            new_path = f"{parent.path} > {node.name}" if parent.path else f"{parent.name} > {node.name}"
+            new_path_slug = f"{parent.path_slug}/{node.slug}" if parent.path_slug else node.slug
+            Category.objects.filter(pk=node.pk).update(
+                level=new_level,
+                path=new_path,
+                path_slug=new_path_slug,
+            )
 
     def get_category_array(self):
         """Trả về category array format theo schema: [{"name":"...","slug":"..."}, ...]"""
