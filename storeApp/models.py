@@ -121,7 +121,7 @@ class Order(BaseModel):
 class OrderItem(BaseModel):
     """Chi tiết đơn hàng"""
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items', db_column='order_id')
-    product_variant = models.ForeignKey('ProductVariant', on_delete=models.PROTECT, related_name='order_items', db_column='product_variant_id', null=True)
+    product_variant = models.ForeignKey('ProductVariant', on_delete=models.PROTECT, related_name='order_items', db_column='product_variant_id')
     quantity = models.PositiveIntegerField(null=False, validators=[MinValueValidator(1)], db_column='quantity')
     price = models.FloatField(null=False, validators=[MinValueValidator(0)], db_column='price', help_text="Giá tại thời điểm đặt hàng (snapshot)")
 
@@ -144,13 +144,15 @@ class OrderItem(BaseModel):
 class MedicineBatch(BaseModel):
     """Quản lý lô thuốc - theo dõi ngày nhập và hạn sử dụng"""
     batch_number = models.CharField(max_length=100, null=False, blank=False, unique=True, db_index=True, db_column='batch_number', help_text="Mã lô thuốc")
-    product_variant = models.ForeignKey('ProductVariant', on_delete=models.PROTECT, related_name='batches', db_column='product_variant_id', null=True)
+    product_variant = models.ForeignKey('ProductVariant', on_delete=models.PROTECT, related_name='batches', db_column='product_variant_id')
+    
     import_date = models.DateField(null=False, db_column='import_date', help_text="Ngày nhập kho")
     expiry_date = models.DateField(null=False, db_column='expiry_date', help_text="Hạn sử dụng")
-    quantity = models.PositiveIntegerField(null=False, validators=[MinValueValidator(1)], db_column='quantity', help_text="Số lượng nhập")
-    remaining_quantity = models.PositiveIntegerField(null=False, default=0, db_column='remaining_quantity', help_text="Số lượng còn lại")
-    import_price = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0)], db_column='import_price', help_text="Giá nhập kho (để tính lợi nhuận)")
-
+    
+    quantity = models.PositiveIntegerField(null=False, validators=[MinValueValidator(1)], db_column='quantity', help_text="Số lượng nhập theo đơn vị cơ sở")
+    remaining_quantity = models.PositiveIntegerField(null=False, default=0, db_column='remaining_quantity', help_text="Số lượng còn lại theo đơn vị cơ sở")
+    import_price_per_base_unit = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
+    
     def __str__(self):
         return f"Batch {self.batch_number} - Exp: {self.expiry_date}"
 
@@ -353,6 +355,11 @@ class Product(BaseModel):
     careful = models.TextField(null=True, blank=True)
     preservation = models.TextField(null=True, blank=True)
     
+    origin = models.CharField(max_length=200, null=True, blank=True)
+    manufacturer = models.TextField(null=True, blank=True)
+    shelf_life = models.CharField(max_length=100, null=True, blank=True)
+    specifications = models.JSONField(default=dict, null=True, blank=True)
+    
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
 
@@ -372,27 +379,23 @@ class Product(BaseModel):
 
 class ProductVariant(BaseModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='variants', db_index=True)
+    sku = models.CharField(max_length=100, null=True, blank=True, unique=True, db_index=True, help_text="Stock Keeping Unit")
+
     packing = models.CharField(max_length=100, null=True, blank=True, help_text="Quy cách đóng gói, ví dụ: Hộp 30 viên")
-    in_stock = models.IntegerField(null=False, default=0, db_index=True)
-    
-    price_display = models.CharField(max_length=50, null=True, blank=True)
-    price_value = models.FloatField(null=False, default=0, db_index=True)
+    packing_meta = models.JSONField(default=dict, blank=True)
     
     image = CloudinaryField('products', default='', null=True, folder='OUPharmacy/products/image')
     images = models.JSONField(default=list, blank=True)
-    
+
     registration_number = models.CharField(max_length=100, null=True, blank=True)
-    origin = models.CharField(max_length=200, null=True, blank=True)
-    manufacturer = models.TextField(null=True, blank=True)
-    shelf_life = models.CharField(max_length=100, null=True, blank=True)
-    specifications = models.JSONField(default=dict, null=True, blank=True)
+    base_unit = models.CharField(max_length=50, null=True, blank=True, db_index=True, help_text="Đơn vị cơ sở nhỏ nhất, ví dụ: viên, gói")
     
+    in_stock = models.IntegerField(null=False, default=0, db_index=True, help_text="Tồn kho cache theo đơn vị cơ sở (base unit)")
     product_ranking = models.IntegerField(default=0, db_index=True)
-    display_code = models.IntegerField(null=True, blank=True)
+    
     is_published = models.BooleanField(default=True, db_index=True)
     is_hot = models.BooleanField(default=False, db_index=True)
-    is_default = models.BooleanField(default=True, db_index=True)
-
+ 
     def __str__(self):
         return f"{self.product.name} - {self.packing}"
 
@@ -412,10 +415,26 @@ class ProductVariant(BaseModel):
         verbose_name_plural = 'Product Variants'
         indexes = [
             models.Index(fields=['is_published', 'product_ranking']),
-            models.Index(fields=['price_value', 'is_published']),
             models.Index(fields=['is_hot', 'is_published']),
         ]
 
+class ProductVariantUnit(BaseModel):
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, related_name='units', db_column='product_variant_id')
+    quantity_in_base = models.PositiveIntegerField(default=1, help_text="1 Hộp = 30 viên, 1 Vỉ = 10 viên")
+    
+    unit_name = models.CharField(max_length=50, db_index=True, help_text="Hộp, Vỉ, Viên, Gói...")
+    unit_order = models.PositiveIntegerField(default=0)
+    
+    price_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    price_display = models.CharField(max_length=50, null=True, blank=True)
+
+    compare_at_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    is_default = models.BooleanField(default=False, db_index=True)
+    is_published = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        unique_together = [('variant', 'unit_name')]
+        ordering = ['unit_order', 'id']
 
 class ProductVariantStats(models.Model):
     variant = models.OneToOneField(ProductVariant, on_delete=models.CASCADE, related_name='stats')
