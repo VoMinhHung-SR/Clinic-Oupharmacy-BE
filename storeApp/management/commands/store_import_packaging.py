@@ -167,6 +167,7 @@ def _build_variant_payloads(package_options: list, default_packing: str, default
                 target_price=unit["price_value"] or 0.0,
             )
 
+        normalize_single_default_unit_per_variant(units)
         payloads.append({
             "packing": packing,
             "base_unit": base_unit,
@@ -174,3 +175,61 @@ def _build_variant_payloads(package_options: list, default_packing: str, default
         })
 
     return payloads
+
+
+def normalize_single_default_unit_per_variant(units: list[dict]) -> None:
+    """
+    Chuẩn hóa is_default trên list unit của **một** variant (mutate in-place).
+
+    - Không có default nào → gán default cho unit có unit_order nhỏ nhất (rồi id ổn định).
+    - Nhiều default → giữ một: ưu tiên unit_order thấp nhất trong các unit đang is_default=True.
+    - Đúng một default → các unit còn lại False (đồng bộ rõ ràng).
+    """
+    if not units:
+        return
+    flagged = [i for i, u in enumerate(units) if bool(u.get("is_default"))]
+
+    def _order_key(i: int):
+        return (units[i].get("unit_order", 0), i)
+
+    if len(flagged) == 1:
+        keep = flagged[0]
+    elif len(flagged) == 0:
+        keep = min(range(len(units)), key=_order_key)
+    else:
+        keep = min(flagged, key=_order_key)
+
+    for i, u in enumerate(units):
+        u["is_default"] = i == keep
+
+
+def reconcile_single_default_variant_units_in_db(variant, using: str = "store") -> None:
+    """
+    Trên DB: đảm bảo đúng **một** ProductVariantUnit có is_default=True / variant.
+    Dùng sau import hoặc khi dữ liệu lệch (0 hoặc >1 default).
+
+    Ưu tiên giữ một default hiện có có unit_order nhỏ nhất; nếu không có default nào thì chọn unit_order nhỏ nhất.
+    """
+    from storeApp.models import ProductVariantUnit
+
+    rows = list(
+        ProductVariantUnit.objects.using(using)
+        .filter(variant=variant)
+        .order_by("unit_order", "id")
+    )
+    if not rows:
+        return
+
+    defaults = [u for u in rows if u.is_default]
+    if len(defaults) == 1:
+        return
+
+    if len(defaults) >= 2:
+        keep = min(defaults, key=lambda u: (u.unit_order, u.id))
+    else:
+        keep = rows[0]
+
+    for u in rows:
+        u.is_default = u.id == keep.id
+
+    ProductVariantUnit.objects.using(using).bulk_update(rows, ["is_default"], batch_size=500)

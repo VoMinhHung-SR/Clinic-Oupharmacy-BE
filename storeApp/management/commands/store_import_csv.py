@@ -13,6 +13,7 @@ Rules:
 - 1 sản phẩm có thể có nhiều packing/variant (từ pricing.packageOptions hoặc nhiều row).
 - Batch cũ bị xóa trước khi tạo batch mới (tránh conflict), giữ logic random ngày.
 - Sau khi tạo batch: đồng bộ ProductVariant.in_stock = tổng remaining_quantity (theo storeApp.services.stock).
+- ProductVariantUnit: chuẩn hóa đúng một is_default / variant (payload + reconcile DB sau upsert).
 
 Chạy:
   python manage.py store_import_csv [path] [--dry-run] [--update-existing] [--no-batches]
@@ -39,6 +40,8 @@ from .store_import_packaging import (
     _normalize_unit_name,
     _parse_package_options,
     _parse_price_value,
+    normalize_single_default_unit_per_variant,
+    reconcile_single_default_variant_units_in_db,
 )
 from storeApp.models import (
     Brand,
@@ -558,6 +561,9 @@ class Command(BaseCommand):
         return variant_instance, created
 
     def _upsert_variant_units(self, variant: ProductVariant, units: list, is_published: bool, update_existing: bool) -> None:
+        # Một variant: đúng một is_default=True trong payload (CSV/packageOptions có thể thiếu hoặc trùng).
+        normalize_single_default_unit_per_variant(units)
+
         existing_units = {
             _normalize_unit_name(unit.unit_name): unit
             for unit in ProductVariantUnit.objects.using("store").filter(variant=variant)
@@ -586,6 +592,9 @@ class Command(BaseCommand):
                     variant=variant,
                     **unit_defaults,
                 )
+
+        # Có thể còn unit cũ trên DB không nằm trong payload → đồng bộ lại đúng 1 default / variant.
+        reconcile_single_default_variant_units_in_db(variant, using="store")
 
     # ----------------------------------------------------------
     # Brand resolution

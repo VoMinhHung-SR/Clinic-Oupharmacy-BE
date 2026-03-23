@@ -76,9 +76,18 @@ class Order(BaseModel):
     shipping_address = models.TextField(null=False, blank=False, db_column='shipping_address')
     shipping_method = models.ForeignKey(ShippingMethod, on_delete=models.PROTECT, related_name='orders', db_column='shipping_method_id')
     payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT, related_name='orders', db_column='payment_method_id')
-    subtotal = models.FloatField(null=False, default=0, validators=[MinValueValidator(0)], db_column='subtotal', help_text="Tổng tiền sản phẩm")
-    shipping_fee = models.FloatField(null=False, default=0, validators=[MinValueValidator(0)], db_column='shipping_fee', help_text="Phí vận chuyển")
-    total = models.FloatField(null=False, default=0, validators=[MinValueValidator(0)], db_column='total', help_text="Tổng thanh toán")
+    subtotal = models.DecimalField(
+        max_digits=12, decimal_places=2, null=False, default=0,
+        validators=[MinValueValidator(0)], db_column='subtotal', help_text="Tổng tiền sản phẩm",
+    )
+    shipping_fee = models.DecimalField(
+        max_digits=12, decimal_places=2, null=False, default=0,
+        validators=[MinValueValidator(0)], db_column='shipping_fee', help_text="Phí vận chuyển",
+    )
+    total = models.DecimalField(
+        max_digits=12, decimal_places=2, null=False, default=0,
+        validators=[MinValueValidator(0)], db_column='total', help_text="Tổng thanh toán",
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PENDING, db_column='status')
     notes = models.TextField(null=True, blank=True, db_column='notes', help_text="Ghi chú của khách hàng")
 
@@ -131,14 +140,27 @@ class OrderItem(BaseModel):
     """Chi tiết đơn hàng"""
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items', db_column='order_id')
     product_variant = models.ForeignKey('ProductVariant', on_delete=models.PROTECT, related_name='order_items', db_column='product_variant_id')
+    product_variant_unit = models.ForeignKey(
+        'ProductVariantUnit',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='order_items',
+        db_column='product_variant_unit_id',
+        help_text="Đơn vị bán đã chọn (Hộp/Lọ/...); null = dữ liệu cũ hoặc mặc định theo variant",
+    )
     quantity = models.PositiveIntegerField(null=False, validators=[MinValueValidator(1)], db_column='quantity')
-    price = models.FloatField(null=False, validators=[MinValueValidator(0)], db_column='price', help_text="Giá tại thời điểm đặt hàng (snapshot)")
+    price = models.DecimalField(
+        max_digits=12, decimal_places=2, null=False,
+        validators=[MinValueValidator(0)], db_column='price',
+        help_text="Đơn giá snapshot theo đơn vị đã chọn (ProductVariantUnit)",
+    )
 
     @property
     def subtotal(self):
         if self.quantity is None or self.price is None:
             return 0
-        return self.quantity * self.price
+        return float(self.quantity) * float(self.price)
 
     def __str__(self):
         return f"{self.order.order_number} - Sản phẩm: {self.product_variant} x{self.quantity}"
@@ -483,9 +505,29 @@ class ProductVariantUnit(BaseModel):
     is_default = models.BooleanField(default=False, db_index=True)
     is_published = models.BooleanField(default=True, db_index=True)
 
+    def save(self, *args, **kwargs):
+        using = kwargs.get('using') or getattr(self._state, 'db', None)
+        super().save(*args, **kwargs)
+        if self.is_default and self.variant_id:
+            db = using or getattr(self._state, 'db', None) or 'default'
+            type(self).objects.using(db).filter(variant_id=self.variant_id).exclude(pk=self.pk).update(
+                is_default=False
+            )
+
     class Meta:
         unique_together = [('variant', 'unit_name')]
         ordering = ['unit_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['variant'],
+                condition=models.Q(is_default=True),
+                name='store_pvu_one_default_per_variant',
+            ),
+            models.CheckConstraint(
+                check=models.Q(quantity_in_base__gte=1),
+                name='store_pvu_quantity_in_base_gte_1',
+            ),
+        ]
 
 class ProductVariantStats(models.Model):
     variant = models.OneToOneField(ProductVariant, on_delete=models.CASCADE, related_name='stats')
@@ -507,9 +549,9 @@ class Voucher(BaseModel):
     
     code = models.CharField(max_length=50, null=False, blank=False, unique=True, db_index=True)
     type = models.CharField(max_length=10, choices=[('FIXED', 'Fixed Amount'), ('PERCENT', 'Percentage')], default='PERCENT')
-    value = models.FloatField(null=False, default=0)
-    max_discount = models.FloatField(null=True, blank=True)
-    min_order_value = models.FloatField(null=True, blank=True, default=0)
+    value = models.DecimalField(max_digits=12, decimal_places=2, null=False, default=0)
+    max_discount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    min_order_value = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, default=0)
     
     applicable_products = models.JSONField(default=list, blank=True)
     applicable_categories = models.JSONField(default=list, blank=True)
@@ -547,12 +589,14 @@ class Voucher(BaseModel):
         return True
     
     def calculate_discount(self, original_price):
+        from decimal import Decimal
+        op = Decimal(str(original_price))
         if self.type == 'PERCENT':
-            discount = original_price * (self.value / 100)
-            if self.max_discount:
+            discount = op * (self.value / Decimal('100'))
+            if self.max_discount is not None:
                 discount = min(discount, self.max_discount)
-            return discount
-        return min(self.value, original_price)
+            return float(discount)
+        return float(min(self.value, op))
     
     def apply_voucher(self, order_value):
         if self.is_valid():

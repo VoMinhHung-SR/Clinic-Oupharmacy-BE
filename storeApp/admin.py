@@ -60,10 +60,20 @@ class ProductAdmin(admin.ModelAdmin):
     list_editable = ['active']
 
 class ProductVariantAdmin(admin.ModelAdmin):
-    list_display = ['packing', 'product', 'price_value', 'in_stock', 'created_date']
+    """Giá bán nằm trên ProductVariantUnit; hiển thị giá đơn vị mặc định (hoặc đơn vị đầu tiên)."""
+    list_display = ['packing', 'product', 'default_unit_price', 'in_stock', 'created_date']
     list_filter = ['in_stock', 'created_date']
     search_fields = ['packing', 'product__name']
-    list_editable = ['in_stock', 'price_value']
+    list_editable = ['in_stock']
+
+    @admin.display(description='Giá (đơn vị mặc định)')
+    def default_unit_price(self, obj):
+        if not obj or not obj.pk:
+            return '—'
+        u = obj.units.filter(is_default=True).first() or obj.units.order_by('unit_order', 'id').first()
+        if u is None:
+            return '—'
+        return u.price_value
 
 class CategoryAdmin(admin.ModelAdmin):
     list_display = ['name', 'parent', 'active', 'created_date']
@@ -74,7 +84,7 @@ class CategoryAdmin(admin.ModelAdmin):
 class MedicineBatchAdmin(admin.ModelAdmin):
     list_display = ['batch_number', 'product_variant', 'import_date', 'expiry_date', 'quantity', 'remaining_quantity', 'is_expired', 'created_date']
     list_filter = ['import_date', 'expiry_date', 'created_date']
-    search_fields = ['batch_number', 'product_variant__sku_name']
+    search_fields = ['batch_number', 'product_variant__sku', 'product_variant__packing']
     readonly_fields = ['is_expired', 'days_until_expiry']
     
     def is_expired(self, obj):
