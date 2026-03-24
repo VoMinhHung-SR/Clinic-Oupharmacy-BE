@@ -10,7 +10,7 @@ from rest_framework import status
 
 class PatientViewSet(viewsets.ViewSet, generics.ListAPIView, generics.CreateAPIView,
                      generics.RetrieveAPIView, generics.UpdateAPIView):
-    queryset = Patient.objects.filter(active=True)
+    queryset = Patient.objects.filter(active=True).order_by('-created_date', '-id')
     serializer_class = PatientSerializer
     pagination_class = BasePagination
     parser_classes = [JSONParser, MultiPartParser, ]

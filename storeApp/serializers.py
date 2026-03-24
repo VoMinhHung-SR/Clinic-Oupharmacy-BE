@@ -1,7 +1,11 @@
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
-from .models import MedicineBatch, Brand, ShippingMethod, PaymentMethod, Order, OrderItem, Notification, SearchKeyword, Product, ProductVariant, Category
+from django.contrib.auth import get_user_model
+
+from .models import MedicineBatch, Brand, ShippingMethod, PaymentMethod, Order, OrderItem, Notification, SearchKeyword, Product, ProductVariant, Category, ProductVariantUnit
 from mainApp.serializers import UserSerializer
+
+User = get_user_model()
 
 
 class BrandSerializer(ModelSerializer):
@@ -25,10 +29,11 @@ class PaymentMethodSerializer(ModelSerializer):
 class OrderItemSerializer(ModelSerializer):
     name = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
+    product_variant_unit = serializers.PrimaryKeyRelatedField(queryset=ProductVariantUnit.objects.all(), required=False, allow_null=True)
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'product_variant', 'quantity', 'price', 'subtotal', 'name', 'image_url', 'created_date', 'updated_date']
+        fields = ['id', 'product_variant', 'product_variant_unit', 'quantity', 'price', 'subtotal', 'name', 'image_url', 'created_date', 'updated_date']
         read_only_fields = ['subtotal', 'name', 'image_url']
 
     def get_name(self, obj):
@@ -154,14 +159,16 @@ class ProductVariantSerializer(ModelSerializer):
     brand = SerializerMethodField()
     image_url = SerializerMethodField()
     category_info = SerializerMethodField()
+    price_display = SerializerMethodField()
+    price_value = SerializerMethodField()
     
     class Meta:
         model = ProductVariant
         fields = [
             'id', 'in_stock', 'image', 'image_url', 'images', "packing",
             'price_display', 'price_value',
-            'product_ranking', 'display_code', 'is_published',
-            'registration_number', 'origin', 'manufacturer', 'shelf_life', 'specifications',
+            'product_ranking', 'is_published',
+            'registration_number', 'base_unit',
             'product', 'category', 'category_info', 'brand', 'active',
             'created_date', 'updated_date'
         ]
@@ -193,6 +200,29 @@ class ProductVariantSerializer(ModelSerializer):
             'categorySlug': ''
         }
 
+    def _get_default_unit(self, obj):
+        units_manager = getattr(obj, 'units', None)
+        if units_manager is None:
+            return None
+        return units_manager.filter(is_default=True, is_published=True).first() or units_manager.filter(
+            is_published=True
+        ).order_by('unit_order', 'id').first()
+
+    def get_price_value(self, obj):
+        unit = self._get_default_unit(obj)
+        if unit is not None and unit.price_value is not None:
+            return unit.price_value
+        return 0
+
+    def get_price_display(self, obj):
+        unit = self._get_default_unit(obj)
+        if unit is not None:
+            if unit.price_display:
+                return unit.price_display
+            if unit.price_value is not None:
+                return str(unit.price_value)
+        return None
+
 
 class CategoryLevel2Serializer(ModelSerializer):
     """Serializer cho category level 2 với thông tin total"""
@@ -214,6 +244,7 @@ class MinimalProductVariantSerializer(serializers.ModelSerializer):
     web_slug = serializers.SerializerMethodField()
 
     thumbnail = serializers.SerializerMethodField()
+    price_value = serializers.SerializerMethodField()
     discount_percent = serializers.SerializerMethodField()
     is_out_of_stock = serializers.SerializerMethodField()
     badges = serializers.SerializerMethodField()
@@ -262,6 +293,17 @@ class MinimalProductVariantSerializer(serializers.ModelSerializer):
         return None
 
     def get_discount_percent(self, obj):
+        return 0
+
+    def get_price_value(self, obj):
+        units_manager = getattr(obj, 'units', None)
+        if units_manager is None:
+            return 0
+        unit = units_manager.filter(is_default=True, is_published=True).first() or units_manager.filter(
+            is_published=True
+        ).order_by('unit_order', 'id').first()
+        if unit is not None and unit.price_value is not None:
+            return unit.price_value
         return 0
 
     def get_is_out_of_stock(self, obj):

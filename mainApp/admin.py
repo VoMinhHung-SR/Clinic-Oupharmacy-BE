@@ -11,6 +11,7 @@ from django.db.models import Count, Sum
 from django.db.models.functions import TruncMonth
 from datetime import date
 from django.urls import reverse
+from storeApp.models import ProductVariant, OrderItem
 
 from django_celery_beat.admin import ClockedScheduleAdmin, CrontabScheduleAdmin, \
     PeriodicTaskAdmin
@@ -38,7 +39,7 @@ class MainAppAdminSite(admin.AdminSite):
         app_list = self.get_app_list(request)
         # Get counts of active patients, medicine units, and active users
         patients = Patient.objects.filter(active=True).count()
-        medicine_units = MedicineUnit.objects.filter(active=True).count()
+        medicine_units = ProductVariant.objects.filter(active=True).count()
         users = User.objects.filter(is_active=True).count()
 
         # Get examination data
@@ -52,10 +53,12 @@ class MainAppAdminSite(admin.AdminSite):
             .values('month').annotate(total=Sum("amount"), count=Count("id")).values('month', 'total', 'count')
 
         # Get medicine data
-        medicines = PrescriptionDetail.objects.filter(active=True) \
-            .values('medicine_unit__medicine__name') \
-            .annotate(count=Count('medicine_unit')) \
-            .values('medicine_unit__medicine__name', 'count')
+        medicines = (
+            OrderItem.objects.filter(active=True)
+            .values('product_variant__product__name')
+            .annotate(count=Count('id'))
+            .values('product_variant__product__name', 'count')
+        )
 
         # Prepare examination data for chart
         data_examination = [0] * 12
@@ -73,7 +76,7 @@ class MainAppAdminSite(admin.AdminSite):
         data_medicine_labels = []
         data_medicine_quantity = []
         for m in medicines:
-            data_medicine_labels.append(m['medicine_unit__medicine__name'])
+            data_medicine_labels.append(m['product_variant__product__name'])
             data_medicine_quantity.append(m['count'])
 
         context = {

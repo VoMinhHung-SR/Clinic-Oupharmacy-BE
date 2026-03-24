@@ -1,3 +1,5 @@
+from decimal import Decimal, InvalidOperation
+
 from rest_framework import viewsets, generics, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -5,8 +7,16 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.serializers import ValidationError as DRFValidationError
 from rest_framework.generics import get_object_or_404
 from django.db import transaction, IntegrityError
-from storeApp.models import Order, OrderItem, ShippingMethod, PaymentMethod, ProductVariant
+from storeApp.models import (
+    Order,
+    OrderItem,
+    ShippingMethod,
+    PaymentMethod,
+    ProductVariant,
+    ProductVariantUnit,
+)
 from storeApp.serializers import OrderSerializer
+from storeApp.services.stock import get_available_stock, deduct_stock, restore_stock
 
 class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView,
                    generics.CreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
@@ -62,6 +72,7 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
     def _validate_order_item(self, item_data, idx):
         """Validate một order item"""
         product_variant_id = item_data.get('product_variant') or item_data.get('product_variant_id')
+        product_variant_unit_id = item_data.get('product_variant_unit') or item_data.get('product_variant_unit_id')
         quantity = item_data.get('quantity')
         price = item_data.get('price')
         
@@ -70,7 +81,13 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
             return {'item_index': idx, 'field': 'product_variant', 'error': 'product_variant is required'}
         if not quantity or quantity <= 0:
             return {'item_index': idx, 'field': 'quantity', 'error': 'quantity must be greater than 0'}
-        if not price or price < 0:
+        if price is None:
+            return {'item_index': idx, 'field': 'price', 'error': 'price is required'}
+        try:
+            price_decimal = Decimal(str(price))
+        except (InvalidOperation, TypeError):
+            return {'item_index': idx, 'field': 'price', 'error': 'price must be a valid decimal'}
+        if price_decimal < 0:
             return {'item_index': idx, 'field': 'price', 'error': 'price must be greater than or equal to 0'}
         
         # Validate ProductVariant exists and active
@@ -78,28 +95,70 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
             product_variant = ProductVariant.objects.get(id=product_variant_id, active=True)
         except ProductVariant.DoesNotExist:
             return {'item_index': idx, 'product_variant': product_variant_id, 'error': 'ProductVariant not found or inactive'}
-        
-        # Validate price (ProductVariant has price_value)
-        expected_price = product_variant.price_value
-        if abs(float(price) - float(expected_price)) > 0.01:
+
+        if product_variant_unit_id:
+            try:
+                product_variant_unit = ProductVariantUnit.objects.get(
+                    id=product_variant_unit_id,
+                    variant_id=product_variant.id,
+                    is_published=True,
+                )
+            except ProductVariantUnit.DoesNotExist:
+                return {
+                    'item_index': idx,
+                    'product_variant': product_variant_id,
+                    'field': 'product_variant_unit',
+                    'error': 'ProductVariantUnit not found for this variant',
+                }
+        else:
+            product_variant_unit = ProductVariantUnit.objects.filter(
+                variant_id=product_variant.id,
+                is_default=True,
+                is_published=True,
+            ).first() or ProductVariantUnit.objects.filter(
+                variant_id=product_variant.id,
+                is_published=True,
+            ).order_by('unit_order', 'id').first()
+            if not product_variant_unit:
+                return {
+                    'item_index': idx,
+                    'product_variant': product_variant_id,
+                    'field': 'product_variant_unit',
+                    'error': 'No published ProductVariantUnit for this variant',
+                }
+
+        # Validate price theo ProductVariantUnit (đơn vị bán được chọn)
+        expected_price = Decimal(str(product_variant_unit.price_value))
+        if abs(float(price_decimal - expected_price)) > 0.01:
             return {
                 'item_index': idx,
                 'product_variant': product_variant_id,
                 'field': 'price',
                 'error': f'Price mismatch. Expected: {expected_price}, Got: {price}'
             }
-        
-        # Validate stock availability (single source of truth: batches via stock service)
+
+        # Validate stock theo đơn vị cơ sở (quantity order * quantity_in_base)
+        required_base_quantity = int(quantity) * int(product_variant_unit.quantity_in_base)
         total_available = get_available_stock(product_variant_id)
-        if total_available < quantity:
+        if total_available < required_base_quantity:
             return {
                 'item_index': idx,
                 'product_variant': product_variant_id,
                 'field': 'quantity',
-                'error': f'Insufficient stock. Available: {total_available}, Requested: {quantity}'
+                'error': (
+                    f'Insufficient stock in base unit. '
+                    f'Available: {total_available}, Requested: {required_base_quantity}'
+                ),
             }
-        
-        return None
+
+        return {
+            'item_index': idx,
+            'product_variant': product_variant,
+            'product_variant_unit': product_variant_unit,
+            'quantity': int(quantity),
+            'price': price_decimal,
+            'required_base_quantity': required_base_quantity,
+        }
     
     def _deduct_stock(self, product_variant_id, quantity):
         """Trừ tồn kho qua stock service (FIFO trên batches + sync cache)."""
@@ -108,7 +167,8 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
     def _restore_stock(self, order):
         """Hoàn tồn kho khi đơn bị hủy: gọi restore_stock cho từng item (LIFO/ADJ + sync cache)."""
         for item in order.items.all():
-            restore_stock(item.product_variant_id, item.quantity)
+            quantity_in_base = item.product_variant_unit.quantity_in_base if item.product_variant_unit else 1
+            restore_stock(item.product_variant_id, item.quantity * quantity_in_base)
     
     def create(self, request, *args, **kwargs):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
@@ -122,11 +182,15 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
             )
         
         # Validate tất cả items
-        validation_errors = [
-            error for idx, item_data in enumerate(items_data)
-            if (error := self._validate_order_item(item_data, idx)) is not None
-        ]
-        
+        validation_errors = []
+        normalized_items = []
+        for idx, item_data in enumerate(items_data):
+            result = self._validate_order_item(item_data, idx)
+            if result and result.get('error'):
+                validation_errors.append(result)
+            else:
+                normalized_items.append(result)
+
         if validation_errors:
             return Response(
                 {'error': 'Validation failed', 'details': validation_errors},
@@ -172,20 +236,17 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                 serializer.is_valid(raise_exception=True)
                 order = serializer.save()
                 # Create order items and deduct stock
-                for item_data in items_data:
-                    from storeApp.models import ProductVariant # inline import to avoid circular dep
-                    # handle both product_variant and product_variant_id
-                    pv_id = item_data.pop('product_variant', None) or item_data.pop('product_variant_id', None)
-                    if pv_id:
-                        try:
-                            pv = ProductVariant.objects.get(id=pv_id)
-                            item_data['product_variant'] = pv
-                        except ProductVariant.DoesNotExist:
-                            pass
-                    OrderItem.objects.create(order=order, **item_data)
+                for item_data in normalized_items:
+                    OrderItem.objects.create(
+                        order=order,
+                        product_variant=item_data['product_variant'],
+                        product_variant_unit=item_data['product_variant_unit'],
+                        quantity=item_data['quantity'],
+                        price=item_data['price'],
+                    )
                     self._deduct_stock(
-                        pv_id,
-                        item_data['quantity']
+                        item_data['product_variant'].id,
+                        item_data['required_base_quantity'],
                     )
         except DRFValidationError as e:
             return Response(

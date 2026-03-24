@@ -6,6 +6,11 @@ from storeApp.models import ProductVariant
 from storeApp.serializers import ProductVariantSerializer
 from storeApp.filters import ProductFilter
 from rest_framework.pagination import PageNumberPagination
+from django.db.models import OuterRef, Subquery, DecimalField, Value
+from django.db.models.functions import Coalesce
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from storeApp.models import ProductVariantUnit, Product
 
 
 class ProductPagination(PageNumberPagination):
@@ -27,7 +32,23 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
     ordering = ['-created_date']
     
     def get_queryset(self):
-        queryset = ProductVariant.objects.filter(active=True).select_related("product__category", "product__brand")
+        default_unit_price = ProductVariantUnit.objects.filter(
+            variant_id=OuterRef('pk'),
+            is_default=True,
+            is_published=True,
+        ).values('price_value')[:1]
+        fallback_unit_price = ProductVariantUnit.objects.filter(
+            variant_id=OuterRef('pk'),
+            is_published=True,
+        ).order_by('unit_order', 'id').values('price_value')[:1]
+        queryset = ProductVariant.objects.filter(active=True).select_related("product__category", "product__brand").annotate(
+            price_value=Coalesce(
+                Subquery(default_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
+                Subquery(fallback_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
+                Value(0),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            )
+        )
         
         in_stock_param = self.request.query_params.get('in_stock')
         if in_stock_param is not None:
@@ -35,3 +56,16 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
                 queryset = queryset.filter(in_stock__gt=0)
         
         return queryset.order_by('-created_date')
+
+    @action(methods=['get'], detail=False, url_path='summary-counts')
+    def summary_counts(self, request):
+        products_count = Product.objects.filter(active=True).count()
+        variants_count = ProductVariant.objects.filter(active=True).count()
+        units_count = ProductVariantUnit.objects.count()
+        return Response(
+            {
+                "products": products_count,
+                "variants": variants_count,
+                "variant_units": units_count,
+            }
+        )

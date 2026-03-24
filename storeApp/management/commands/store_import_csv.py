@@ -259,6 +259,8 @@ class Command(BaseCommand):
             "products_updated": 0,
             "variants_created": 0,
             "variants_updated": 0,
+            "variant_units_created": 0,
+            "variant_units_updated": 0,
             "batches_created": 0,
             "errors": 0,
         }
@@ -278,6 +280,7 @@ class Command(BaseCommand):
             for k in ("rows", "brands_created", "categories_created",
                       "products_created", "products_updated",
                       "variants_created", "variants_updated",
+                      "variant_units_created", "variant_units_updated",
                       "batches_created", "errors"):
                 total_stats[k] += file_stats.get(k, 0)
 
@@ -294,6 +297,8 @@ class Command(BaseCommand):
         self.stdout.write(f"  Products cập nl: {total_stats['products_updated']}")
         self.stdout.write(f"  Variants tạo  : {total_stats['variants_created']}")
         self.stdout.write(f"  Variants cập nl: {total_stats['variants_updated']}")
+        self.stdout.write(f"  VariantUnits tạo : {total_stats['variant_units_created']}")
+        self.stdout.write(f"  VariantUnits cập nl: {total_stats['variant_units_updated']}")
         self.stdout.write(f"  Batches tạo   : {total_stats['batches_created']}")
         self.stdout.write(f"  Lỗi           : {total_stats['errors']}")
         if dry_run:
@@ -344,6 +349,8 @@ class Command(BaseCommand):
             "products_updated": 0,
             "variants_created": 0,
             "variants_updated": 0,
+            "variant_units_created": 0,
+            "variant_units_updated": 0,
             "batches_created": 0,
             "errors": 0,
         }
@@ -407,6 +414,8 @@ class Command(BaseCommand):
             "products_updated": 0,
             "variants_created": 0,
             "variants_updated": 0,
+            "variant_units_created": 0,
+            "variant_units_updated": 0,
             "batches_created": 0,
         }
 
@@ -478,9 +487,10 @@ class Command(BaseCommand):
         for payload in variant_payloads:
             if dry_run:
                 stats["variants_created"] += 1
+                stats["variant_units_created"] += len(payload.get("units", []))
                 continue
 
-            variant_instance, created = self._upsert_variant_with_units(
+            variant_instance, created, unit_stats = self._upsert_variant_with_units(
                 product=product,
                 payload=payload,
                 variant_common=variant_common,
@@ -491,6 +501,8 @@ class Command(BaseCommand):
                 stats["variants_created"] += 1
             elif update_existing:
                 stats["variants_updated"] += 1
+            stats["variant_units_created"] += unit_stats.get("created", 0)
+            stats["variant_units_updated"] += unit_stats.get("updated", 0)
             created_variants.append(variant_instance)
 
         # ── 5. MedicineBatch ──────────────────────────────────
@@ -507,7 +519,7 @@ class Command(BaseCommand):
         variant_common: dict,
         row: dict,
         update_existing: bool,
-    ) -> tuple[ProductVariant, bool]:
+    ) -> tuple[ProductVariant, bool, dict]:
         packing = payload["packing"]
         units = payload["units"]
         base_unit = payload["base_unit"]
@@ -552,17 +564,18 @@ class Command(BaseCommand):
                 "wishlist_count": 0,
             },
         )
-        self._upsert_variant_units(
+        unit_stats = self._upsert_variant_units(
             variant=variant_instance,
             units=units,
             is_published=_to_bool(row.get("metadata.isPublish", "true"), True),
             update_existing=update_existing,
         )
-        return variant_instance, created
+        return variant_instance, created, unit_stats
 
-    def _upsert_variant_units(self, variant: ProductVariant, units: list, is_published: bool, update_existing: bool) -> None:
+    def _upsert_variant_units(self, variant: ProductVariant, units: list, is_published: bool, update_existing: bool) -> dict:
         # Một variant: đúng một is_default=True trong payload (CSV/packageOptions có thể thiếu hoặc trùng).
         normalize_single_default_unit_per_variant(units)
+        stats = {"created": 0, "updated": 0}
 
         existing_units = {
             _normalize_unit_name(unit.unit_name): unit
@@ -587,14 +600,17 @@ class Command(BaseCommand):
                     for field, val in unit_defaults.items():
                         setattr(existing_unit, field, val)
                     existing_unit.save(using="store")
+                    stats["updated"] += 1
             else:
                 ProductVariantUnit.objects.using("store").create(
                     variant=variant,
                     **unit_defaults,
                 )
+                stats["created"] += 1
 
         # Có thể còn unit cũ trên DB không nằm trong payload → đồng bộ lại đúng 1 default / variant.
         reconcile_single_default_variant_units_in_db(variant, using="store")
+        return stats
 
     # ----------------------------------------------------------
     # Brand resolution
@@ -768,6 +784,7 @@ class Command(BaseCommand):
             f"  rows={stats['rows']}  "
             f"product+={stats['products_created']} ~{stats['products_updated']}  "
             f"variant+={stats['variants_created']} ~{stats['variants_updated']}  "
+            f"variantUnit+={stats.get('variant_units_created', 0)} ~{stats.get('variant_units_updated', 0)}  "
             f"brand+={stats['brands_created']}  "
             f"cat+={stats['categories_created']}  "
             f"batch+={stats['batches_created']}  "

@@ -10,6 +10,7 @@ from django.db.models import Count, Sum
 from .models import *
 from django.db.models.functions import TruncMonth
 from datetime import date
+from storeApp.models import OrderItem
 
 colors = ['#2c3e50', '#3c8dbc', '#f39c12', '#f1c40f', '#d63031', '#f56954', '#e67e22',
           '#8e44ad',
@@ -93,7 +94,7 @@ def get_medicines_stats(request):
         quarter = request.GET.get('quarter', '0')
         year = request.GET.get('year', '0')
 
-        medicines = PrescriptionDetail.objects
+        medicines = OrderItem.objects
 
         quarter_number = int(quarter)
         year_number = int(year)
@@ -105,16 +106,18 @@ def get_medicines_stats(request):
             medicines = medicines.filter(created_date__quarter=quarter_number)
 
         # Get medicine data
-        medicines = medicines.filter(created_date__year=year_number, active=True) \
-            .values('medicine_unit__medicine__name') \
-            .annotate(count=Count('medicine_unit')) \
-            .values('medicine_unit__medicine__name', 'count')
+        medicines = (
+            medicines.filter(created_date__year=year_number, active=True)
+            .values('product_variant__product__name')
+            .annotate(count=Count('id'))
+            .values('product_variant__product__name', 'count')
+        )
 
         # Prepare medicine data for chart
         data_medicine_labels = []
         data_medicine_quantity = []
         for m in medicines:
-            data_medicine_labels.append(m['medicine_unit__medicine__name'])
+            data_medicine_labels.append(m['product_variant__product__name'])
             data_medicine_quantity.append(m['count'])
 
 
