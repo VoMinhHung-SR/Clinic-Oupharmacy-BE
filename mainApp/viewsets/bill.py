@@ -24,33 +24,26 @@ from storeApp.models import Product, ProductVariant, ProductVariantUnit
 
 
 def _resolve_store_variant_from_detail(detail):
-    medicine_unit = getattr(detail, "medicine_unit", None)
-    if not medicine_unit or not getattr(medicine_unit, "medicine", None):
-        return None
-
-    medicine = medicine_unit.medicine
-    product = None
-    if medicine.mid:
-        product = Product.objects.using("store").filter(mid=medicine.mid).first()
-    if not product and medicine.slug:
-        product = Product.objects.using("store").filter(slug=medicine.slug).first()
-    if not product and medicine.name:
-        product = Product.objects.using("store").filter(name=medicine.name).first()
-    if not product:
-        return None
-
-    if medicine_unit.package_size:
-        variant = ProductVariant.objects.using("store").filter(
-            product_id=product.id,
-            packing=medicine_unit.package_size,
+    if getattr(detail, "product_variant_id", None):
+        return ProductVariant.objects.using("store").filter(
+            id=detail.product_variant_id,
             active=True,
         ).first()
-        if variant:
-            return variant
-    return ProductVariant.objects.using("store").filter(product_id=product.id, active=True).first()
+    return None
 
 
 def _resolve_unit_price(detail):
+    if getattr(detail, "unit_price_snapshot", None) is not None:
+        return float(detail.unit_price_snapshot)
+
+    if getattr(detail, "product_variant_unit_id", None):
+        pvu = ProductVariantUnit.objects.using("store").filter(
+            id=detail.product_variant_unit_id,
+            is_published=True,
+        ).first()
+        if pvu and pvu.price_value is not None:
+            return float(pvu.price_value)
+
     variant = _resolve_store_variant_from_detail(detail)
     if variant:
         pvu = ProductVariantUnit.objects.using("store").filter(
@@ -63,9 +56,6 @@ def _resolve_unit_price(detail):
         ).order_by("unit_order", "id").first()
         if pvu:
             return float(pvu.price_value)
-
-    if getattr(detail, "medicine_unit", None) and getattr(detail.medicine_unit, "price_value", None) is not None:
-        return float(detail.medicine_unit.price_value)
     return 0.0
 
 

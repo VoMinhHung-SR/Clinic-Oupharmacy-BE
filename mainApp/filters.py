@@ -31,46 +31,6 @@ class ExaminationFilter(django_filters.FilterSet):
         else:
             return queryset.filter(diagnosis__isnull=True)
 
-class MedicineUnitFilter(django_filters.FilterSet):
-    kw = django_filters.CharFilter(field_name="medicine__name", lookup_expr="icontains")
-    cate = django_filters.NumberFilter(field_name="category__id")
-    price = django_filters.CharFilter(method="filter_price")
-
-    class Meta:
-        model = MedicineUnit
-        fields = ['kw', 'cate', 'price']
-
-    def filter_price(self, queryset, name, value):
-        if value == "asc":
-            return queryset.order_by("price")
-        elif value == "desc":
-            return queryset.order_by("-price")
-        return queryset
-
-
-class MedicineFilter(django_filters.FilterSet):
-    """Filter for Medicine model (used in grouped view)"""
-    kw = django_filters.CharFilter(field_name="name", lookup_expr="icontains")
-    cate = django_filters.NumberFilter(method="filter_category")
-    price = django_filters.CharFilter(method="filter_price")
-
-    class Meta:
-        model = Medicine
-        fields = ['kw', 'cate', 'price']
-
-    def filter_category(self, queryset, name, value):
-        """Filter medicines có units thuộc category này"""
-        return queryset.filter(units__category__id=value).distinct()
-
-    def filter_price(self, queryset, name, value):
-        """Filter theo giá của units"""
-        if value == "asc":
-            return queryset.filter(units__active=True).order_by('units__price_value').distinct()
-        elif value == "desc":
-            return queryset.filter(units__active=True).order_by('-units__price_value').distinct()
-        return queryset
-
-
 class DiagnosisFilter(django_filters.FilterSet):
     has_prescription = django_filters.BooleanFilter(method='filter_has_prescription')
     has_payment = django_filters.BooleanFilter(method='filter_bill')

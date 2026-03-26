@@ -5,6 +5,7 @@ from . import cloud_context
 from .constant import CLOUDINARY_DEFAULT_AVATAR, LIMIT_USER_LOCATION, ROLE_DOCTOR
 from .models import *
 from rest_framework import serializers
+from storeApp.models import ProductVariant, ProductVariantUnit
 import cloudinary.uploader
 
 class UserRoleSerializer(ModelSerializer):
@@ -222,165 +223,6 @@ class DoctorProfileSerializer(serializers.ModelSerializer):
             "specializations"     # output
         ]
 
-class CategorySerializer(ModelSerializer):
-    category_array = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = Category
-        fields = ["id", "name", "slug", "parent", "level", "path", "path_slug", "category_array"]
-    
-    def get_category_array(self, obj):
-        """Trả về category array format theo schema"""
-        if hasattr(obj, 'get_category_array'):
-            return obj.get_category_array()
-        return []
-
-
-class MedicineSerializer(ModelSerializer):
-    class Meta:
-        model = Medicine
-        fields = [
-            "id", "name", "mid", "slug", "web_name", 
-            "description", "ingredients", "usage", "dosage", 
-            "adverse_effect", "careful", "preservation", 
-            "brand_id"
-        ]
-
-
-class MedicineUnitSerializer(ModelSerializer):
-    image_path = serializers.SerializerMethodField()
-    medicine = serializers.PrimaryKeyRelatedField(queryset=Medicine.objects.all())
-    category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
-
-    def create(self, validated_data):
-        image_file = validated_data.pop('image', None)
-        if image_file:
-            upload_result = cloudinary.uploader.upload(image_file)
-            validated_data['image'] = upload_result['public_id']
-        return MedicineUnit.objects.create(**validated_data)
-    
-    def update(self, instance, validated_data):
-        image_file = validated_data.pop('image', None)
-        if image_file:
-            upload_result = cloudinary.uploader.upload(image_file)
-            instance.image = upload_result['public_id']
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-        return instance
-
-    class Meta:
-        model = MedicineUnit
-        fields = [
-            "id", "in_stock", "image", "image_path", "images",
-            "price_display", "price_value", "original_price_value",
-            "package_size", "product_ranking", "display_code",
-            "is_published", "is_hot", "registration_number", "origin", "manufacturer",
-            "shelf_life", "specifications", "medicine", "category",
-            "created_date", "updated_date"
-        ]
-        extra_kwargs = {
-            'image_path': {'read_only': True},
-            'image': {'write_only': True}
-        }
-
-    def get_image_path(self, obj):
-        if obj.image:
-            path = '{cloud_context}{image_name}'.format(cloud_context=cloud_context, image_name=obj.image)
-            return path
-        
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        representation['medicine'] = MedicineSerializer(instance.medicine).data
-        representation['category'] = CategorySerializer(instance.category).data
-        return representation
-
-class MedicineUnitOptionSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = MedicineUnit
-        fields = [
-            "id",
-            "package_size",
-            "price_display",
-            "price_value",
-            "original_price_value",
-            "in_stock",
-            "is_hot",
-        ]
-    
-from rest_framework import serializers
-
-
-class MedicineWithUnitsSerializer(serializers.ModelSerializer):
-
-    medicine = MedicineSerializer(read_only=True)
-    category = serializers.SerializerMethodField()
-    package_options = serializers.SerializerMethodField()
-
-    package_size = serializers.SerializerMethodField()
-    price_display = serializers.SerializerMethodField()
-    price_value = serializers.SerializerMethodField()
-    original_price_value = serializers.SerializerMethodField()
-    in_stock = serializers.SerializerMethodField()
-    is_hot = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Medicine
-        fields = [
-            "id",
-
-            "package_size",
-            "price_display",
-            "price_value",
-            "original_price_value",
-            "in_stock",
-            "is_hot",
-
-            "medicine",
-            "category",
-            "package_options"
-        ]
-
-    def get_default_unit(self, obj):
-        if not hasattr(obj, "_default_unit"):
-            obj._default_unit = next(iter(obj.units.all()), None)
-        return obj._default_unit
-
-    def get_package_size(self, obj):
-        unit = self.get_default_unit(obj)
-        return unit.package_size if unit else None
-
-    def get_price_display(self, obj):
-        unit = self.get_default_unit(obj)
-        return unit.price_display if unit else None
-
-    def get_price_value(self, obj):
-        unit = self.get_default_unit(obj)
-        return unit.price_value if unit else None
-
-    def get_original_price_value(self, obj):
-        unit = self.get_default_unit(obj)
-        return unit.original_price_value if unit else None
-
-    def get_in_stock(self, obj):
-        unit = self.get_default_unit(obj)
-        return unit.in_stock if unit else None
-
-    def get_is_hot(self, obj):
-        unit = self.get_default_unit(obj)
-        return unit.is_hot if unit else None
-
-    def get_package_options(self, obj):
-        units = obj.units.all()
-        return MedicineUnitOptionSerializer(units, many=True).data
-
-    def get_category(self, obj):
-        unit = self.get_default_unit(obj)
-        if unit and unit.category:
-            return CategorySerializer(unit.category).data
-        return None
-    
 class DoctorScheduleSerializer(ModelSerializer):
     class Meta:
         model = DoctorSchedule
@@ -497,17 +339,140 @@ class DiagnosisCRUDSerializer(ModelSerializer):
         exclude = []
 
 class PrescriptionDetailCRUDSerializer(ModelSerializer):
+ 
+    prescribing = serializers.PrimaryKeyRelatedField(queryset=Prescribing.objects.filter(active=True))
+    product_variant_id = serializers.IntegerField(required=False, allow_null=True)
+    product_variant_unit_id = serializers.IntegerField(required=False, allow_null=True)
+
     class Meta:
         model = PrescriptionDetail
-        exclude = []
+        fields = ["id", "active", "created_date", "updated_date",
+        "quantity", "uses", "prescribing", "product_variant_id",
+        "product_variant_unit_id"]
+      
+        read_only_fields = ["id", "created_date", "updated_date", "active"]
 
 class PrescriptionDetailSerializer(ModelSerializer):
+
     prescribing = PrescribingSerializer()
-    medicine_unit = MedicineUnitSerializer()
+    product_variant = serializers.SerializerMethodField()
+    product_variant_unit = serializers.SerializerMethodField()
 
     class Meta:
         model = PrescriptionDetail
         exclude = []
+
+    def _serialize_store_variant(self, *, variant, unit_price_value=None, unit_name=None, unit_quantity_in_base=None):
+        """
+        Build a lightweight object that matches what FE adapter expects.
+        Shape target (see FE normalizeStoreVariant/normalizePrescriptionDetailItem):
+        - product: {id, name, web_name}
+        - packing/package_size: string
+        - price_value: number
+        - in_stock: number
+        - category: {id, name}
+        """
+        product = getattr(variant, "product", None)
+        category = getattr(product, "category", None) if product else None
+        return {
+            "id": variant.id,
+            "product_id": product.id if product else None,
+            "product": {
+                "id": product.id if product else None,
+                "name": getattr(product, "name", None),
+                "web_name": getattr(product, "web_name", None),
+            }
+            if product
+            else None,
+            "packing": getattr(variant, "packing", None),
+            "price_value": unit_price_value if unit_price_value is not None else 0,
+            "unit_name": unit_name,
+            "quantity_in_base": unit_quantity_in_base,
+            "in_stock": int(getattr(variant, "in_stock", None) or 0),
+            "category": ({"id": category.id, "name": category.name} if category else None),
+        }
+
+    def get_product_variant_unit(self, obj):
+        unit_id = getattr(obj, "product_variant_unit_id", None)
+        if not unit_id:
+            return None
+
+        pvu = (
+            ProductVariantUnit.objects.using("store")
+            .select_related("variant__product__category")
+            .filter(id=unit_id, is_published=True)
+            .first()
+        )
+        if not pvu:
+            # Fallback: still allow FE to show something from snapshots
+            variant = ProductVariant.objects.using("store").filter(id=obj.product_variant_id).first()
+            if not variant:
+                return None
+            return self._serialize_store_variant(
+                variant=variant,
+                unit_price_value=(obj.unit_price_snapshot if obj.unit_price_snapshot is not None else 0),
+                unit_name=obj.unit_name_snapshot,
+                unit_quantity_in_base=getattr(obj, "quantity_in_base_snapshot", None),
+            )
+
+        variant = pvu.variant
+        payload = self._serialize_store_variant(
+            variant=variant,
+            unit_price_value=(pvu.price_value if pvu.price_value is not None else 0),
+            unit_name=getattr(pvu, "unit_name", None),
+            unit_quantity_in_base=getattr(pvu, "quantity_in_base", None),
+        )
+        payload.update({
+            # Put unit id at the top so normalizeStoreVariant can keep `id`
+            # consistent with other payloads.
+            "id": pvu.id,
+            "price_display": pvu.price_display,
+            "unit_order": getattr(pvu, "unit_order", None),
+            "is_default": pvu.is_default,
+            "is_published": pvu.is_published,
+        })
+        return payload
+
+    def get_product_variant(self, obj):
+        variant_id = getattr(obj, "product_variant_id", None)
+        if not variant_id:
+            return None
+
+        variant = (
+            ProductVariant.objects.using("store")
+            .select_related("product__category")
+            .filter(id=variant_id, active=True)
+            .first()
+        )
+        if not variant:
+            return None
+
+        # Prefer snapshot values for price; otherwise use default/published unit.
+        unit_price = obj.unit_price_snapshot if obj.unit_price_snapshot is not None else None
+        unit_name = obj.unit_name_snapshot
+        unit_quantity_in_base = getattr(obj, "quantity_in_base_snapshot", None)
+
+        if unit_price is None:
+            pvu = (
+                ProductVariantUnit.objects.using("store")
+                .filter(variant_id=variant.id, is_default=True, is_published=True)
+                .first()
+                or ProductVariantUnit.objects.using("store")
+                .filter(variant_id=variant.id, is_published=True)
+                .order_by("unit_order", "id")
+                .first()
+            )
+            if pvu:
+                unit_price = pvu.price_value
+                unit_name = pvu.unit_name
+                unit_quantity_in_base = pvu.quantity_in_base
+
+        return self._serialize_store_variant(
+            variant=variant,
+            unit_price_value=(unit_price if unit_price is not None else 0),
+            unit_name=unit_name,
+            unit_quantity_in_base=unit_quantity_in_base,
+        )
 
 class BillSerializer(ModelSerializer):
     class Meta:

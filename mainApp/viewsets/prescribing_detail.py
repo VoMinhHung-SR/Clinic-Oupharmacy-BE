@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import viewsets, generics
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser, MultiPartParser
@@ -9,33 +11,6 @@ from mainApp.serializers import PrescriptionDetailCRUDSerializer
 from storeApp.services.stock import get_available_stock, deduct_stock
 from storeApp.models import Product, ProductVariant, ProductVariantUnit
 
-
-def _resolve_store_variant_from_medicine_unit(medicine_unit):
-    """Best-effort mapping legacy medicine_unit -> store product variant."""
-    if not medicine_unit or not getattr(medicine_unit, "medicine", None):
-        return None
-
-    medicine = medicine_unit.medicine
-    product = None
-    if medicine.mid:
-        product = Product.objects.using("store").filter(mid=medicine.mid).first()
-    if not product and medicine.slug:
-        product = Product.objects.using("store").filter(slug=medicine.slug).first()
-    if not product and medicine.name:
-        product = Product.objects.using("store").filter(name=medicine.name).first()
-    if not product:
-        return None
-
-    variant = None
-    if medicine_unit.package_size:
-        variant = ProductVariant.objects.using("store").filter(
-            product_id=product.id,
-            packing=medicine_unit.package_size,
-            active=True,
-        ).first()
-    if not variant:
-        variant = ProductVariant.objects.using("store").filter(product_id=product.id, active=True).first()
-    return variant
 
 class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
                                 generics.UpdateAPIView, generics.CreateAPIView, generics.DestroyAPIView):
@@ -51,23 +26,57 @@ class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
 
-            medicine_unit = serializer.validated_data['medicine_unit']
-            quantity = serializer.validated_data['quantity']
-            variant = _resolve_store_variant_from_medicine_unit(medicine_unit)
-            if not variant:
+            quantity = serializer.validated_data["quantity"]
+            product_variant_id = serializer.validated_data.get("product_variant_id")
+            product_variant_unit_id = serializer.validated_data.get("product_variant_unit_id")
+
+            if not product_variant_id and not product_variant_unit_id:
                 return Response(
-                    {"message": "Medicine unit is not mapped to store product variant"},
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"message": "Missing store identifiers. Provide product_variant_id or product_variant_unit_id."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            pvu = ProductVariantUnit.objects.using("store").filter(
-                variant_id=variant.id,
-                is_default=True,
-                is_published=True,
-            ).first() or ProductVariantUnit.objects.using("store").filter(
-                variant_id=variant.id,
-                is_published=True,
-            ).order_by("unit_order", "id").first()
+            variant = None
+            pvu = None
+
+            # Prefer using product_variant_unit_id if provided (less guessing).
+            if product_variant_unit_id:
+                pvu = (
+                    ProductVariantUnit.objects.using("store")
+                    .filter(id=product_variant_unit_id, is_published=True)
+                    .first()
+                )
+                if not pvu:
+                    return Response(
+                        {"message": "product_variant_unit_id is not found (or not published) on store."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                variant = pvu.variant
+
+            if not variant and product_variant_id:
+                variant = ProductVariant.objects.using("store").filter(id=product_variant_id, active=True).first()
+                if not variant:
+                    return Response(
+                        {"message": "product_variant_id is not found (or inactive) on store."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            if not pvu and variant:
+                # Pick default published unit, fallback to any published unit.
+                pvu = (
+                    ProductVariantUnit.objects.using("store")
+                    .filter(variant_id=variant.id, is_default=True, is_published=True)
+                    .first()
+                ) or ProductVariantUnit.objects.using("store").filter(
+                    variant_id=variant.id,
+                    is_published=True,
+                ).order_by("unit_order", "id").first()
+
+            if not variant:
+                return Response(
+                    {"message": "Cannot resolve store ProductVariant."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             quantity_in_base = pvu.quantity_in_base if pvu else 1
             required_base_quantity = int(quantity) * int(quantity_in_base)
@@ -80,7 +89,15 @@ class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
                 )
 
             deduct_stock(variant.id, required_base_quantity)
-            self.perform_create(serializer)
+            serializer.save(
+                product_id=variant.product_id,
+                product_variant_id=variant.id,
+                product_variant_unit_id=(pvu.id if pvu else None),
+                item_name_snapshot=(variant.product.web_name or variant.product.name),
+                unit_name_snapshot=(pvu.unit_name if pvu else (variant.packing or "")),
+                unit_price_snapshot=(Decimal(str(pvu.price_value)) if pvu else Decimal("0")),
+                quantity_in_base_snapshot=int(quantity_in_base),
+            )
 
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)

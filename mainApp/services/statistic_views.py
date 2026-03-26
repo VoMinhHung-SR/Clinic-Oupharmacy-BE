@@ -11,7 +11,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from storeApp.models import OrderItem
 
 from mainApp.constant import ROLE_NURSE, ROLE_DOCTOR
-from mainApp.models import CommonCity, UserRole, User, Category, Examination, PrescriptionDetail, Bill
+from mainApp.models import CommonCity, UserRole, User, Examination, PrescriptionDetail, Bill
 
 
 @api_view(http_method_names=["POST"])

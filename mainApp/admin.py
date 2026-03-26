@@ -132,7 +132,6 @@ class UserAdmin(admin.ModelAdmin):
                                                                                      url=user.avatar)
             )
 
-
 class PatientAdmin(admin.ModelAdmin):
     list_display = ['id', 'first_name', 'last_name', 'phone_number', 'email', 'gender']
     list_filter = ['last_name']
@@ -170,41 +169,6 @@ class ExaminationAdmin(admin.ModelAdmin):
     list_filter = ['patient', 'time_slot']
 
 
-class MedicineAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name', 'mid', 'slug', 'web_name', 'brand_id', 'created_date']
-    list_filter = ['brand_id', 'created_date']
-    search_fields = ['name', 'mid', 'slug', 'web_name']
-    readonly_fields = ['created_date', 'updated_date']
-
-
-class MedicineUnitAdmin(admin.ModelAdmin):
-    list_display = ['id', 'medicine', 'price_display', 'price_value', 'in_stock', 'package_size', 'category', 'is_published', 'product_ranking', 'created_date']
-    list_filter = ['medicine', 'category', 'is_published', 'in_stock']
-    search_fields = ['medicine__name', 'package_size', 'registration_number', 'origin', 'manufacturer']
-    readonly_fields = ['created_date', 'updated_date']
-
-class MedicineUnitStatsAdmin(admin.ModelAdmin):
-    list_display = ['id', 'get_unit_medicine_name', 'sold_7d', 'sold_30d', 'sold_total', 'view_count', 'wishlist_count']
-    search_fields = ['unit__medicine__name']
-    
-    def get_unit_medicine_name(self, obj):
-        return obj.unit.medicine.name
-    get_unit_medicine_name.short_description = 'Unit'
-    get_unit_medicine_name.admin_order_field = 'unit__medicine__name'
-
-
-class CategoryAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name', 'slug', 'parent', 'level', 'path_slug', 'active', 'created_date']
-    list_filter = ['level', 'parent', 'active']
-    search_fields = ['name', 'slug', 'path', 'path_slug']
-    readonly_fields = ['created_date', 'updated_date', 'level', 'path', 'path_slug']
-    
-    def get_queryset(self, request):
-        """Optimize queryset với select_related cho parent"""
-        qs = super().get_queryset(request)
-        return qs.select_related('parent')
-
-
 class DiagnosisAdmin(admin.ModelAdmin):
     list_display = ['id', 'sign', 'diagnosed', 'examination', 'user', 'patient']
 
@@ -218,7 +182,8 @@ class PrescribingAdmin(admin.ModelAdmin):
 
 
 class PrescriptionDetailAdmin(admin.ModelAdmin):
-    list_display = ['id', 'quantity', 'uses', 'prescribing', 'medicine_unit']
+    # Store-driven fields; legacy `medicine_unit` is no longer required at runtime.
+    list_display = ['id','quantity','uses','prescribing','product_variant_id','product_variant_unit_id']
 
 class DoctorProfileAdmin(admin.ModelAdmin):
     list_display = ['id', 'user', 'description', 'get_specializations']
@@ -317,10 +282,6 @@ admin_site.register(id_token_model, id_token_admin_class)
 admin_site.register(refresh_token_model, refresh_token_admin_class)
 
 admin_site.register(Bill, BillAdmin)
-admin_site.register(Category, CategoryAdmin)
-admin_site.register(Medicine, MedicineAdmin)
-admin_site.register(MedicineUnit, MedicineUnitAdmin)
-admin_site.register(MedicineUnitStats, MedicineUnitStatsAdmin)
 admin_site.register(Examination, ExaminationAdmin)
 admin_site.register(Diagnosis, DiagnosisAdmin)
 admin_site.register(Prescribing, PrescribingAdmin)
