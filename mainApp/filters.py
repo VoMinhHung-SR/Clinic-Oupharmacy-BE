@@ -31,23 +31,6 @@ class ExaminationFilter(django_filters.FilterSet):
         else:
             return queryset.filter(diagnosis__isnull=True)
 
-class MedicineUnitFilter(django_filters.FilterSet):
-    kw = django_filters.CharFilter(field_name="medicine__name", lookup_expr="icontains")
-    cate = django_filters.NumberFilter(field_name="category__id")
-    price = django_filters.CharFilter(method="filter_price")
-
-    class Meta:
-        model = MedicineUnit
-        fields = ['kw', 'cate', 'price']
-
-    def filter_price(self, queryset, name, value):
-        if value == "asc":
-            return queryset.order_by("price")
-        elif value == "desc":
-            return queryset.order_by("-price")
-        return queryset
-
-
 class DiagnosisFilter(django_filters.FilterSet):
     has_prescription = django_filters.BooleanFilter(method='filter_has_prescription')
     has_payment = django_filters.BooleanFilter(method='filter_bill')

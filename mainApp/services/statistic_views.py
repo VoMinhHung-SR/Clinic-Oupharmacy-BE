@@ -8,9 +8,10 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import permissions
 from rest_framework.decorators import action, api_view, permission_classes
+from storeApp.models import OrderItem
 
 from mainApp.constant import ROLE_NURSE, ROLE_DOCTOR
-from mainApp.models import CommonCity, UserRole, User, Category, Examination, PrescriptionDetail, Bill
+from mainApp.models import CommonCity, UserRole, User, Examination, PrescriptionDetail, Bill
 
 
 @api_view(http_method_names=["POST"])
@@ -79,23 +80,23 @@ def get_medicines_stats(request):
         if quarter_number not in range(0, 5):
             raise ValidationError("Invalid quarter. Quarter must be between 0 and 4.")
 
-        # Query medicines
-        medicines = PrescriptionDetail.objects.filter(
+        # Query medicines from store order items (runtime source of truth)
+        medicines = OrderItem.objects.filter(
             created_date__year=year_number, active=True
         )
 
         if quarter_number > 0:
             medicines = medicines.filter(created_date__quarter=quarter_number)
 
-        medicines = medicines.values('medicine_unit__medicine__name') \
-            .annotate(count=Count('medicine_unit')) \
+        medicines = medicines.values('product_variant__product__name') \
+            .annotate(count=Count('id')) \
             .order_by('-count')  # Order by frequency, descending
 
         # Prepare data for the pie chart
         top_10 = medicines[:10]
         others_count = sum(m['count'] for m in medicines[10:])
 
-        data_medicine_labels = [m['medicine_unit__medicine__name'] for m in top_10]
+        data_medicine_labels = [m['product_variant__product__name'] for m in top_10]
         data_medicine_quantity = [m['count'] for m in top_10]
 
         if others_count > 0:

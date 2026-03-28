@@ -35,7 +35,8 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import MultiPartParser
 from rest_framework.parsers import JSONParser
 
-from .models import CommonCity, UserRole, User, Category, Bill, DoctorProfile
+from storeApp.models import Category as StoreCategory
+from .models import CommonCity, UserRole, User, Bill, DoctorProfile
 from .serializers import DoctorProfileSerializer, UserSerializer, ContactSerializer
 from . import cloud_context
 from django.core.mail import send_mail
@@ -86,7 +87,8 @@ def get_all_config(request):
     try:
         cities = list(CommonCity.objects.values("id", "name"))
         roles = list(UserRole.objects.values("id", "name"))
-        categories = list(Category.objects.filter(active=True).values("id", "name"))
+        # Categories are store-driven so we can drop legacy mainApp Category.
+        categories = list(StoreCategory.objects.filter(active=True).values("id", "name"))
 
         doctor_profiles = DoctorProfile.objects.select_related(
             'user', 'user__role'

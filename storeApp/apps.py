@@ -6,4 +6,5 @@ class StoreappConfig(AppConfig):
     name = 'storeApp'
     
     def ready(self):
-        import storeApp.admin  # Make sure admin is imported when app starts
+        import storeApp.admin  # noqa: F401
+        import storeApp.signals  # noqa: F401

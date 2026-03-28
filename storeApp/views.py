@@ -3,8 +3,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from django.db import models
-from mainApp.models import MedicineUnit, Category, Medicine
-from storeApp.serializers import ProductSerializer
+from storeApp.models import ProductVariant, Category, Product
+from storeApp.serializers import ProductVariantSerializer
 from storeApp.filters import ProductFilter
 from storeApp.viewsets.product import ProductPagination
 from django_filters.rest_framework import DjangoFilterBackend
@@ -29,25 +29,25 @@ def products_by_category_slug(request, category_slug):
         medicine_slug = parts[-1]
         cat_path_slug = '/'.join(parts[:-1])
         
-        medicine = Medicine.objects.using('default').filter(active=True).filter(
+        product = Product.objects.using('default').filter(active=True).filter(
             slug__iexact=medicine_slug
         ).first()
         
-        if medicine:
+        if product:
             category = Category.objects.using('default').filter(active=True).filter(
                 models.Q(path_slug__iexact=cat_path_slug) | 
                 models.Q(slug__iexact=cat_path_slug)
             ).first()
             
             if category:
-                product = MedicineUnit.objects.using('default').filter(
+                product_variant = ProductVariant.objects.using('default').filter(
                     active=True,
-                    category=category,
-                    medicine=medicine
-                ).select_related('medicine', 'category').first()
+                    product__category=category,
+                    product=product
+                ).select_related('product', 'product__category').first()
                 
-                if product:
-                    serializer = ProductSerializer(product)
+                if product_variant:
+                    serializer = ProductVariantSerializer(product_variant)
                     return Response(serializer.data)
                 else:
                     return Response(
@@ -83,10 +83,10 @@ def products_by_category_slug(request, category_slug):
         ).values_list('id', flat=True)
         category_ids.update(subcategory_ids)
         
-        queryset = MedicineUnit.objects.using('default').filter(
+        queryset = ProductVariant.objects.using('default').filter(
             active=True, 
-            category_id__in=list(category_ids)
-        ).select_related('medicine', 'category')
+            product__category_id__in=list(category_ids)
+        ).select_related('product', 'product__category')
         
         # Get immediate subcategories (always needed for navigation)
         immediate_subcategories = FilterHelpers.get_immediate_subcategories(category)
@@ -119,7 +119,7 @@ def products_by_category_slug(request, category_slug):
     queryset = filter_backend.filter_queryset(request, queryset, ProductFilter)
     
     search_backend = filters.SearchFilter()
-    search_backend.search_fields = ['medicine__name', 'package_size', 'medicine__web_name']
+    search_backend.search_fields = ['product__name', 'package_size', 'product__web_name']
     queryset = search_backend.filter_queryset(request, queryset, None)
     
     ordering_backend = filters.OrderingFilter()
@@ -130,14 +130,14 @@ def products_by_category_slug(request, category_slug):
     paginator = ProductPagination()
     page = paginator.paginate_queryset(queryset, request)
     if page is not None:
-        serializer = ProductSerializer(page, many=True)
+        serializer = ProductVariantSerializer(page, many=True)
         response = paginator.get_paginated_response(serializer.data)
         # Add subcategories to paginated response
         response.data['hasSubcategories'] = has_subcategories
         response.data['subcategories'] = immediate_subcategories
         return response
     
-    serializer = ProductSerializer(queryset, many=True)
+    serializer = ProductVariantSerializer(queryset, many=True)
     return Response({
         'categorySlug': category_path_slug,
         'categoryName': category.path or category.name,

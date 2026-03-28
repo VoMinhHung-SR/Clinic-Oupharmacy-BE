@@ -6,8 +6,7 @@ from collections import defaultdict
 from django.db import models
 from django.db.models import Q
 from django.db.models import Count
-from mainApp.models import Category, MedicineUnit
-from storeApp.models import Brand
+from storeApp.models import Brand, Category, ProductVariant
 from storeApp.services.filter_constants import (
     FILTER_VARIANT_MAP,
     CATEGORY_TYPE_MAPPING,
@@ -125,7 +124,7 @@ class FilterHelpers:
     
     @staticmethod
     def get_category_queryset(category):
-        """Get MedicineUnit queryset for category (including subcategories)"""
+        """Get ProductVariant queryset for category (including subcategories)"""
         category_path_slug = category.path_slug or category.slug
         
         # Get all category IDs (including subcategories)
@@ -136,12 +135,12 @@ class FilterHelpers:
         ).values_list('id', flat=True)
         category_ids.extend(list(subcategories))
         
-        # Get MedicineUnits in these categories
-        return MedicineUnit.objects.using('default').filter(
+        # Get ProductVariants in these categories
+        return ProductVariant.objects.using('default').filter(
             active=True,
             is_published=True,
-            category_id__in=category_ids
-        ).select_related('medicine', 'category')
+            product__category_id__in=category_ids
+        ).select_related('product', 'product__category')
     
     @staticmethod
     def get_brand_data(queryset):
@@ -150,8 +149,8 @@ class FilterHelpers:
         Returns: (brand_ids_list, brands_dict) where brands_dict maps brand_id -> (name, country)
         """
         brand_ids = queryset.exclude(
-            Q(medicine__brand_id__isnull=True) | Q(medicine__brand_id=0)
-        ).values_list('medicine__brand_id', flat=True).distinct()
+            Q(product__brand_id__isnull=True) | Q(product__brand_id=0)
+        ).values_list('product__brand_id', flat=True).distinct()
         
         brand_ids_list = list(brand_ids)
         brands_dict = {}
@@ -291,14 +290,14 @@ class FilterHelpers:
         all_category_ids = list(all_category_ids)
         
         # Single query for all product counts
-        product_counts = MedicineUnit.objects.using('default').filter(
+        product_counts = ProductVariant.objects.using('default').filter(
             active=True,
             is_published=True,
-            category_id__in=all_category_ids
-        ).values('category_id').annotate(count=Count('id'))
+            product__category_id__in=all_category_ids
+        ).values('product__category_id').annotate(count=Count('id'))
         
         # Build count map
-        count_map = {item['category_id']: item['count'] for item in product_counts}
+        count_map = {item['product__category_id']: item['count'] for item in product_counts}
         
         # For each immediate subcategory, sum counts including nested
         result = []

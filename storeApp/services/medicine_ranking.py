@@ -1,15 +1,15 @@
 from django.db.models import Case, When, Value, FloatField, Q, F
-from mainApp.models import MedicineUnit
+from storeApp.models import ProductVariant
 
 
 def get_top5_medicine_units_for_category(category):
     """
-    Get Top 5 MedicineUnit for a level1 category
+    Get Top 5 ProductVariant for a level1 category
     Apply ranking_score heuristic
     """
 
-    qs = MedicineUnit.objects.filter(
-        Q(category=category) | Q(category__parent=category),
+    qs = ProductVariant.objects.filter(
+        Q(product__category=category) | Q(product__category__parent=category),
         is_published=True,
         in_stock__gt=0,
     )
@@ -31,20 +31,6 @@ def get_top5_medicine_units_for_category(category):
         ),
 
         discount_score=Case(
-            # >= 15%
-            When(
-                original_price_value__isnull=False,
-                original_price_value__gt=0,
-                price_value__lt=F("original_price_value") * 0.85,
-                then=Value(100),
-            ),
-            # 5–15%
-            When(
-                original_price_value__isnull=False,
-                original_price_value__gt=0,
-                price_value__lt=F("original_price_value") * 0.95,
-                then=Value(50),
-            ),
             default=Value(0),
             output_field=FloatField(),
         ),
@@ -70,7 +56,7 @@ def get_top5_medicine_units_for_category(category):
     )
 
     return (
-        qs.select_related("medicine")
+        qs.select_related("product")
           .order_by("-ranking_score", "-product_ranking")
           [:5]
     )

@@ -15,7 +15,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 
 from mainApp.serializers import DiagnosisSerializer
 from mainApp.serializers import ExaminationSerializer, ExaminationsPairSerializer
-# Create your views here.
+
 wageBooking = 20000
 
 class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,

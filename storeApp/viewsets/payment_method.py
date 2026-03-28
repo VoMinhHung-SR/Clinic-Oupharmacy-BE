@@ -6,8 +6,13 @@ from storeApp.serializers import PaymentMethodSerializer
 
 class PaymentMethodViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView,
                            generics.CreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
-    queryset = PaymentMethod.objects.filter(active=True)
+    queryset = PaymentMethod.objects.all()
     serializer_class = PaymentMethodSerializer
+
+    def get_queryset(self):
+        if self.request.user.is_authenticated and self.request.user.is_staff:
+            return PaymentMethod.objects.all()
+        return PaymentMethod.objects.filter(active=True)
     
     def get_permissions(self):
         """

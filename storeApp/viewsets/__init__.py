@@ -8,6 +8,7 @@ from .notification import NotificationViewSet
 from .product import ProductViewSet
 from .category import CategoryViewSet
 from .dynamic_filters import DynamicFiltersViewSet
+from .search_terms import SearchTermsViewSet
 
 __all__ = [
     'BrandViewSet',
@@ -20,4 +21,5 @@ __all__ = [
     'ProductViewSet',
     'CategoryViewSet',
     'DynamicFiltersViewSet',
+    'SearchTermsViewSet',
 ]

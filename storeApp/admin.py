@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Brand, ShippingMethod, PaymentMethod, Order, OrderItem, MedicineBatch, Notification
+from .models import Brand, ShippingMethod, PaymentMethod, Order, OrderItem, MedicineBatch, Notification, SearchKeyword, Product, ProductVariant, Category
 from mainApp.admin import admin_site
 
 
@@ -27,8 +27,8 @@ class PaymentMethodAdmin(admin.ModelAdmin):
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-    readonly_fields = ['medicine_unit_id', 'quantity', 'price', 'subtotal', 'created_date']
-    fields = ['medicine_unit_id', 'quantity', 'price', 'subtotal', 'created_date']
+    readonly_fields = ['product_variant', 'quantity', 'price', 'subtotal', 'created_date']
+    fields = ['product_variant', 'quantity', 'price', 'subtotal', 'created_date']
 
 
 class OrderAdmin(admin.ModelAdmin):
@@ -53,11 +53,38 @@ class OrderAdmin(admin.ModelAdmin):
         }),
     )
 
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ['name', 'category', 'brand', 'active', 'created_date']
+    list_filter = ['active', 'created_date']
+    search_fields = ['name', 'category__name', 'brand__name']
+    list_editable = ['active']
+
+class ProductVariantAdmin(admin.ModelAdmin):
+    """Giá bán nằm trên ProductVariantUnit; hiển thị giá đơn vị mặc định (hoặc đơn vị đầu tiên)."""
+    list_display = ['packing', 'product', 'default_unit_price', 'in_stock', 'created_date']
+    list_filter = ['in_stock', 'created_date']
+    search_fields = ['packing', 'product__name']
+    list_editable = ['in_stock']
+
+    @admin.display(description='Giá (đơn vị mặc định)')
+    def default_unit_price(self, obj):
+        if not obj or not obj.pk:
+            return '—'
+        u = obj.units.filter(is_default=True).first() or obj.units.order_by('unit_order', 'id').first()
+        if u is None:
+            return '—'
+        return u.price_value
+
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ['name', 'parent', 'active', 'created_date']
+    list_filter = ['active', 'created_date']
+    search_fields = ['name']
+    list_editable = ['active']
 
 class MedicineBatchAdmin(admin.ModelAdmin):
-    list_display = ['batch_number', 'medicine_unit_id', 'import_date', 'expiry_date', 'quantity', 'remaining_quantity', 'is_expired', 'created_date']
+    list_display = ['batch_number', 'product_variant', 'import_date', 'expiry_date', 'quantity', 'remaining_quantity', 'is_expired', 'created_date']
     list_filter = ['import_date', 'expiry_date', 'created_date']
-    search_fields = ['batch_number', 'medicine_unit_id']
+    search_fields = ['batch_number', 'product_variant__sku', 'product_variant__packing']
     readonly_fields = ['is_expired', 'days_until_expiry']
     
     def is_expired(self, obj):
@@ -67,11 +94,18 @@ class MedicineBatchAdmin(admin.ModelAdmin):
 
 
 class NotificationAdmin(admin.ModelAdmin):
-    list_display = ['title', 'notification_type', 'is_read', 'medicine_unit_id', 'created_date']
+    list_display = ['title', 'notification_type', 'is_read', 'product_variant', 'created_date']
     list_filter = ['notification_type', 'is_read', 'created_date']
     search_fields = ['title', 'message']
     list_editable = ['is_read']
     readonly_fields = ['created_date', 'updated_date']
+
+
+class SearchKeywordAdmin(admin.ModelAdmin):
+    list_display = ['keyword', 'hit_count', 'last_searched_at', 'created_date']
+    list_filter = ['created_date']
+    search_fields = ['keyword']
+    ordering = ['-hit_count']
 
 
 # Đăng ký với custom admin site
@@ -82,3 +116,7 @@ admin_site.register(Order, OrderAdmin)
 admin_site.register(OrderItem)
 admin_site.register(MedicineBatch, MedicineBatchAdmin)
 admin_site.register(Notification, NotificationAdmin)
+admin_site.register(SearchKeyword, SearchKeywordAdmin)
+admin_site.register(Category, CategoryAdmin)
+admin_site.register(Product, ProductAdmin)
+admin_site.register(ProductVariant, ProductVariantAdmin)

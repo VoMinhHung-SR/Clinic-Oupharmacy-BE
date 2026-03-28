@@ -4,15 +4,6 @@ def calc_ranking_score(unit):
     hot_score = 100 if unit.is_hot else 0
 
     discount_score = 0
-    if unit.original_price_value and unit.original_price_value > unit.price_value:
-        percent = (
-            (unit.original_price_value - unit.price_value)
-            / unit.original_price_value * 100
-        )
-        if percent >= 15:
-            discount_score = 100
-        elif percent >= 5:
-            discount_score = 50
 
     if unit.in_stock <= 0:
         stock_score = 0

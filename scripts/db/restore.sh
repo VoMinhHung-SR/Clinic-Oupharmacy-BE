@@ -76,5 +76,15 @@ else
     fi
 fi
 
+FIX_SEQ="${SCRIPT_DIR}/fix-sequences.sql"
+if [ -f "${FIX_SEQ}" ]; then
+    log_info "Đồng bộ sequence..."
+    if PGPASSWORD="${CONTAINER_PASSWORD}" psql -h "${CONTAINER_HOST}" -p "${CONTAINER_PORT}" -U "${CONTAINER_USER}" -d "${TARGET_DB}" -f "${FIX_SEQ}" -q >/dev/null 2>&1; then
+        log_success "Sequence đã đồng bộ."
+    else
+        log_warning "Chạy fix-sequences có cảnh báo (có thể bỏ qua nếu không dùng serial column)."
+    fi
+fi
+
 echo "=========================================="
 

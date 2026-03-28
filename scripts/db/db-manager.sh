@@ -19,18 +19,29 @@ show_help() {
     echo "Usage: $0 <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  backup              Backup databases from container"
-    echo "  sync                Sync databases from local to container"
-    echo "  restore <file>      Restore database from backup file"
+    echo "  backup              Backup databases from container (cần psql/pg_dump trên máy)"
+    echo "  backup-docker       Backup bằng Docker, không cần cài PostgreSQL (2 file: default + store)"
+    echo "  backup-docker --all Backup 1 file chứa cả 2 DB (pg_dumpall)"
+    echo "  restore-docker <file> [db_name]  Restore vào container (Docker, không cần psql trên máy)"
+    echo "  sync                Sync Local -> Container (full schema+data)"
+    echo "  sync-container-to-local   Sync Container -> Local"
+    echo "  sync-drop           Drop tables trong container rồi sync Local -> Container"
+    echo "  restore <file>      Restore database from backup file (cần psql trên máy)"
     echo "  list-backups       List all backup files"
     echo "  status             Check database connection status"
     echo "  help               Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0 backup"
+    echo "  $0 backup-docker"
+    echo "  $0 backup-docker --all"
     echo "  $0 sync"
     echo "  $0 sync --force"
+    echo "  $0 sync-container-to-local"
+    echo "  $0 sync-container-to-local --force"
+    echo "  $0 sync-drop"
     echo "  $0 restore backups/oupharmacydb_20251204_225103.sql.gz"
+    echo "  $0 restore-docker backups/oupharmacydb_20251204_225103.sql.gz"
     echo "  $0 list-backups"
     echo "  $0 status"
 }
@@ -41,8 +52,25 @@ case "${COMMAND}" in
     backup)
         "${SCRIPT_DIR}/backup.sh" "${@:2}"
         ;;
+    backup-docker)
+        "${SCRIPT_DIR}/backup-docker.sh" "${@:2}"
+        ;;
+    restore-docker)
+        if [ -z "$2" ]; then
+            echo -e "${YELLOW}Error: Backup file required${NC}"
+            echo "Usage: $0 restore-docker <backup_file> [database_name]"
+            exit 1
+        fi
+        "${SCRIPT_DIR}/restore-docker.sh" "${@:2}"
+        ;;
     sync)
         "${SCRIPT_DIR}/sync.sh" "${@:2}"
+        ;;
+    sync-container-to-local)
+        "${SCRIPT_DIR}/sync-container-to-local.sh" "${@:2}"
+        ;;
+    sync-drop)
+        "${SCRIPT_DIR}/sync_and_drop.sh" "${@:2}"
         ;;
     restore)
         if [ -z "$2" ]; then
