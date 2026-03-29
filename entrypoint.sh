@@ -10,7 +10,7 @@ echo "Running migrations for default database..."
 python manage.py migrate --database=default
 
 echo "Running migrations for store database..."
-python manage.py migrate --database=store
+python manage.py migrate storeApp --database=store
 
 # Collect static files
 echo "Collecting static files..."

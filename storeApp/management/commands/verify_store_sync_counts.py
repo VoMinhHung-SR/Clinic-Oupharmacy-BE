@@ -18,6 +18,7 @@ from mainApp.models import (
     MedicineUnitStats as MainMedicineUnitStats,
     Voucher as MainVoucher,
 )
+from storeApp.constants import STORE_DATABASE_ALIAS
 from storeApp.models import (
     Category as StoreCategory,
     Product as StoreProduct,
@@ -49,33 +50,33 @@ class Command(BaseCommand):
             {
                 "entity": "Category",
                 "main": _count(MainCategory.objects.all()),
-                "store": _count(StoreCategory.objects.using("store").all()),
+                "store": _count(StoreCategory.objects.using(STORE_DATABASE_ALIAS).all()),
             },
             {
                 "entity": "Product / Medicine",
                 "main": _count(MainMedicine.objects.all()),
-                "store": _count(StoreProduct.objects.using("store").all()),
+                "store": _count(StoreProduct.objects.using(STORE_DATABASE_ALIAS).all()),
             },
             {
                 "entity": "ProductVariant / MedicineUnit",
                 "main": _count(MainMedicineUnit.objects.all()),
-                "store": _count(StoreProductVariant.objects.using("store").all()),
+                "store": _count(StoreProductVariant.objects.using(STORE_DATABASE_ALIAS).all()),
             },
             {
                 "entity": "ProductVariantUnit (store only mapping)",
                 "main": _count(MainMedicineUnit.objects.all()),
-                "store": _count(StoreProductVariantUnit.objects.using("store").all()),
+                "store": _count(StoreProductVariantUnit.objects.using(STORE_DATABASE_ALIAS).all()),
                 "note": "store should match MedicineUnit count after sync_variant_units",
             },
             {
                 "entity": "ProductVariantStats / MedicineUnitStats",
                 "main": _count(MainMedicineUnitStats.objects.all()),
-                "store": _count(StoreProductVariantStats.objects.using("store").all()),
+                "store": _count(StoreProductVariantStats.objects.using(STORE_DATABASE_ALIAS).all()),
             },
             {
                 "entity": "Voucher",
                 "main": _count(MainVoucher.objects.all()),
-                "store": _count(StoreVoucher.objects.using("store").all()),
+                "store": _count(StoreVoucher.objects.using(STORE_DATABASE_ALIAS).all()),
             },
         ]
 
