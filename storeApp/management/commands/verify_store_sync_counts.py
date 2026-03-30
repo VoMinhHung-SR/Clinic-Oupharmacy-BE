@@ -9,28 +9,35 @@ Stats, Voucher. ProductVariantUnit trên store nên khớp số MedicineUnit n�
 """
 import json
 
+from django.apps import apps
 from django.core.management.base import BaseCommand
 
-from mainApp.models import (
-    Category as MainCategory,
-    Medicine as MainMedicine,
-    MedicineUnit as MainMedicineUnit,
-    MedicineUnitStats as MainMedicineUnitStats,
-    Voucher as MainVoucher,
-)
 from storeApp.constants import STORE_DATABASE_ALIAS
-from storeApp.models import (
-    Category as StoreCategory,
-    Product as StoreProduct,
-    ProductVariant as StoreProductVariant,
-    ProductVariantUnit as StoreProductVariantUnit,
-    ProductVariantStats as StoreProductVariantStats,
-    Voucher as StoreVoucher,
-)
 
 
 def _count(qs):
     return qs.count()
+
+
+def _model_or_none(app_label, model_name):
+    try:
+        return apps.get_model(app_label, model_name)
+    except LookupError:
+        return None
+
+
+def _main_count_or_none(app_label, model_name):
+    model = _model_or_none(app_label, model_name)
+    if model is None:
+        return None
+    return _count(model.objects.all())
+
+
+def _store_count_or_none(model_name):
+    model = _model_or_none("storeApp", model_name)
+    if model is None:
+        return None
+    return _count(model.objects.using(STORE_DATABASE_ALIAS).all())
 
 
 class Command(BaseCommand):
@@ -45,40 +52,29 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         as_json = options["json"]
-
-        rows = [
-            {
-                "entity": "Category",
-                "main": _count(MainCategory.objects.all()),
-                "store": _count(StoreCategory.objects.using(STORE_DATABASE_ALIAS).all()),
-            },
-            {
-                "entity": "Product / Medicine",
-                "main": _count(MainMedicine.objects.all()),
-                "store": _count(StoreProduct.objects.using(STORE_DATABASE_ALIAS).all()),
-            },
-            {
-                "entity": "ProductVariant / MedicineUnit",
-                "main": _count(MainMedicineUnit.objects.all()),
-                "store": _count(StoreProductVariant.objects.using(STORE_DATABASE_ALIAS).all()),
-            },
-            {
-                "entity": "ProductVariantUnit (store only mapping)",
-                "main": _count(MainMedicineUnit.objects.all()),
-                "store": _count(StoreProductVariantUnit.objects.using(STORE_DATABASE_ALIAS).all()),
-                "note": "store should match MedicineUnit count after sync_variant_units",
-            },
-            {
-                "entity": "ProductVariantStats / MedicineUnitStats",
-                "main": _count(MainMedicineUnitStats.objects.all()),
-                "store": _count(StoreProductVariantStats.objects.using(STORE_DATABASE_ALIAS).all()),
-            },
-            {
-                "entity": "Voucher",
-                "main": _count(MainVoucher.objects.all()),
-                "store": _count(StoreVoucher.objects.using(STORE_DATABASE_ALIAS).all()),
-            },
+        mappings = [
+            ("Category", "Category", "Category", None),
+            ("Product / Medicine", "Medicine", "Product", None),
+            ("ProductVariant / MedicineUnit", "MedicineUnit", "ProductVariant", None),
+            (
+                "ProductVariantUnit (store only mapping)",
+                "MedicineUnit",
+                "ProductVariantUnit",
+                "store should match MedicineUnit count after sync_variant_units",
+            ),
+            ("ProductVariantStats / MedicineUnitStats", "MedicineUnitStats", "ProductVariantStats", None),
+            ("Voucher", "Voucher", "Voucher", None),
         ]
+        rows = []
+        for entity, main_model, store_model, note in mappings:
+            row = {
+                "entity": entity,
+                "main": _main_count_or_none("mainApp", main_model),
+                "store": _store_count_or_none(store_model),
+            }
+            if note:
+                row["note"] = note
+            rows.append(row)
 
         if as_json:
             self.stdout.write(json.dumps(rows, indent=2, ensure_ascii=False))
@@ -90,11 +86,19 @@ class Command(BaseCommand):
         for r in rows:
             main_c = r["main"]
             store_c = r["store"]
-            ok = main_c == store_c
-            if not ok:
+            comparable = main_c is not None
+            ok = comparable and main_c == store_c
+            if comparable and not ok:
                 mismatches += 1
-            status = self.style.SUCCESS("OK") if ok else self.style.WARNING("MISMATCH")
-            line = f"  [{status}] {r['entity']}: main={main_c}  store={store_c}"
+            if not comparable:
+                status = self.style.WARNING("N/A")
+                line = f"  [{status}] {r['entity']}: main=<model missing>  store={store_c}"
+            elif store_c is None:
+                status = self.style.WARNING("N/A")
+                line = f"  [{status}] {r['entity']}: main={main_c}  store=<model missing>"
+            else:
+                status = self.style.SUCCESS("OK") if ok else self.style.WARNING("MISMATCH")
+                line = f"  [{status}] {r['entity']}: main={main_c}  store={store_c}"
             if "note" in r:
                 line += f"  ({r['note']})"
             self.stdout.write(line)
