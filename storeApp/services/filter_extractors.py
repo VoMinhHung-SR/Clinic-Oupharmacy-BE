@@ -58,9 +58,9 @@ class FilterExtractors:
         ingredient_counts = defaultdict(int)
         
         # Use iterator to avoid loading all objects into memory
-        queryset_with_medicine = queryset.select_related('medicine').iterator(chunk_size=100)
+        queryset_with_product = queryset.select_related('product').iterator(chunk_size=100)
         
-        for unit in queryset_with_medicine:
+        for unit in queryset_with_product:
             # Extract targetAudience
             target_audiences = FilterExtractors.extract_target_audience(unit)
             for audience in target_audiences:
@@ -159,12 +159,14 @@ class FilterExtractors:
         """
         values = []
         
-        if not medicine_unit.specifications or not isinstance(medicine_unit.specifications, dict):
+        product = getattr(medicine_unit, "product", None)
+        specs = getattr(product, "specifications", None) if product else None
+        if not specs or not isinstance(specs, dict):
             return values
         
         spec_keys = SPECIFICATION_KEYS.get(filter_id, [])
         for key in spec_keys:
-            value = medicine_unit.specifications.get(key)
+            value = specs.get(key)
             if value:
                 if isinstance(value, list):
                     values.extend([str(v).strip() for v in value if v])
@@ -196,12 +198,13 @@ class FilterExtractors:
         values = []
         text_to_check = ''
         
-        if not medicine_unit.medicine:
+        product = getattr(medicine_unit, "product", None)
+        if not product:
             return values
         
         # Check fields in order
         for field_name in text_fields:
-            field_value = getattr(medicine_unit.medicine, field_name, None)
+            field_value = getattr(product, field_name, None)
             if field_value:
                 text_to_check = str(field_value).lower()
                 break
@@ -278,8 +281,9 @@ class FilterExtractors:
         )
         
         # Fallback to description (extract known ingredients)
-        if not ingredients and medicine_unit.medicine and medicine_unit.medicine.description:
-            text = medicine_unit.medicine.description.lower()
+        product = getattr(medicine_unit, "product", None)
+        if not ingredients and product and getattr(product, "description", None):
+            text = product.description.lower()
             for ingredient in INGREDIENT_KEYWORDS:
                 if ingredient.lower() in text:
                     ingredients.append(ingredient.title())

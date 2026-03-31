@@ -58,7 +58,7 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView, generics.RetrieveAPI
     def get_examinations(self, request, pk):
         examinations = Examination.objects.filter(user=pk).all()
         paginator = ExaminationPaginator()
-        page_size = request.query_params.get('page_size', 10)
+        page_size = request.query_params.get('page_size', 12)
         paginator.page_size = page_size
         result_page = paginator.paginate_queryset(examinations, request)
         serializer = ExaminationSerializer(result_page, context={'request': request}, many=True)

@@ -19,44 +19,13 @@ from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
 
+from mainApp.prescription_pricing import resolve_prescription_detail_unit_price
 from mainApp.serializers import BillSerializer
-from storeApp.models import Product, ProductVariant, ProductVariantUnit
-
-
-def _resolve_store_variant_from_detail(detail):
-    if getattr(detail, "product_variant_id", None):
-        return ProductVariant.objects.using("store").filter(
-            id=detail.product_variant_id,
-            active=True,
-        ).first()
-    return None
 
 
 def _resolve_unit_price(detail):
-    if getattr(detail, "unit_price_snapshot", None) is not None:
-        return float(detail.unit_price_snapshot)
-
-    if getattr(detail, "product_variant_unit_id", None):
-        pvu = ProductVariantUnit.objects.using("store").filter(
-            id=detail.product_variant_unit_id,
-            is_published=True,
-        ).first()
-        if pvu and pvu.price_value is not None:
-            return float(pvu.price_value)
-
-    variant = _resolve_store_variant_from_detail(detail)
-    if variant:
-        pvu = ProductVariantUnit.objects.using("store").filter(
-            variant_id=variant.id,
-            is_default=True,
-            is_published=True,
-        ).first() or ProductVariantUnit.objects.using("store").filter(
-            variant_id=variant.id,
-            is_published=True,
-        ).order_by("unit_order", "id").first()
-        if pvu:
-            return float(pvu.price_value)
-    return 0.0
+    price, _ = resolve_prescription_detail_unit_price(detail)
+    return price
 
 
 class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,

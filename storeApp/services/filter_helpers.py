@@ -3,10 +3,13 @@ Filter Helper Utilities
 Helper methods for category, queryset, and data retrieval
 """
 from collections import defaultdict
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.db.models import Count
-from storeApp.models import Brand, Category, ProductVariant
+from django.db.models import DecimalField, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
+from storeApp.models import Brand, Category, ProductVariant, ProductVariantUnit
 from storeApp.services.filter_constants import (
     FILTER_VARIANT_MAP,
     CATEGORY_TYPE_MAPPING,
@@ -16,11 +19,46 @@ from storeApp.services.filter_constants import (
 
 class FilterHelpers:
     """Helper utilities for dynamic filters"""
+    STORE_DB_ALIAS = 'store' if 'store' in settings.DATABASES else 'default'
     
+    @staticmethod
+    def annotate_variant_price(queryset):
+        """
+        Annotate ProductVariant queryset with virtual `price_value` field.
+        Source: default published unit -> first published unit -> 0.
+        """
+        alias = FilterHelpers.STORE_DB_ALIAS
+        default_unit_price = (
+            ProductVariantUnit.objects.using(alias)
+            .filter(
+                variant_id=OuterRef("pk"),
+                is_default=True,
+                is_published=True,
+            )
+            .values("price_value")[:1]
+        )
+        fallback_unit_price = (
+            ProductVariantUnit.objects.using(alias)
+            .filter(
+                variant_id=OuterRef("pk"),
+                is_published=True,
+            )
+            .order_by("unit_order", "id")
+            .values("price_value")[:1]
+        )
+        return queryset.annotate(
+            price_value=Coalesce(
+                Subquery(default_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
+                Subquery(fallback_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
+                Value(0),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            )
+        )
+
     @staticmethod
     def get_category_from_slug(category_slug: str):
         """Get category from slug"""
-        return Category.objects.using('default').filter(
+        return Category.objects.using(FilterHelpers.STORE_DB_ALIAS).filter(
             active=True
         ).filter(
             models.Q(path_slug__iexact=category_slug) | 
@@ -59,7 +97,7 @@ class FilterHelpers:
         
         # Query root category từ database (level = 0, parent = None)
         if root_slug:
-            return Category.objects.using('default').filter(
+            return Category.objects.using(FilterHelpers.STORE_DB_ALIAS).filter(
                 active=True,
                 level=0,
                 parent__isnull=True,
@@ -129,18 +167,23 @@ class FilterHelpers:
         
         # Get all category IDs (including subcategories)
         category_ids = [category.id]
-        subcategories = Category.objects.using('default').filter(
+        subcategories = Category.objects.using(FilterHelpers.STORE_DB_ALIAS).filter(
             active=True,
             path_slug__istartswith=f"{category_path_slug}/"
         ).values_list('id', flat=True)
         category_ids.extend(list(subcategories))
         
         # Get ProductVariants in these categories
-        return ProductVariant.objects.using('default').filter(
-            active=True,
-            is_published=True,
-            product__category_id__in=category_ids
-        ).select_related('product', 'product__category')
+        queryset = (
+            ProductVariant.objects.using(FilterHelpers.STORE_DB_ALIAS)
+            .filter(
+                active=True,
+                is_published=True,
+                product__category_id__in=category_ids,
+            )
+            .select_related("product", "product__category", "product__brand")
+        )
+        return FilterHelpers.annotate_variant_price(queryset)
     
     @staticmethod
     def get_brand_data(queryset):
@@ -157,7 +200,7 @@ class FilterHelpers:
         
         if brand_ids_list:
             # Get all brand data in single query
-            brands_data = Brand.objects.using('store').filter(
+            brands_data = Brand.objects.using(FilterHelpers.STORE_DB_ALIAS).filter(
                 id__in=brand_ids_list,
                 active=True
             ).values_list('id', 'name', 'country')
@@ -219,13 +262,13 @@ class FilterHelpers:
         parent_path_with_slash = category_path + '/'
         
         # Strategy 1: Query by parent relationship (most reliable)
-        parent_subcategories = Category.objects.using('default').filter(
+        parent_subcategories = Category.objects.using(FilterHelpers.STORE_DB_ALIAS).filter(
             active=True,
             parent=category
         )
         
         # Strategy 2: Query by level and path_slug (fallback)
-        path_subcategories = Category.objects.using('default').filter(
+        path_subcategories = Category.objects.using(FilterHelpers.STORE_DB_ALIAS).filter(
             active=True,
             level=target_level,
             path_slug__istartswith=parent_path_with_slash
@@ -267,30 +310,32 @@ class FilterHelpers:
         subcategory_ids = [subcat.id for subcat in immediate_subcategories]
         subcategory_paths = {subcat.id: (subcat.path_slug or subcat.slug) for subcat in immediate_subcategories}
         
-        # Get all nested subcategories and collect category IDs efficiently
-        # Use set from start to avoid duplicates
+        # Build mapping subcategory -> itself + nested descendants
+        # Optimize: single descendants query instead of N queries for N subcategories.
+        subcategory_with_children = {subcat_id: [subcat_id] for subcat_id in subcategory_ids}
         all_category_ids = set(subcategory_ids)
-        
-        if subcategory_paths:
-            # Query nested subcategories for each immediate subcategory
-            # Build mapping: subcategory_id -> [nested_ids]
-            subcategory_with_children = {subcat_id: [subcat_id] for subcat_id in subcategory_ids}
-            
+        descendants = list(
+            Category.objects.using(FilterHelpers.STORE_DB_ALIAS)
+            .filter(
+                active=True,
+                path_slug__istartswith=parent_path_with_slash,
+                level__gt=target_level,
+            )
+            .values_list("id", "path_slug")
+        )
+        for descendant_id, descendant_path in descendants:
+            if not descendant_path:
+                continue
             for subcat_id, subcat_path in subcategory_paths.items():
-                nested_ids = list(Category.objects.using('default').filter(
-                    active=True,
-                    path_slug__istartswith=f"{subcat_path}/"
-                ).values_list('id', flat=True))
-                subcategory_with_children[subcat_id].extend(nested_ids)
-                all_category_ids.update(nested_ids)
-        else:
-            subcategory_with_children = {subcat_id: [subcat_id] for subcat_id in subcategory_ids}
+                if descendant_path.startswith(f"{subcat_path}/"):
+                    subcategory_with_children[subcat_id].append(descendant_id)
+                    all_category_ids.add(descendant_id)
+                    break
         
-        # Convert to list for query
         all_category_ids = list(all_category_ids)
         
         # Single query for all product counts
-        product_counts = ProductVariant.objects.using('default').filter(
+        product_counts = ProductVariant.objects.using(FilterHelpers.STORE_DB_ALIAS).filter(
             active=True,
             is_published=True,
             product__category_id__in=all_category_ids

@@ -2,15 +2,18 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
+from django.conf import settings
 from django.db import models
 from storeApp.models import ProductVariant, Category, Product
 from storeApp.serializers import ProductVariantSerializer
 from storeApp.filters import ProductFilter
-from storeApp.viewsets.product import ProductPagination
+from storeApp.viewsets.product import ProductPagination, annotate_variant_unit_price
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from storeApp.services.filter_helpers import FilterHelpers
 from storeApp.services.filter_constants import LARGE_CATEGORY_THRESHOLD
+
+STORE_DB_ALIAS = 'store' if 'store' in settings.DATABASES else 'default'
 
 
 @api_view(['GET'])
@@ -29,18 +32,18 @@ def products_by_category_slug(request, category_slug):
         medicine_slug = parts[-1]
         cat_path_slug = '/'.join(parts[:-1])
         
-        product = Product.objects.using('default').filter(active=True).filter(
+        product = Product.objects.using(STORE_DB_ALIAS).filter(active=True).filter(
             slug__iexact=medicine_slug
         ).first()
         
         if product:
-            category = Category.objects.using('default').filter(active=True).filter(
+            category = Category.objects.using(STORE_DB_ALIAS).filter(active=True).filter(
                 models.Q(path_slug__iexact=cat_path_slug) | 
                 models.Q(slug__iexact=cat_path_slug)
             ).first()
             
             if category:
-                product_variant = ProductVariant.objects.using('default').filter(
+                product_variant = ProductVariant.objects.using(STORE_DB_ALIAS).filter(
                     active=True,
                     product__category=category,
                     product=product
@@ -61,7 +64,7 @@ def products_by_category_slug(request, category_slug):
                 )
     
     try:
-        category = Category.objects.using('default').filter(active=True).filter(
+        category = Category.objects.using(STORE_DB_ALIAS).filter(active=True).filter(
             models.Q(path_slug__iexact=category_slug) | 
             models.Q(slug__iexact=category_slug)
         ).first()
@@ -77,16 +80,18 @@ def products_by_category_slug(request, category_slug):
         # Get all subcategory IDs (including nested) for product filtering
         # Use set for efficient duplicate handling
         category_ids = {category.id}
-        subcategory_ids = Category.objects.using('default').filter(
+        subcategory_ids = Category.objects.using(STORE_DB_ALIAS).filter(
             active=True,
             path_slug__istartswith=f"{category_path_slug}/"
         ).values_list('id', flat=True)
         category_ids.update(subcategory_ids)
         
-        queryset = ProductVariant.objects.using('default').filter(
-            active=True, 
-            product__category_id__in=list(category_ids)
-        ).select_related('product', 'product__category')
+        queryset = annotate_variant_unit_price(
+            ProductVariant.objects.using(STORE_DB_ALIAS).filter(
+                active=True,
+                product__category_id__in=list(category_ids),
+            ).select_related('product', 'product__category', 'product__brand')
+        , db_alias=STORE_DB_ALIAS)
         
         # Get immediate subcategories (always needed for navigation)
         immediate_subcategories = FilterHelpers.get_immediate_subcategories(category)
@@ -119,7 +124,7 @@ def products_by_category_slug(request, category_slug):
     queryset = filter_backend.filter_queryset(request, queryset, ProductFilter)
     
     search_backend = filters.SearchFilter()
-    search_backend.search_fields = ['product__name', 'package_size', 'product__web_name']
+    search_backend.search_fields = ['product__name', 'packing', 'product__web_name']
     queryset = search_backend.filter_queryset(request, queryset, None)
     
     ordering_backend = filters.OrderingFilter()

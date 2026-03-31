@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework import viewsets, generics, filters
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
@@ -11,6 +12,35 @@ from django.db.models.functions import Coalesce
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from storeApp.models import ProductVariantUnit, Product
+
+
+def annotate_variant_unit_price(queryset, db_alias=None):
+    """
+    Annotate ProductVariant queryset with price_value from default/first published unit.
+    Required for ProductFilter (min/max price) and ordering by price_value.
+    """
+    alias = db_alias or "default"
+    default_unit_price = ProductVariantUnit.objects.using(alias).filter(
+        variant_id=OuterRef("pk"),
+        is_default=True,
+        is_published=True,
+    ).values("price_value")[:1]
+    fallback_unit_price = (
+        ProductVariantUnit.objects.using(alias).filter(
+            variant_id=OuterRef("pk"),
+            is_published=True,
+        )
+        .order_by("unit_order", "id")
+        .values("price_value")[:1]
+    )
+    return queryset.annotate(
+        price_value=Coalesce(
+            Subquery(default_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            Subquery(fallback_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            Value(0),
+            output_field=DecimalField(max_digits=12, decimal_places=2),
+        )
+    )
 
 
 class ProductPagination(PageNumberPagination):
@@ -32,22 +62,12 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
     ordering = ['-created_date']
     
     def get_queryset(self):
-        default_unit_price = ProductVariantUnit.objects.filter(
-            variant_id=OuterRef('pk'),
-            is_default=True,
-            is_published=True,
-        ).values('price_value')[:1]
-        fallback_unit_price = ProductVariantUnit.objects.filter(
-            variant_id=OuterRef('pk'),
-            is_published=True,
-        ).order_by('unit_order', 'id').values('price_value')[:1]
-        queryset = ProductVariant.objects.filter(active=True).select_related("product__category", "product__brand").annotate(
-            price_value=Coalesce(
-                Subquery(default_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
-                Subquery(fallback_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
-                Value(0),
-                output_field=DecimalField(max_digits=12, decimal_places=2),
-            )
+        store_db_alias = "store" if "store" in settings.DATABASES else "default"
+        queryset = annotate_variant_unit_price(
+            ProductVariant.objects.using(store_db_alias)
+            .filter(active=True)
+            .select_related("product__category", "product__brand"),
+            db_alias=store_db_alias,
         )
         
         in_stock_param = self.request.query_params.get('in_stock')

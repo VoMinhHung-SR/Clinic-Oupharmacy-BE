@@ -104,17 +104,16 @@ class FilterBuilders:
         if not variants.get('countries') or not brand_ids_list:
             return None
         
-        # Build country count map from Brand.country (optimized)
-        country_to_brand_ids = defaultdict(list)
-        for brand_id, (brand_name, country) in brands_dict.items():
+        # Single aggregated query by brand_id, then fold into country buckets in Python.
+        brand_id_counts = queryset.exclude(
+            Q(product__brand_id__isnull=True) | Q(product__brand_id=0)
+        ).values('product__brand_id').annotate(count=Count('id'))
+        country_count_map = defaultdict(int)
+        for item in brand_id_counts:
+            brand_id = item['product__brand_id']
+            country = brands_dict.get(brand_id, (None, None))[1]
             if country:
-                country_to_brand_ids[country].append(brand_id)
-        
-        # Count products for each country
-        country_count_map = {}
-        for country, brand_ids_for_country in country_to_brand_ids.items():
-            count = queryset.filter(medicine__brand_id__in=brand_ids_for_country).count()
-            country_count_map[country] = count
+                country_count_map[country] += item['count']
         
         # Build options
         country_options = []
@@ -123,7 +122,7 @@ class FilterBuilders:
             country_options.append({
                 'value': country,
                 'label': country,
-                'count': country_count_map.get(country, 0)
+                'count': int(country_count_map.get(country, 0))
             })
         
         return FilterBuilders.build_filter_object('country', country_options, variants)
@@ -136,13 +135,13 @@ class FilterBuilders:
         
         # Get brand_ids and count products per brand_id for ALL brands
         brand_id_counts = queryset.exclude(
-            Q(medicine__brand_id__isnull=True) | Q(medicine__brand_id=0)
-        ).values('medicine__brand_id').annotate(count=Count('id'))
+            Q(product__brand_id__isnull=True) | Q(product__brand_id=0)
+        ).values('product__brand_id').annotate(count=Count('id'))
         
         # Build brand_count_map
         brand_count_map = {}
         for item in brand_id_counts:
-            brand_id = item['medicine__brand_id']
+            brand_id = item['product__brand_id']
             brand_name = brands_dict.get(brand_id, (None, None))[0]
             if brand_name:
                 brand_count_map[brand_name] = item['count']

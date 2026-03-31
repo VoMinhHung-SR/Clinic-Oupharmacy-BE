@@ -2,6 +2,7 @@
 Dynamic Filters Service Layer
 Main orchestration service for dynamic filters feature
 """
+import copy
 from django.core.cache import cache
 from storeApp.services.filter_constants import (
     CACHE_TIMEOUT,
@@ -123,18 +124,20 @@ class DynamicFiltersService:
         Filter response data based on include_variants and include_counts flags
         Used for both cached and fresh responses
         """
+        # Never mutate cached/original response object.
+        payload = copy.deepcopy(response_data)
         if include_variants:
             if not include_counts:
                 # Remove count fields from variants
-                variants = response_data.get('variants', {})
+                variants = payload.get('variants') or {}
                 variants_without_counts = {k: v for k, v in variants.items() 
                                          if not k.startswith('_')}
-                response_data['variants'] = variants_without_counts
+                payload['variants'] = variants_without_counts
         else:
             # Remove variants entirely
-            response_data.pop('variants', None)
+            payload.pop('variants', None)
         
-        return response_data
+        return payload
     
     @staticmethod
     def invalidate_cache(category_slug: str = None):

@@ -135,6 +135,10 @@ STORE_DATABASE_URL_PG=postgresql://user:password@localhost:5432/store_db
 
 4. **MedicineUnit.brand_id**: Field này lưu ID của Brand trong store database, không có FK constraint.
 
+## Dynamic Filters guideline
+
+- `storeApp/guidelines/dynamic-filters.md`
+
 ## Đồng bộ DB store: local → container (data-only + reset sequence)
 
 Cần `STORE_DATABASE_URL_PG` trong `.env` / `.env.production` (local khi dump; URL container khi restore).

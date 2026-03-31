@@ -6,6 +6,7 @@ from .constant import CLOUDINARY_DEFAULT_AVATAR, LIMIT_USER_LOCATION, ROLE_DOCTO
 from .models import *
 from rest_framework import serializers
 from storeApp.models import ProductVariant, ProductVariantUnit
+from .prescription_pricing import resolve_prescription_detail_unit_price
 import cloudinary.uploader
 
 class UserRoleSerializer(ModelSerializer):
@@ -357,10 +358,20 @@ class PrescriptionDetailSerializer(ModelSerializer):
     prescribing = PrescribingSerializer()
     product_variant = serializers.SerializerMethodField()
     product_variant_unit = serializers.SerializerMethodField()
+    resolved_unit_price = serializers.SerializerMethodField()
+    unit_price_source = serializers.SerializerMethodField()
 
     class Meta:
         model = PrescriptionDetail
         exclude = []
+
+    def get_resolved_unit_price(self, obj):
+        price, _ = resolve_prescription_detail_unit_price(obj)
+        return price
+
+    def get_unit_price_source(self, obj):
+        _, src = resolve_prescription_detail_unit_price(obj)
+        return src
 
     def _serialize_store_variant(self, *, variant, unit_price_value=None, unit_name=None, unit_quantity_in_base=None):
         """
@@ -447,31 +458,12 @@ class PrescriptionDetailSerializer(ModelSerializer):
         if not variant:
             return None
 
-        # Prefer snapshot values for price; otherwise use default/published unit.
-        unit_price = obj.unit_price_snapshot if obj.unit_price_snapshot is not None else None
-        unit_name = obj.unit_name_snapshot
-        unit_quantity_in_base = getattr(obj, "quantity_in_base_snapshot", None)
-
-        if unit_price is None:
-            pvu = (
-                ProductVariantUnit.objects.using("store")
-                .filter(variant_id=variant.id, is_default=True, is_published=True)
-                .first()
-                or ProductVariantUnit.objects.using("store")
-                .filter(variant_id=variant.id, is_published=True)
-                .order_by("unit_order", "id")
-                .first()
-            )
-            if pvu:
-                unit_price = pvu.price_value
-                unit_name = pvu.unit_name
-                unit_quantity_in_base = pvu.quantity_in_base
-
+        resolved, _ = resolve_prescription_detail_unit_price(obj)
         return self._serialize_store_variant(
             variant=variant,
-            unit_price_value=(unit_price if unit_price is not None else 0),
-            unit_name=unit_name,
-            unit_quantity_in_base=unit_quantity_in_base,
+            unit_price_value=resolved,
+            unit_name=obj.unit_name_snapshot,
+            unit_quantity_in_base=getattr(obj, "quantity_in_base_snapshot", None),
         )
 
 class BillSerializer(ModelSerializer):
