@@ -1,5 +1,6 @@
 from django.urls import path, include
 from . import views
+from . import password_reset_views
 from rest_framework import routers
 from .admin import admin_site
 from . import admin_views
@@ -36,6 +37,8 @@ urlpatterns = [
     path('auth/firebase/', views.firebase_social_login, name='firebase_social_login'),
     path('auth/google/', views.google_login, name='google_login'),
     path('auth/facebook/', views.facebook_login, name='facebook_login'),
+    path('auth/forgot-password/', password_reset_views.forgot_password, name='auth-forgot-password'),
+    path('auth/reset-password/', password_reset_views.reset_password, name='auth-reset-password'),
     path('admin/', include([
         path('api/revenue_stats/', admin_views.get_admin_revenue),
         path('api/examinations_stats/', admin_views.get_examinations_stats),

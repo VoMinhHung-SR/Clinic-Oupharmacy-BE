@@ -120,6 +120,25 @@ class NotificationSerializer(ModelSerializer):
         ]
 
 
+class ContactSupportRequestSerializer(serializers.Serializer):
+    REQUEST_TYPE_CHOICES = [
+        ('support', 'Hỗ trợ kỹ thuật'),
+        ('policy', 'Chính sách'),
+        ('other', 'Khác'),
+    ]
+
+    name = serializers.CharField(max_length=120, allow_blank=False, trim_whitespace=True)
+    email = serializers.EmailField()
+    phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    subject = serializers.CharField(max_length=200, required=False, allow_blank=True, trim_whitespace=True)
+    message = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    request_type = serializers.ChoiceField(
+        choices=REQUEST_TYPE_CHOICES,
+        required=False,
+        default='support',
+    )
+
+
 class SearchKeywordSerializer(ModelSerializer):
     class Meta:
         model = SearchKeyword

@@ -1,3 +1,5 @@
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, generics
 from rest_framework.parsers import JSONParser, FormParser,MultiPartParser
@@ -8,6 +10,7 @@ from mainApp.models import User, Examination, Patient
 from mainApp.paginator import ExaminationPaginator
 from mainApp.permissions import UserPermission, OwnerExaminationPermission
 from mainApp.serializers import UserSerializer, ExaminationSerializer, PatientSerializer, UserAddressSerializer
+from mainApp.services.auth_tokens import revoke_oauth2_tokens_for_user
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from ..tasks import load_waiting_room
@@ -82,11 +85,18 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView, generics.RetrieveAPI
     @action(methods=['post'], detail=True, url_path='change-password')
     def change_password(self, request, pk):
         user = self.get_object()
+        new_password = request.data.get('new_password')
+        if not new_password:
+            return Response({'detail': 'new_password is required.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            new_password = request.data.get('new_password')
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response({'new_password': list(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+        try:
             user.set_password(new_password)
             user.save()
-        except Exception as ex:
+            revoke_oauth2_tokens_for_user(user)
+        except Exception:
             return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response(status=status.HTTP_200_OK)
 

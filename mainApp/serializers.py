@@ -1,5 +1,10 @@
 import os
 from django.conf import settings
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 from rest_framework.serializers import ModelSerializer
 from . import cloud_context
 from .constant import CLOUDINARY_DEFAULT_AVATAR, LIMIT_USER_LOCATION, ROLE_DOCTOR
@@ -485,3 +490,36 @@ class ContactSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
     subject = serializers.CharField(max_length=200, required=False, allow_blank=True)
     message = serializers.CharField()
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+_RESET_LINK_INVALID = "Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn."
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, trim_whitespace=True)
+
+    def validate(self, attrs):
+        raw_uid = attrs.get("uid", "")
+        token = attrs.get("token", "")
+        new_password = attrs.get("new_password", "")
+        try:
+            uid = force_str(urlsafe_base64_decode(raw_uid))
+            user = User.objects.get(pk=uid)
+        except (User.DoesNotExist, ValueError, TypeError, OverflowError):
+            raise serializers.ValidationError({"detail": _RESET_LINK_INVALID})
+        if not user.is_active:
+            raise serializers.ValidationError({"detail": _RESET_LINK_INVALID})
+        if not default_token_generator.check_token(user, token):
+            raise serializers.ValidationError({"detail": _RESET_LINK_INVALID})
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"new_password": list(exc.messages)})
+        attrs["user"] = user
+        return attrs

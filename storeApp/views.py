@@ -12,6 +12,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from storeApp.services.filter_helpers import FilterHelpers
 from storeApp.services.filter_constants import LARGE_CATEGORY_THRESHOLD
+from storeApp.models import Notification
+from storeApp.serializers import ContactSupportRequestSerializer
 
 STORE_DB_ALIAS = 'store' if 'store' in settings.DATABASES else 'default'
 
@@ -152,3 +154,44 @@ def products_by_category_slug(request, category_slug):
         'products': serializer.data,
         'overLimit': False
     })
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def contact_support_request(request):
+    serializer = ContactSupportRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+
+    request_type_map = {
+        'support': 'Hỗ trợ kỹ thuật',
+        'policy': 'Chính sách',
+        'other': 'Khác',
+    }
+    request_type_label = request_type_map.get(data.get('request_type', 'support'), 'Hỗ trợ kỹ thuật')
+    subject = data.get('subject') or f'Yêu cầu {request_type_label} từ website'
+
+    contact_lines = [
+        f"Loại yêu cầu: {request_type_label}",
+        f"Họ tên: {data.get('name', '').strip()}",
+        f"Email: {data.get('email', '').strip()}",
+    ]
+    phone = (data.get('phone') or '').strip()
+    if phone:
+        contact_lines.append(f"Điện thoại: {phone}")
+    contact_lines.extend(['', 'Nội dung:', data.get('message', '').strip()])
+
+    notification = Notification.objects.using(STORE_DB_ALIAS).create(
+        notification_type=Notification.ADMIN_SUPPORT,
+        title=subject,
+        message='\n'.join(contact_lines),
+        is_read=False,
+    )
+
+    return Response(
+        {
+            'message': 'Gửi yêu cầu thành công. Admin sẽ phản hồi sớm.',
+            'notification_id': notification.id,
+        },
+        status=status.HTTP_201_CREATED,
+    )
