@@ -224,12 +224,16 @@ class Notification(BaseModel):
     EXPIRY_URGENT = 'EXPIRY_URGENT'
     EXPIRED = 'EXPIRED'
     LOW_STOCK = 'LOW_STOCK'
+    ADMIN_SUPPORT = 'ADMIN_SUPPORT'
+    OTHERS = 'OTHERS'
     
     TYPE_CHOICES = [
         (EXPIRY_WARNING, 'Cảnh báo sắp hết hạn'),
         (EXPIRY_URGENT, 'Cảnh báo khẩn cấp'),
         (EXPIRED, 'Đã hết hạn'),
         (LOW_STOCK, 'Tồn kho thấp'),
+        (ADMIN_SUPPORT, 'Liên hệ hỗ trợ'),
+        (OTHERS, 'Khác'),
     ]
 
     notification_type = models.CharField(max_length=20, choices=TYPE_CHOICES, null=False, db_column='notification_type')

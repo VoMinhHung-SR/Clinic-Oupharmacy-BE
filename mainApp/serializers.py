@@ -1,11 +1,17 @@
 import os
 from django.conf import settings
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 from rest_framework.serializers import ModelSerializer
 from . import cloud_context
 from .constant import CLOUDINARY_DEFAULT_AVATAR, LIMIT_USER_LOCATION, ROLE_DOCTOR
 from .models import *
 from rest_framework import serializers
 from storeApp.models import ProductVariant, ProductVariantUnit
+from .prescription_pricing import resolve_prescription_detail_unit_price
 import cloudinary.uploader
 
 class UserRoleSerializer(ModelSerializer):
@@ -357,10 +363,20 @@ class PrescriptionDetailSerializer(ModelSerializer):
     prescribing = PrescribingSerializer()
     product_variant = serializers.SerializerMethodField()
     product_variant_unit = serializers.SerializerMethodField()
+    resolved_unit_price = serializers.SerializerMethodField()
+    unit_price_source = serializers.SerializerMethodField()
 
     class Meta:
         model = PrescriptionDetail
         exclude = []
+
+    def get_resolved_unit_price(self, obj):
+        price, _ = resolve_prescription_detail_unit_price(obj)
+        return price
+
+    def get_unit_price_source(self, obj):
+        _, src = resolve_prescription_detail_unit_price(obj)
+        return src
 
     def _serialize_store_variant(self, *, variant, unit_price_value=None, unit_name=None, unit_quantity_in_base=None):
         """
@@ -447,31 +463,12 @@ class PrescriptionDetailSerializer(ModelSerializer):
         if not variant:
             return None
 
-        # Prefer snapshot values for price; otherwise use default/published unit.
-        unit_price = obj.unit_price_snapshot if obj.unit_price_snapshot is not None else None
-        unit_name = obj.unit_name_snapshot
-        unit_quantity_in_base = getattr(obj, "quantity_in_base_snapshot", None)
-
-        if unit_price is None:
-            pvu = (
-                ProductVariantUnit.objects.using("store")
-                .filter(variant_id=variant.id, is_default=True, is_published=True)
-                .first()
-                or ProductVariantUnit.objects.using("store")
-                .filter(variant_id=variant.id, is_published=True)
-                .order_by("unit_order", "id")
-                .first()
-            )
-            if pvu:
-                unit_price = pvu.price_value
-                unit_name = pvu.unit_name
-                unit_quantity_in_base = pvu.quantity_in_base
-
+        resolved, _ = resolve_prescription_detail_unit_price(obj)
         return self._serialize_store_variant(
             variant=variant,
-            unit_price_value=(unit_price if unit_price is not None else 0),
-            unit_name=unit_name,
-            unit_quantity_in_base=unit_quantity_in_base,
+            unit_price_value=resolved,
+            unit_name=obj.unit_name_snapshot,
+            unit_quantity_in_base=getattr(obj, "quantity_in_base_snapshot", None),
         )
 
 class BillSerializer(ModelSerializer):
@@ -493,3 +490,36 @@ class ContactSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
     subject = serializers.CharField(max_length=200, required=False, allow_blank=True)
     message = serializers.CharField()
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+_RESET_LINK_INVALID = "Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn."
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, trim_whitespace=True)
+
+    def validate(self, attrs):
+        raw_uid = attrs.get("uid", "")
+        token = attrs.get("token", "")
+        new_password = attrs.get("new_password", "")
+        try:
+            uid = force_str(urlsafe_base64_decode(raw_uid))
+            user = User.objects.get(pk=uid)
+        except (User.DoesNotExist, ValueError, TypeError, OverflowError):
+            raise serializers.ValidationError({"detail": _RESET_LINK_INVALID})
+        if not user.is_active:
+            raise serializers.ValidationError({"detail": _RESET_LINK_INVALID})
+        if not default_token_generator.check_token(user, token):
+            raise serializers.ValidationError({"detail": _RESET_LINK_INVALID})
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"new_password": list(exc.messages)})
+        attrs["user"] = user
+        return attrs

@@ -135,3 +135,25 @@ STORE_DATABASE_URL_PG=postgresql://user:password@localhost:5432/store_db
 
 4. **MedicineUnit.brand_id**: Field này lưu ID của Brand trong store database, không có FK constraint.
 
+## Dynamic Filters guideline
+
+- `storeApp/guidelines/dynamic-filters.md`
+
+## Đồng bộ DB store: local → container (data-only + reset sequence)
+
+Cần `STORE_DATABASE_URL_PG` trong `.env` / `.env.production` (local khi dump; URL container khi restore).
+
+Sau khi `docker compose up` và đã migrate store trên container (`python manage.py migrate storeApp --database=store`):
+
+1. **Dump chỉ data (máy local):**  
+   `./scripts/db/db-manager.sh store-dump`
+
+2. **Restore vào container + reset sequence:**  
+   `STORE_DATABASE_URL_PG='postgresql://USER:PASS@localhost:EXTERNAL_PORT/DB_PG_NAME_STORE' ./scripts/db/db-manager.sh store-restore artifacts/store_data_....dump`
+
+`reset_store_sequences` được gọi tự sau `pg_restore` — bắt buộc để tránh lỗi sequence/PK khi insert mới.
+
+Chỉ reset sequence (đã restore tay):  
+`STORE_DATABASE_URL_PG='<url container>' python manage.py reset_store_sequences --database=store`
+
+**Ghi chú:** Đồng bộ **cả default + store** (full schema + data) dùng `./scripts/db/db-manager.sh sync` hoặc `sync-drop` — xem `scripts/db/README.md`.

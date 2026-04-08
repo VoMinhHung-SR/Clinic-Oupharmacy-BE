@@ -56,7 +56,7 @@ class SearchTermsViewSet(viewsets.ViewSet):
         except ProgrammingError as e:
             if _is_table_missing(e):
                 return Response(
-                    {"detail": "SearchKeyword table chưa có. Chạy: python manage.py migrate_store"},
+                    {"detail": "SearchKeyword table chưa có. Chạy: python manage.py migrate storeApp --database=store"},
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
             raise

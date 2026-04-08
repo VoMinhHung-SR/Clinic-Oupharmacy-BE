@@ -25,6 +25,7 @@ venv.bak/
 
 storeApp/test/
 .cursor/    
+artifacts/*.dump
 
 # Database backups
 scripts/db/backups/*.sql

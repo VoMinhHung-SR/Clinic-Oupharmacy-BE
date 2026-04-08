@@ -23,9 +23,11 @@ show_help() {
     echo "  backup-docker       Backup bằng Docker, không cần cài PostgreSQL (2 file: default + store)"
     echo "  backup-docker --all Backup 1 file chứa cả 2 DB (pg_dumpall)"
     echo "  restore-docker <file> [db_name]  Restore vào container (Docker, không cần psql trên máy)"
-    echo "  sync                Sync Local -> Container (full schema+data)"
+    echo "  sync                Sync Local -> Container (full schema+data, cả default + store)"
     echo "  sync-container-to-local   Sync Container -> Local"
-    echo "  sync-drop           Drop tables trong container rồi sync Local -> Container"
+    echo "  sync-drop           Drop schema public trên container rồi sync Local -> Container"
+    echo "  store-dump [file]   Chỉ dump DATA store DB (local) → file .dump (pg_restore)"
+    echo "  store-restore <dump> [url]  Restore data-only store + reset_store_sequences"
     echo "  restore <file>      Restore database from backup file (cần psql trên máy)"
     echo "  list-backups       List all backup files"
     echo "  status             Check database connection status"
@@ -40,6 +42,8 @@ show_help() {
     echo "  $0 sync-container-to-local"
     echo "  $0 sync-container-to-local --force"
     echo "  $0 sync-drop"
+    echo "  $0 store-dump"
+    echo "  $0 store-restore artifacts/store_data_20260101.dump"
     echo "  $0 restore backups/oupharmacydb_20251204_225103.sql.gz"
     echo "  $0 restore-docker backups/oupharmacydb_20251204_225103.sql.gz"
     echo "  $0 list-backups"
@@ -53,7 +57,7 @@ case "${COMMAND}" in
         "${SCRIPT_DIR}/backup.sh" "${@:2}"
         ;;
     backup-docker)
-        "${SCRIPT_DIR}/backup-docker.sh" "${@:2}"
+        "${SCRIPT_DIR}/backup.sh" --docker "${@:2}"
         ;;
     restore-docker)
         if [ -z "$2" ]; then
@@ -61,7 +65,7 @@ case "${COMMAND}" in
             echo "Usage: $0 restore-docker <backup_file> [database_name]"
             exit 1
         fi
-        "${SCRIPT_DIR}/restore-docker.sh" "${@:2}"
+        "${SCRIPT_DIR}/restore.sh" --docker "${@:2}"
         ;;
     sync)
         "${SCRIPT_DIR}/sync.sh" "${@:2}"
@@ -71,6 +75,17 @@ case "${COMMAND}" in
         ;;
     sync-drop)
         "${SCRIPT_DIR}/sync_and_drop.sh" "${@:2}"
+        ;;
+    store-dump)
+        "${SCRIPT_DIR}/store_sync.sh" dump "${@:2}"
+        ;;
+    store-restore)
+        if [ -z "$2" ]; then
+            echo -e "${YELLOW}Error: dump file required${NC}"
+            echo "Usage: $0 store-restore <dump.dump> [TARGET_POSTGRES_URL]"
+            exit 1
+        fi
+        "${SCRIPT_DIR}/store_sync.sh" restore "${@:2}"
         ;;
     restore)
         if [ -z "$2" ]; then

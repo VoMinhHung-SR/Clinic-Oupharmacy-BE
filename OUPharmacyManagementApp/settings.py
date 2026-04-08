@@ -110,8 +110,17 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
-    )
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        'forgot_password': '5/hour',
+        'reset_password': '20/hour',
+    },
 }
+
+# Build reset-password URL from CLIENT_SERVER to avoid duplicate env routing config.
+CLIENT_SERVER = os.getenv('CLIENT_SERVER', '').strip().rstrip('/')
+PASSWORD_RESET_FRONTEND_PATH = '/dat-lai-mat-khau'
+PASSWORD_RESET_FRONTEND_URL = f'{CLIENT_SERVER}{PASSWORD_RESET_FRONTEND_PATH}' if CLIENT_SERVER else ''
 
 # import pymysql
 # pymysql.install_as_MySQLdb()
