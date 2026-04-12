@@ -196,11 +196,16 @@ OAUTH2_INFO = {
     "client_secret": os.getenv('OAUTH2_CLIENT_SECRET')
 }
 
+# OAuth2 lifetimes (store / clients). Keep firebase_social + /o/token/ aligned with these.
+OAUTH2_ACCESS_LIFETIME_SEC = 12 * 60 * 60  # 12 hours
+OAUTH2_REFRESH_LIFETIME_SEC = 30 * 24 * 60 * 60  # 30 days
+
 OAUTH2_PROVIDER = {
     'OAUTH2_BACKEND_CLASS': 'oauth2_provider.oauth2_backends.JSONOAuthLibCore',
-    # TOKEN wws expired IN 30 days,
-    'ACCESS_TOKEN_EXPIRE_SECONDS': 2592000,
-
+    'OAUTH2_VALIDATOR_CLASS': 'mainApp.oauth_validators.OUPharmacyOAuth2Validator',
+    'ACCESS_TOKEN_EXPIRE_SECONDS': OAUTH2_ACCESS_LIFETIME_SEC,
+    # Used by cleartokens + enforced on refresh in OUPharmacyOAuth2Validator
+    'REFRESH_TOKEN_EXPIRE_SECONDS': OAUTH2_REFRESH_LIFETIME_SEC,
 }
 
 

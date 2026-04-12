@@ -249,7 +249,7 @@ def firebase_social_login(request):
             'access_token': token.token,
             'refresh_token': token.refresh_token.token,
             'token_type': 'Bearer',
-            'expires_in': 2592000,  # 30 days
+            'expires_in': settings.OAUTH2_ACCESS_LIFETIME_SEC,
             'user': UserSerializer(user).data    
         }, status=status.HTTP_200_OK)
         
@@ -271,8 +271,11 @@ def facebook_login(request):
 def generate_oauth_token(user):
     """Generate OAuth2 token for user"""
     from oauth2_provider.models import Application, AccessToken, RefreshToken
-    from datetime import datetime, timedelta
-    
+    from datetime import timedelta
+    from django.utils import timezone as django_timezone
+
+    access_delta = timedelta(seconds=settings.OAUTH2_ACCESS_LIFETIME_SEC)
+
     # Get or create application
     app, created = Application.objects.get_or_create(
         client_id=settings.OAUTH2_INFO['client_id'],
@@ -289,7 +292,7 @@ def generate_oauth_token(user):
     token = AccessToken.objects.create(
         user=user,
         application=app,
-        expires=datetime.now() + timedelta(days=30),
+        expires=django_timezone.now() + access_delta,
         token=''.join(random.choices(string.ascii_letters + string.digits, k=40)),
         scope='read write'
     )
