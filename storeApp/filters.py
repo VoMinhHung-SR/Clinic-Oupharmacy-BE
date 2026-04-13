@@ -13,10 +13,11 @@ class ProductFilter(django_filters.FilterSet):
     max_price = django_filters.NumberFilter(field_name="price_value", lookup_expr="lte")
     in_stock = django_filters.BooleanFilter(method="filter_in_stock")
     price_sort = django_filters.CharFilter(method="filter_price_sort")
-    
+    is_hot = django_filters.BooleanFilter(field_name="is_hot")
+
     class Meta:
         model = ProductVariant
-        fields = ['kw', 'category', 'category_slug', 'brand', 'min_price', 'max_price', 'in_stock', 'price_sort']
+        fields = ['kw', 'category', 'category_slug', 'brand', 'min_price', 'max_price', 'in_stock', 'price_sort', 'is_hot']
     
     def filter_in_stock(self, queryset, name, value):
         if value:
