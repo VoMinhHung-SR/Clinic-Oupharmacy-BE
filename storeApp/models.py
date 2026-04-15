@@ -1,9 +1,12 @@
 from django.db import models
 from django.db import IntegrityError
+from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from django.core.validators import MinValueValidator
 from cloudinary.models import CloudinaryField
 from mainApp.models import BaseModel
+import unicodedata
 
 
 class Brand(BaseModel):
@@ -268,8 +271,52 @@ class Notification(BaseModel):
 class SearchKeyword(BaseModel):
     """Từ khóa tìm kiếm — theo dõi lượt tìm để hiển thị 'Tìm kiếm phổ biến' (vd: Omega 3, Canxi)."""
     keyword = models.CharField(max_length=120, null=False, blank=False, db_index=True, db_column='keyword')
+    keyword_lookup = models.CharField(max_length=120, null=False, blank=False, unique=True, db_index=True, db_column='keyword_lookup')
     hit_count = models.PositiveIntegerField(default=1, db_column='hit_count', help_text='Số lần người dùng tìm với từ khóa này')
     last_searched_at = models.DateTimeField(auto_now=True, db_column='last_searched_at')
+
+    @staticmethod
+    def normalize_keyword(keyword: str) -> str:
+        if not keyword:
+            return ""
+        # Chuẩn hóa unicode + gộp khoảng trắng để giữ format hiển thị ổn định.
+        normalized = unicodedata.normalize("NFKC", keyword)
+        return " ".join(normalized.strip().split())
+
+    @classmethod
+    def record_search(cls, keyword: str):
+        normalized_display = cls.normalize_keyword(keyword)
+        normalized_lookup = normalized_display.casefold()
+        if not normalized_lookup:
+            raise ValueError("keyword must not be empty after normalization")
+
+        with transaction.atomic():
+            obj = cls.objects.filter(keyword_lookup=normalized_lookup).first()
+            if obj:
+                obj.hit_count = F("hit_count") + 1
+                obj.save(update_fields=["hit_count", "last_searched_at"])
+                obj.refresh_from_db(fields=["hit_count", "last_searched_at"])
+                return obj
+            try:
+                return cls.objects.create(
+                    keyword=normalized_display,
+                    keyword_lookup=normalized_lookup,
+                    hit_count=1,
+                )
+            except IntegrityError:
+                # Concurrent request có thể vừa tạo cùng keyword (case-insensitive) trước đó.
+                obj = cls.objects.filter(keyword_lookup=normalized_lookup).first()
+                if obj:
+                    obj.hit_count = F("hit_count") + 1
+                    obj.save(update_fields=["hit_count", "last_searched_at"])
+                    obj.refresh_from_db(fields=["hit_count", "last_searched_at"])
+                    return obj
+                raise
+
+    def save(self, *args, **kwargs):
+        self.keyword = self.normalize_keyword(self.keyword)
+        self.keyword_lookup = self.keyword.casefold()
+        super().save(*args, **kwargs)
 
     class Meta:
         db_table = 'store_search_keyword'
