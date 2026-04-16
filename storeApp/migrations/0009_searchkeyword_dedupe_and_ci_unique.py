@@ -63,7 +63,6 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 blank=True,
                 db_column="keyword_lookup",
-                db_index=True,
                 max_length=120,
                 null=True,
             ),

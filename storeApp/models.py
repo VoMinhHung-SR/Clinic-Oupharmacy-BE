@@ -305,6 +305,7 @@ class SearchKeyword(BaseModel):
                 )
             except IntegrityError:
                 # Concurrent request có thể vừa tạo cùng keyword (case-insensitive) trước đó.
+                
                 obj = cls.objects.filter(keyword_lookup=normalized_lookup).first()
                 if obj:
                     obj.hit_count = F("hit_count") + 1
