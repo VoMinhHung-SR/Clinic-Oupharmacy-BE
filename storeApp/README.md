@@ -10,25 +10,33 @@ Module quản lý đơn hàng online cho OUPharmacy Store, sử dụng database 
 ## Models
 
 ### Brand
+
 Thương hiệu sản phẩm
+
 - `name`: Tên thương hiệu (unique)
 - `active`: Trạng thái hoạt động
 
 ### ShippingMethod
+
 Phương thức vận chuyển
+
 - `name`: Tên phương thức
 - `price`: Phí vận chuyển
 - `estimated_days`: Số ngày ước tính
 - `active`: Trạng thái
 
 ### PaymentMethod
+
 Phương thức thanh toán
+
 - `name`: Tên phương thức
 - `code`: Mã định danh (COD, MOMO, VNPAY...)
 - `active`: Trạng thái
 
 ### Order
+
 Đơn hàng online
+
 - `order_number`: Mã đơn hàng (unique, auto-generate)
 - `user_id`: ID của User trong database default (BigInteger, không có FK constraint)
 - `shipping_address`: Địa chỉ giao hàng
@@ -41,7 +49,9 @@ Phương thức thanh toán
 - `notes`: Ghi chú
 
 ### OrderItem
+
 Chi tiết đơn hàng
+
 - `order`: FK → Order
 - `medicine_unit_id`: ID của MedicineUnit trong database default (BigInteger, không có FK constraint)
 - `quantity`: Số lượng
@@ -98,16 +108,19 @@ OrderItem.objects.create(
 ## Migrations
 
 ### Tạo migrations
+
 ```bash
 python manage.py makemigrations storeApp
 ```
 
 ### Chạy migrations cho store database
+
 ```bash
 python manage.py migrate --database=store
 ```
 
 ### Chạy migrations cho default database (nếu có thay đổi ở MedicineUnit)
+
 ```bash
 python manage.py migrate --database=default
 ```
@@ -128,16 +141,17 @@ STORE_DATABASE_URL_PG=postgresql://user:password@localhost:5432/store_db
 ## Lưu ý quan trọng
 
 1. **Cross-database Foreign Keys**: Không thể dùng ForeignKey trực tiếp giữa 2 databases. Phải dùng `BigIntegerField` để lưu ID và query thủ công.
-
 2. **Transactions**: Không thể dùng transaction chung cho 2 databases. Phải handle rollback riêng biệt.
-
 3. **Queries**: Luôn chỉ định database khi query cross-database bằng `.using('database_name')`.
-
 4. **MedicineUnit.brand_id**: Field này lưu ID của Brand trong store database, không có FK constraint.
 
 ## Dynamic Filters guideline
 
 - `storeApp/guidelines/dynamic-filters.md`
+
+## Search guideline
+
+- `storeApp/guidelines/search-faceted-api.md`
 
 ## Đồng bộ DB store: local → container (data-only + reset sequence)
 
@@ -145,11 +159,10 @@ Cần `STORE_DATABASE_URL_PG` trong `.env` / `.env.production` (local khi dump; 
 
 Sau khi `docker compose up` và đã migrate store trên container (`python manage.py migrate storeApp --database=store`):
 
-1. **Dump chỉ data (máy local):**  
-   `./scripts/db/db-manager.sh store-dump`
-
-2. **Restore vào container + reset sequence:**  
-   `STORE_DATABASE_URL_PG='postgresql://USER:PASS@localhost:EXTERNAL_PORT/DB_PG_NAME_STORE' ./scripts/db/db-manager.sh store-restore artifacts/store_data_....dump`
+1. **Dump chỉ data (máy local):**
+  `./scripts/db/db-manager.sh store-dump`
+2. **Restore vào container + reset sequence:**
+  `STORE_DATABASE_URL_PG='postgresql://USER:PASS@localhost:EXTERNAL_PORT/DB_PG_NAME_STORE' ./scripts/db/db-manager.sh store-restore artifacts/store_data_....dump`
 
 `reset_store_sequences` được gọi tự sau `pg_restore` — bắt buộc để tránh lỗi sequence/PK khi insert mới.
 
