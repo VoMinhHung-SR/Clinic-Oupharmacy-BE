@@ -180,13 +180,15 @@ class ProductVariantSerializer(ModelSerializer):
     category_info = SerializerMethodField()
     price_display = SerializerMethodField()
     price_value = SerializerMethodField()
-    
+    compare_at_price = serializers.SerializerMethodField()
+    discount_percent = serializers.SerializerMethodField()
+
     class Meta:
         model = ProductVariant
         fields = [
             'id', 'in_stock', 'image', 'image_url', 'images', "packing",
-            'price_display', 'price_value',
-            'product_ranking', 'is_published',
+            'price_display', 'price_value', 'compare_at_price', 'discount_percent',
+            'product_ranking', 'is_published', 'is_hot',
             'registration_number', 'base_unit',
             'product', 'category', 'category_info', 'brand', 'active',
             'created_date', 'updated_date'
@@ -220,6 +222,13 @@ class ProductVariantSerializer(ModelSerializer):
         }
 
     def _get_default_unit(self, obj):
+        prefetched_units = getattr(obj, "prefetched_units", None)
+        if prefetched_units is not None:
+            for unit in prefetched_units:
+                if unit.is_default:
+                    return unit
+            return prefetched_units[0] if prefetched_units else None
+
         units_manager = getattr(obj, 'units', None)
         if units_manager is None:
             return None
@@ -241,6 +250,25 @@ class ProductVariantSerializer(ModelSerializer):
             if unit.price_value is not None:
                 return str(unit.price_value)
         return None
+
+    def get_compare_at_price(self, obj):
+        unit = self._get_default_unit(obj)
+        if unit is not None and unit.compare_at_price is not None:
+            return float(unit.compare_at_price)
+        return None
+
+    def get_discount_percent(self, obj):
+        unit = self._get_default_unit(obj)
+        if unit is None or unit.compare_at_price is None or unit.price_value is None:
+            return 0
+        try:
+            compare = float(unit.compare_at_price)
+            price = float(unit.price_value)
+        except (TypeError, ValueError):
+            return 0
+        if compare <= price or compare <= 0:
+            return 0
+        return int(round((compare - price) / compare * 100))
 
 
 class CategoryLevel2Serializer(ModelSerializer):
