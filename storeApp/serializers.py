@@ -222,6 +222,13 @@ class ProductVariantSerializer(ModelSerializer):
         }
 
     def _get_default_unit(self, obj):
+        prefetched_units = getattr(obj, "prefetched_units", None)
+        if prefetched_units is not None:
+            for unit in prefetched_units:
+                if unit.is_default:
+                    return unit
+            return prefetched_units[0] if prefetched_units else None
+
         units_manager = getattr(obj, 'units', None)
         if units_manager is None:
             return None

@@ -12,8 +12,9 @@ from .viewsets import (
     CategoryViewSet,
     DynamicFiltersViewSet,
     SearchTermsViewSet,
+    SearchSuggestViewSet,
 )
-from .views import products_by_category_slug, contact_support_request
+from .views import products_by_category_slug, contact_support_request, search_products
 
 router = routers.DefaultRouter()
 router.register("products", ProductViewSet, basename="product")
@@ -32,13 +33,15 @@ urlpatterns = [
     # Router URLs (các routes khác như /products/, /categories/, etc.)
     # Phải đặt router trước regex route để các API endpoints được match đúng
     path('', include(router.urls)),
+    path('search/', search_products, name='search-products'),
+    path('search/suggest/', SearchSuggestViewSet.as_view({'get': 'list'}), name='search-suggest'),
     path('contact/', contact_support_request, name='contact-support-request'),
     # Custom route cho category slug (đặt sau router để chỉ match khi không phải API endpoint)
     # Hỗ trợ nested paths như: thuc-pham-chuc-nang/vitamin-khoang-chat
     # Trailing slash là optional (/?)
     # Exclude các API endpoint names để tránh conflict
     re_path(
-        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|notifications|dynamic-filters|search-terms)(?P<category_slug>[\w\-/]+)/?$', 
+        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|notifications|dynamic-filters|search-terms|search)(?P<category_slug>[\w\-/]+)/?$',
         products_by_category_slug, 
         name='products-by-category-slug'
     ),

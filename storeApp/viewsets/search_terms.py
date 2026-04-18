@@ -12,13 +12,8 @@ MAX_LIMIT = 50
 
 
 def _record_search(keyword: str) -> SearchKeyword:
-    """Tăng hit_count nếu đã có (iexact), không thì tạo mới."""
-    obj = SearchKeyword.objects.filter(keyword__iexact=keyword).first()
-    if obj:
-        obj.hit_count += 1
-        obj.save(update_fields=["hit_count", "last_searched_at"])
-        return obj
-    return SearchKeyword.objects.create(keyword=keyword, hit_count=1)
+    """Chuẩn hóa keyword rồi tăng hit_count, hoặc tạo mới nếu chưa có."""
+    return SearchKeyword.record_search(keyword)
 
 
 def _is_table_missing(exc: Exception) -> bool:
@@ -45,7 +40,7 @@ class SearchTermsViewSet(viewsets.ViewSet):
         ser = RecordSearchSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         keyword = (ser.validated_data["keyword"] or "").strip()
-        if not keyword:
+        if not SearchKeyword.normalize_keyword(keyword):
             return Response(
                 {"keyword": ["Không được để trống."]},
                 status=status.HTTP_400_BAD_REQUEST,
