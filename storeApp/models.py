@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.core.validators import MinValueValidator
 from cloudinary.models import CloudinaryField
 from mainApp.models import BaseModel
+from decimal import Decimal, InvalidOperation
 import unicodedata
 
 
@@ -615,9 +616,38 @@ class Voucher(BaseModel):
     
     is_active = models.BooleanField(default=True, db_index=True)
     description = models.CharField(max_length=255, null=True, blank=True)
+
+    @staticmethod
+    def _to_decimal(value, default='0'):
+        if value is None:
+            return Decimal(default)
+        if isinstance(value, Decimal):
+            return value
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return Decimal(default)
+
+    @staticmethod
+    def _extract_order_item_context(order):
+        if not order:
+            return set(), set()
+
+        product_mids = set()
+        category_slugs = set()
+        items_qs = order.items.select_related("product_variant__product__category").all()
+        for item in items_qs:
+            product = getattr(getattr(item, "product_variant", None), "product", None)
+            if not product:
+                continue
+            if product.mid:
+                product_mids.add(product.mid)
+            category = getattr(product, "category", None)
+            if category and category.slug:
+                category_slugs.add(category.slug)
+        return product_mids, category_slugs
     
     def is_valid(self):
-        from django.utils import timezone
         if not self.is_active:
             return False
         now = timezone.now()
@@ -628,34 +658,64 @@ class Voucher(BaseModel):
         if self.usage_limit and self.used_count >= self.usage_limit:
             return False
         return True
-    
-    def is_applicable(self, product_mid=None, category_slug=None, order_value=0):
+
+    def is_applicable(self, order):
         if not self.is_valid():
             return False
-        if self.min_order_value and order_value < self.min_order_value:
+
+        if order is None:
             return False
-        if self.applicable_products and (not product_mid or product_mid not in self.applicable_products):
+
+        order_value = self._to_decimal(getattr(order, "subtotal", None))
+        min_order_value = self._to_decimal(self.min_order_value)
+        if min_order_value and order_value < min_order_value:
             return False
-        if self.applicable_categories and (not category_slug or category_slug not in self.applicable_categories):
-            return False
+
+        product_mids, category_slugs = self._extract_order_item_context(order)
+
+        if self.applicable_products:
+            applicable_products = {str(mid) for mid in self.applicable_products}
+            if not product_mids.intersection(applicable_products):
+                return False
+
+        if self.applicable_categories:
+            applicable_categories = {str(slug) for slug in self.applicable_categories}
+            if not category_slugs.intersection(applicable_categories):
+                return False
+
         return True
-    
+
     def calculate_discount(self, original_price):
-        from decimal import Decimal
-        op = Decimal(str(original_price))
+        order_amount = self._to_decimal(original_price)
+        if order_amount <= Decimal('0'):
+            return Decimal('0')
+
         if self.type == 'PERCENT':
-            discount = op * (self.value / Decimal('100'))
+            voucher_value = self._to_decimal(self.value)
+            discount = order_amount * (voucher_value / Decimal('100'))
             if self.max_discount is not None:
-                discount = min(discount, self.max_discount)
-            return float(discount)
-        return float(min(self.value, op))
-    
-    def apply_voucher(self, order_value):
-        if self.is_valid():
-            self.used_count += 1
-            self.save(update_fields=['used_count'])
-            return self.calculate_discount(order_value)
-        return 0
+                discount = min(discount, self._to_decimal(self.max_discount))
+            return max(Decimal('0'), discount)
+
+        fixed_discount = self._to_decimal(self.value)
+        return max(Decimal('0'), min(fixed_discount, order_amount))
+
+    def apply_voucher(self, order):
+        if not self.is_applicable(order):
+            return Decimal('0')
+
+        order_value = self._to_decimal(getattr(order, "subtotal", None))
+        return self.calculate_discount(order_value)
+
+    def increment_used_count(self):
+        with transaction.atomic():
+            locked_voucher = Voucher.objects.select_for_update().get(pk=self.pk)
+            if not locked_voucher.is_valid():
+                return False
+            locked_voucher.used_count += 1
+            locked_voucher.save(update_fields=['used_count'])
+            self.used_count = locked_voucher.used_count
+            return True
     
     def __str__(self):
         if self.type == 'PERCENT':
