@@ -9,7 +9,6 @@ Thứ tự sync (đúng thứ tự dependency):
   3. Products  (Medicine → Product, cần Brand & Category đã có)
   4. Variants  (MedicineUnit → ProductVariant, cần Product)
   5. Stats     (MedicineUnitStats → ProductVariantStats, cần Variant)
-  6. Vouchers
 
 Optimisations:
   - select_related / prefetch_related để tránh N+1
@@ -25,7 +24,6 @@ from mainApp.models import (
     Medicine as MainMedicine,
     MedicineUnit as MainMedicineUnit,
     MedicineUnitStats as MainMedicineUnitStats,
-    Voucher as MainVoucher,
 )
 from storeApp.models import (
     Brand as StoreBrand,
@@ -34,7 +32,6 @@ from storeApp.models import (
     ProductVariant as StoreProductVariant,
     ProductVariantUnit as StoreProductVariantUnit,
     ProductVariantStats as StoreProductVariantStats,
-    Voucher as StoreVoucher,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +40,7 @@ BATCH_SIZE = 500  # chunk size khi bulk_create/update
 
 
 class Command(BaseCommand):
-    help = "Syncs data from mainApp to storeApp (Brands, Categories, Products, Variants, Stats, Vouchers)."
+    help = "Syncs data from mainApp to storeApp (Brands, Categories, Products, Variants, Stats)."
 
     # ------------------------------------------------------------------ #
     #  CLI arguments                                                        #
@@ -52,7 +49,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--clear",
             action="store_true",
-            help="Clear existing data in storeApp before sync (không xóa Brands).",
+            help="Clear existing data in storeApp trước sync (không xóa Brands/Vouchers).",
         )
         parser.add_argument(
             "--dry-run",
@@ -91,7 +88,6 @@ class Command(BaseCommand):
                 self.sync_variants()
                 self.sync_variant_units()
                 self.sync_stats()
-                self.sync_vouchers()
 
                 if dry_run:
                     self.stdout.write(self.style.WARNING("--- DRY-RUN COMPLETE: rolling back ---"))
@@ -108,13 +104,12 @@ class Command(BaseCommand):
     #  Helpers                                                              #
     # ------------------------------------------------------------------ #
     def _clear_store_data(self):
-        self.stdout.write(self.style.WARNING("Xóa dữ liệu cũ trong storeApp (trừ Brand)..."))
+        self.stdout.write(self.style.WARNING("Xóa dữ liệu cũ trong storeApp (trừ Brand/Voucher)..."))
         StoreProductVariantStats.objects.using("store").all().delete()
         StoreProductVariantUnit.objects.using("store").all().delete()
         StoreProductVariant.objects.using("store").all().delete()
         StoreProduct.objects.using("store").all().delete()
         StoreCategory.objects.using("store").all().delete()
-        StoreVoucher.objects.using("store").all().delete()
 
     def _log(self, label: str, created: int, updated: int):
         self.stdout.write(
@@ -436,59 +431,3 @@ class Command(BaseCommand):
 
         self._log("ProductVariantStats", len(to_create), len(to_update))
 
-    # ------------------------------------------------------------------ #
-    #  7. Vouchers                                                          #
-    # ------------------------------------------------------------------ #
-    def sync_vouchers(self):
-        self.stdout.write("Syncing Vouchers...")
-
-        main_vouchers = list(MainVoucher.objects.all())
-        existing = {obj.id: obj for obj in StoreVoucher.objects.using("store").all()}
-
-        to_create, to_update = [], []
-
-        for mv in main_vouchers:
-            defaults = {
-                "code": mv.code,
-                "type": mv.type,
-                "value": mv.value,
-                "max_discount": mv.max_discount,
-                "min_order_value": mv.min_order_value,
-                "applicable_products": mv.applicable_products,
-                "applicable_categories": mv.applicable_categories,
-                "start_at": mv.start_at,
-                "end_at": mv.end_at,
-                "usage_limit": mv.usage_limit,
-                "used_count": mv.used_count,
-                "is_active": mv.is_active,
-                "description": mv.description,
-                "created_date": mv.created_date,
-                "updated_date": mv.updated_date,
-                "active": mv.active,
-            }
-
-            if mv.id in existing:
-                obj = existing[mv.id]
-                changed = False
-                for field, val in defaults.items():
-                    if getattr(obj, field) != val:
-                        setattr(obj, field, val)
-                        changed = True
-                if changed:
-                    to_update.append(obj)
-            else:
-                to_create.append(StoreVoucher(id=mv.id, **defaults))
-
-        update_fields = [
-            "code", "type", "value", "max_discount", "min_order_value",
-            "applicable_products", "applicable_categories", "start_at", "end_at",
-            "usage_limit", "used_count", "is_active", "description",
-            "created_date", "updated_date", "active",
-        ]
-
-        for chunk in self._chunked(to_create, BATCH_SIZE):
-            StoreVoucher.objects.using("store").bulk_create(chunk, ignore_conflicts=False)
-        for chunk in self._chunked(to_update, BATCH_SIZE):
-            StoreVoucher.objects.using("store").bulk_update(chunk, update_fields)
-
-        self._log("Vouchers", len(to_create), len(to_update))
