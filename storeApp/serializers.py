@@ -2,7 +2,22 @@ from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
 from django.contrib.auth import get_user_model
 
-from .models import MedicineBatch, Brand, ShippingMethod, PaymentMethod, Order, OrderItem, Notification, SearchKeyword, Product, ProductVariant, Category, ProductVariantUnit
+from .models import (
+    MedicineBatch,
+    Brand,
+    ShippingMethod,
+    PaymentMethod,
+    Order,
+    OrderItem,
+    Notification,
+    SearchKeyword,
+    Product,
+    ProductVariant,
+    Category,
+    ProductVariantUnit,
+    Cart,
+    CartItem,
+)
 from mainApp.serializers import UserSerializer
 
 User = get_user_model()
@@ -66,6 +81,8 @@ class OrderSerializer(ModelSerializer):
     user = SerializerMethodField()
     shipping_method = ShippingMethodSerializer(read_only=True)
     payment_method = PaymentMethodSerializer(read_only=True)
+    order_voucher_code = serializers.SerializerMethodField()
+    shipping_voucher_code = serializers.SerializerMethodField()
     
     class Meta:
         model = Order
@@ -73,11 +90,18 @@ class OrderSerializer(ModelSerializer):
             'id', 'order_number', 'user_id', 'user', 'items', 'subtotal', 
             'shipping_fee', 'total', 'status', 'notes', 
             'shipping_method', 'payment_method', 'shipping_address',
+            'discount_amount', 'shipping_discount_amount',
+            'order_voucher_code', 'shipping_voucher_code',
             'created_date', 'updated_date'
         ]
         extra_kwargs = {
             'order_number': {'required': False, 'allow_blank': True}
         }
+        read_only_fields = [
+            'order_number', 'subtotal', 'shipping_fee', 'total',
+            'discount_amount', 'shipping_discount_amount', 'status',
+            'order_voucher_code', 'shipping_voucher_code',
+        ]
     
     def create(self, validated_data):
         if hasattr(self, '_shipping_method'):
@@ -87,6 +111,8 @@ class OrderSerializer(ModelSerializer):
         request = self.context.get('request')
         if request and getattr(request, 'user', None) and request.user.is_authenticated:
             validated_data['user_id'] = request.user.id
+        if hasattr(self, '_computed_order_fields'):
+            validated_data.update(self._computed_order_fields)
         return super().create(validated_data)
     
     def get_user(self, obj):
@@ -97,6 +123,72 @@ class OrderSerializer(ModelSerializer):
             except User.DoesNotExist:
                 return None
         return None
+
+    def get_order_voucher_code(self, obj):
+        return obj.order_voucher.code if obj.order_voucher else None
+
+    def get_shipping_voucher_code(self, obj):
+        return obj.shipping_voucher.code if obj.shipping_voucher else None
+
+
+class CartItemSerializer(ModelSerializer):
+    name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CartItem
+        fields = [
+            "id",
+            "product_variant",
+            "product_variant_unit",
+            "quantity",
+            "unit_price_snapshot",
+            "name",
+            "created_date",
+            "updated_date",
+        ]
+
+    def get_name(self, obj):
+        try:
+            if obj.product_variant and obj.product_variant.product:
+                return f"{obj.product_variant.product.web_name or obj.product_variant.product.name} - {obj.product_variant.packing}"
+        except Exception:
+            return None
+        return None
+
+
+class CartSerializer(ModelSerializer):
+    items = CartItemSerializer(many=True, read_only=True)
+    shipping_method = ShippingMethodSerializer(read_only=True)
+    order_voucher_code = serializers.SerializerMethodField()
+    shipping_voucher_code = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Cart
+        fields = [
+            "id",
+            "user_id",
+            "status",
+            "items",
+            "shipping_method",
+            "subtotal",
+            "shipping_fee",
+            "discount_amount",
+            "shipping_discount_amount",
+            "total",
+            "version",
+            "order_voucher_code",
+            "shipping_voucher_code",
+            "checkout_order",
+            "created_date",
+            "updated_date",
+        ]
+        read_only_fields = fields
+
+    def get_order_voucher_code(self, obj):
+        return obj.order_voucher.code if obj.order_voucher else None
+
+    def get_shipping_voucher_code(self, obj):
+        return obj.shipping_voucher.code if obj.shipping_voucher else None
 
 
 class MedicineBatchSerializer(ModelSerializer):
