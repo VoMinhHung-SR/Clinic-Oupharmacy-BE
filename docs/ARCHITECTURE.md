@@ -17,15 +17,28 @@ flowchart LR
   StoreViews --> ORM
 ```
 
+
+
 - **DRF `DefaultRouter`** trong `mainApp/urls.py` đăng ký viewsets (`users`, `medicines`, `examinations`, …).
 - **OAuth2 / social:** `oauth2_provider`, `oauth2-info/`, `auth/firebase/`, v.v. (chi tiết trong `mainApp/urls.py`).
 - **Store:** `path('api/store/', include('storeApp.urls'))` — tách domain storefront khỏi API clinic core.
 
 ## Ranh giới
 
-| Prefix / khu | Gợi ý khi mở rộng |
-|--------------|-------------------|
-| `/` (root) qua `mainApp` | API nội bộ clinic, user, lịch, đơn thuốc, … |
-| `/api/store/` | Logic bán hàng / đơn online — ưu tiên trong `storeApp` |
+
+| Prefix / khu             | Gợi ý khi mở rộng                                      |
+| ------------------------ | ------------------------------------------------------ |
+| `/` (root) qua `mainApp` | API nội bộ clinic, user, lịch, đơn thuốc, …            |
+| `/api/store/`            | Logic bán hàng / đơn online — ưu tiên trong `storeApp` |
+
+
+## Ghi chú cấu trúc `storeApp`
+
+- `storeApp.models` đã tách thành package theo domain để dễ bảo trì:
+  - `storeApp/models/product.py`: product, category, brand, variant, batch, notification, search keyword.
+  - `storeApp/models/order.py`: order, order item, shipping/payment method.
+  - `storeApp/models/voucher.py`: voucher và redemption.
+  - `storeApp/models/cart.py`: placeholder cho cart domain.
+- `storeApp/models/__init__.py` re-export model để giữ tương thích import cũ (`from storeApp.models import ...`).
 
 Cập nhật file này khi thêm app Django mới, đổi mount URL gốc, hoặc tách/hợp store API.

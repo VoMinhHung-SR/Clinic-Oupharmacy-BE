@@ -10,6 +10,7 @@ from .category import CategoryViewSet
 from .dynamic_filters import DynamicFiltersViewSet
 from .search_terms import SearchTermsViewSet
 from .search_suggest import SearchSuggestViewSet
+from .cart import CartViewSet
 
 __all__ = [
     'BrandViewSet',
@@ -24,4 +25,5 @@ __all__ = [
     'DynamicFiltersViewSet',
     'SearchTermsViewSet',
     'SearchSuggestViewSet',
+    'CartViewSet',
 ]

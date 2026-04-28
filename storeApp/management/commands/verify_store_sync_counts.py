@@ -2,7 +2,7 @@
 Đối soát nhanh số bản ghi mainApp (default) vs storeApp (alias store) sau sync.
 
 Dùng cho wave đối soát trong kế hoạch migrate: Category, Product/Medicine, Variant/Unit,
-Stats, Voucher. ProductVariantUnit trên store nên khớp số MedicineUnit nếu đã chạy sync_variant_units.
+Stats. ProductVariantUnit trên store nên khớp số MedicineUnit nếu đã chạy sync_variant_units.
 
   python manage.py verify_store_sync_counts
   python manage.py verify_store_sync_counts --json
@@ -63,7 +63,6 @@ class Command(BaseCommand):
                 "store should match MedicineUnit count after sync_variant_units",
             ),
             ("ProductVariantStats / MedicineUnitStats", "MedicineUnitStats", "ProductVariantStats", None),
-            ("Voucher", "Voucher", "Voucher", None),
         ]
         rows = []
         for entity, main_model, store_model, note in mappings:
