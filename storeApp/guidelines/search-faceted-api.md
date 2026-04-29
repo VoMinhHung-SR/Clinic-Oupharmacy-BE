@@ -107,3 +107,8 @@ Tài liệu này mô tả bộ API search hiện tại cho storefront, gồm ana
 - Status codes: `{200: 20}`
 - Latency (ms): `min 210.89`, `median 238.96`, `mean 259.69`, `p95 361.66`, `max 449.26`
 - SQL queries/request: `30` (min=mean=max=30 sau tối ưu prefetch units)
+
+## 8) Related guidelines
+
+- Cart-first checkout flow: `storeApp/guidelines/cart-first-checkout.md`
+- Dynamic filters: `storeApp/guidelines/dynamic-filters.md`

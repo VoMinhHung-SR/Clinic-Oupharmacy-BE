@@ -5,8 +5,10 @@ from rest_framework.response import Response
 
 from storeApp.models import Cart, CartItem, PaymentMethod, ShippingMethod, Voucher
 from storeApp.serializers import CartSerializer, OrderSerializer
+from storeApp.services.cart_cache import get_cart_cache_gateway
 from storeApp.services.cart_service import (
     CartServiceError,
+    CartVersionConflictError,
     add_or_update_item,
     checkout_cart,
     get_or_create_active_cart,
@@ -18,19 +20,53 @@ from storeApp.services.voucher_engine import VoucherEngineError
 
 class CartViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
+    CURRENT_CART_CACHE_TTL_SECONDS = 60
 
     def _active_cart(self, request):
         return get_or_create_active_cart(user_id=request.user.id, using="store")
 
+    def _parse_expected_version(self, request):
+        raw = request.data.get("expected_version")
+        if raw is None:
+            raw = request.query_params.get("expected_version")
+        if raw is None:
+            raise CartServiceError("expected_version is required")
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            raise CartServiceError("expected_version must be a valid integer")
+
     @action(methods=["get"], detail=False, url_path="current")
     def current(self, request):
         cart = self._active_cart(request)
-        cart = recalculate_cart(cart=cart, using="store")
-        return Response(CartSerializer(cart).data)
+        cache_gateway = get_cart_cache_gateway()
+        try:
+            cached_summary = cache_gateway.get_cart_summary(cart_id=cart.id)
+            if cached_summary is not None:
+                return Response(cached_summary)
+        except Exception:
+            # Cache is an optimization; request must still succeed on cache failures.
+            pass
+
+        cart = recalculate_cart(cart=cart, using="store", expected_version=cart.version)
+        response_data = CartSerializer(cart).data
+        try:
+            cache_gateway.set_cart_summary(
+                cart_id=cart.id,
+                summary=response_data,
+                ttl_seconds=self.CURRENT_CART_CACHE_TTL_SECONDS,
+            )
+        except Exception:
+            pass
+        return Response(response_data)
 
     @action(methods=["post"], detail=False, url_path="items")
     def add_item(self, request):
         cart = self._active_cart(request)
+        try:
+            expected_version = self._parse_expected_version(request)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         product_variant_id = request.data.get("product_variant_id") or request.data.get("product_variant")
         product_variant_unit_id = request.data.get("product_variant_unit_id") or request.data.get("product_variant_unit")
         quantity = request.data.get("quantity")
@@ -42,9 +78,20 @@ class CartViewSet(viewsets.ViewSet):
                 quantity=int(quantity),
                 using="store",
             )
-            cart = recalculate_cart(cart=cart, using="store")
+            cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
         except (TypeError, ValueError):
             return Response({"error": "product_variant_id and quantity must be valid numbers"}, status=status.HTTP_400_BAD_REQUEST)
+        except CartVersionConflictError as exc:
+            return Response(
+                {
+                    "error": str(exc),
+                    "details": {
+                        "expected_version": exc.expected_version,
+                        "current_version": exc.current_version,
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except CartServiceError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except VoucherEngineError as exc:
@@ -54,6 +101,10 @@ class CartViewSet(viewsets.ViewSet):
     @action(methods=["patch"], detail=False, url_path="items/(?P<item_id>[^/.]+)")
     def update_item(self, request, item_id=None):
         cart = self._active_cart(request)
+        try:
+            expected_version = self._parse_expected_version(request)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         quantity = request.data.get("quantity")
         try:
             item = cart.items.get(id=item_id)
@@ -64,11 +115,22 @@ class CartViewSet(viewsets.ViewSet):
                 quantity=int(quantity),
                 using="store",
             )
-            cart = recalculate_cart(cart=cart, using="store")
+            cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
         except CartItem.DoesNotExist:
             return Response({"error": "Cart item not found"}, status=status.HTTP_404_NOT_FOUND)
         except (TypeError, ValueError):
             return Response({"error": "quantity must be a valid number"}, status=status.HTTP_400_BAD_REQUEST)
+        except CartVersionConflictError as exc:
+            return Response(
+                {
+                    "error": str(exc),
+                    "details": {
+                        "expected_version": exc.expected_version,
+                        "current_version": exc.current_version,
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except CartServiceError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except VoucherEngineError as exc:
@@ -79,8 +141,23 @@ class CartViewSet(viewsets.ViewSet):
     def delete_item(self, request, item_id=None):
         cart = self._active_cart(request)
         try:
+            expected_version = self._parse_expected_version(request)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        try:
             remove_item(cart=cart, item_id=item_id, using="store")
-            cart = recalculate_cart(cart=cart, using="store")
+            cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
+        except CartVersionConflictError as exc:
+            return Response(
+                {
+                    "error": str(exc),
+                    "details": {
+                        "expected_version": exc.expected_version,
+                        "current_version": exc.current_version,
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except CartServiceError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
         return Response(CartSerializer(cart).data)
@@ -88,6 +165,10 @@ class CartViewSet(viewsets.ViewSet):
     @action(methods=["post"], detail=False, url_path="select-shipping")
     def select_shipping(self, request):
         cart = self._active_cart(request)
+        try:
+            expected_version = self._parse_expected_version(request)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         shipping_method_id = request.data.get("shipping_method_id")
         try:
             shipping_method = ShippingMethod.objects.get(id=shipping_method_id, active=True)
@@ -96,7 +177,18 @@ class CartViewSet(viewsets.ViewSet):
         cart.shipping_method = shipping_method
         cart.save(update_fields=["shipping_method"])
         try:
-            cart = recalculate_cart(cart=cart, using="store")
+            cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
+        except CartVersionConflictError as exc:
+            return Response(
+                {
+                    "error": str(exc),
+                    "details": {
+                        "expected_version": exc.expected_version,
+                        "current_version": exc.current_version,
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except VoucherEngineError as exc:
             return Response({"error": "Validation failed", "details": exc.to_detail()}, status=status.HTTP_400_BAD_REQUEST)
         return Response(CartSerializer(cart).data)
@@ -104,6 +196,10 @@ class CartViewSet(viewsets.ViewSet):
     @action(methods=["post"], detail=False, url_path="apply-voucher")
     def apply_voucher(self, request):
         cart = self._active_cart(request)
+        try:
+            expected_version = self._parse_expected_version(request)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         order_voucher_code = (request.data.get("order_voucher_code") or "").strip()
         shipping_voucher_code = (request.data.get("shipping_voucher_code") or "").strip()
         if not order_voucher_code and not shipping_voucher_code:
@@ -114,9 +210,20 @@ class CartViewSet(viewsets.ViewSet):
             if shipping_voucher_code:
                 cart.shipping_voucher = Voucher.objects.get(code=shipping_voucher_code)
             cart.save(update_fields=["order_voucher", "shipping_voucher"])
-            cart = recalculate_cart(cart=cart, using="store")
+            cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
         except Voucher.DoesNotExist:
             return Response({"error": "Voucher not found"}, status=status.HTTP_400_BAD_REQUEST)
+        except CartVersionConflictError as exc:
+            return Response(
+                {
+                    "error": str(exc),
+                    "details": {
+                        "expected_version": exc.expected_version,
+                        "current_version": exc.current_version,
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except VoucherEngineError as exc:
             return Response({"error": "Validation failed", "details": exc.to_detail()}, status=status.HTTP_400_BAD_REQUEST)
         return Response(CartSerializer(cart).data)
@@ -124,20 +231,39 @@ class CartViewSet(viewsets.ViewSet):
     @action(methods=["post"], detail=False, url_path="remove-voucher")
     def remove_voucher(self, request):
         cart = self._active_cart(request)
+        try:
+            expected_version = self._parse_expected_version(request)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         target = request.data.get("target", "all")
         if target in ("order", "all"):
             cart.order_voucher = None
         if target in ("shipping", "all"):
             cart.shipping_voucher = None
         cart.save(update_fields=["order_voucher", "shipping_voucher"])
-        cart = recalculate_cart(cart=cart, using="store")
+        cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
         return Response(CartSerializer(cart).data)
 
     @action(methods=["post"], detail=False, url_path="recalculate")
     def recalculate(self, request):
         cart = self._active_cart(request)
         try:
-            cart = recalculate_cart(cart=cart, using="store")
+            expected_version = self._parse_expected_version(request)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
+        except CartVersionConflictError as exc:
+            return Response(
+                {
+                    "error": str(exc),
+                    "details": {
+                        "expected_version": exc.expected_version,
+                        "current_version": exc.current_version,
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except VoucherEngineError as exc:
             return Response({"error": "Validation failed", "details": exc.to_detail()}, status=status.HTTP_400_BAD_REQUEST)
         return Response(CartSerializer(cart).data)
@@ -145,6 +271,10 @@ class CartViewSet(viewsets.ViewSet):
     @action(methods=["post"], detail=False, url_path="checkout")
     def checkout(self, request):
         cart = self._active_cart(request)
+        try:
+            expected_version = self._parse_expected_version(request)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         payment_method_id = request.data.get("payment_method_id")
         shipping_address = request.data.get("shipping_address")
         notes = request.data.get("notes")
@@ -161,9 +291,21 @@ class CartViewSet(viewsets.ViewSet):
                 shipping_address=shipping_address,
                 notes=notes,
                 using="store",
+                expected_version=expected_version,
             )
         except PaymentMethod.DoesNotExist:
             return Response({"error": "PaymentMethod not found"}, status=status.HTTP_400_BAD_REQUEST)
+        except CartVersionConflictError as exc:
+            return Response(
+                {
+                    "error": str(exc),
+                    "details": {
+                        "expected_version": exc.expected_version,
+                        "current_version": exc.current_version,
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except (CartServiceError, VoucherEngineError) as exc:
             if isinstance(exc, VoucherEngineError):
                 return Response({"error": "Validation failed", "details": exc.to_detail()}, status=status.HTTP_400_BAD_REQUEST)

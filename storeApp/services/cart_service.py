@@ -4,12 +4,29 @@ from django.db import transaction
 from django.db.models import F
 
 from storeApp.models import Cart, CartItem, ProductVariant, ProductVariantUnit
+from storeApp.services.cart_cache import get_cart_cache_gateway
 from storeApp.services.stock import get_available_stock, deduct_stock
 from storeApp.services.voucher_engine import VoucherEngineError, resolve_voucher_discounts, consume_vouchers
 
 
 class CartServiceError(Exception):
     pass
+
+
+class CartVersionConflictError(CartServiceError):
+    def __init__(self, *, expected_version, current_version):
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__(f"Cart version mismatch. expected={expected_version}, current={current_version}")
+
+
+def _invalidate_cart_related_cache(*, cart, order_voucher_code=None, shipping_voucher_code=None):
+    cache_gateway = get_cart_cache_gateway()
+    cache_gateway.invalidate_cart_summary(cart_id=cart.id)
+    cache_gateway.invalidate_user_active_cart(user_id=cart.user_id)
+    for code in (order_voucher_code, shipping_voucher_code):
+        if code:
+            cache_gateway.invalidate_voucher_light(voucher_code=code)
 
 
 def _to_decimal(value):
@@ -29,6 +46,13 @@ def get_or_create_active_cart(*, user_id, using="store"):
     if cart:
         return cart
     return Cart.objects.using(using).create(user_id=user_id, status=Cart.ACTIVE)
+
+
+def _assert_cart_version(*, cart, expected_version):
+    if expected_version is None:
+        raise CartServiceError("expected_version is required")
+    if cart.version != expected_version:
+        raise CartVersionConflictError(expected_version=expected_version, current_version=cart.version)
 
 
 def _resolve_unit(*, product_variant, product_variant_unit_id=None, using="store"):
@@ -98,6 +122,11 @@ def add_or_update_item(
             "unit_price_snapshot": unit_price,
         },
     )
+    _invalidate_cart_related_cache(
+        cart=cart,
+        order_voucher_code=getattr(cart.order_voucher, "code", None),
+        shipping_voucher_code=getattr(cart.shipping_voucher, "code", None),
+    )
     return item
 
 
@@ -105,6 +134,11 @@ def remove_item(*, cart, item_id, using="store"):
     deleted, _ = CartItem.objects.using(using).filter(cart_id=cart.id, id=item_id).delete()
     if not deleted:
         raise CartServiceError("Cart item not found")
+    _invalidate_cart_related_cache(
+        cart=cart,
+        order_voucher_code=getattr(cart.order_voucher, "code", None),
+        shipping_voucher_code=getattr(cart.shipping_voucher, "code", None),
+    )
 
 
 def _build_context(*, cart, using="store"):
@@ -130,7 +164,8 @@ def _build_context(*, cart, using="store"):
     return items, subtotal, shipping_fee_base, product_mids, category_slugs
 
 
-def recalculate_cart(*, cart, using="store"):
+def recalculate_cart(*, cart, using="store", expected_version=None):
+    _assert_cart_version(cart=cart, expected_version=expected_version)
     items, subtotal, shipping_fee_base, product_mids, category_slugs = _build_context(cart=cart, using=using)
     if not items:
         cart.subtotal = Decimal("0")
@@ -150,6 +185,7 @@ def recalculate_cart(*, cart, using="store"):
             ]
         )
         cart.refresh_from_db()
+        _invalidate_cart_related_cache(cart=cart)
         return cart
 
     voucher_result = resolve_voucher_discounts(
@@ -180,10 +216,15 @@ def recalculate_cart(*, cart, using="store"):
         ]
     )
     cart.refresh_from_db()
+    _invalidate_cart_related_cache(
+        cart=cart,
+        order_voucher_code=voucher_result["order_voucher"].code if voucher_result["order_voucher"] else None,
+        shipping_voucher_code=voucher_result["shipping_voucher"].code if voucher_result["shipping_voucher"] else None,
+    )
     return cart
 
 
-def checkout_cart(*, cart, payment_method, shipping_address, notes=None, using="store"):
+def checkout_cart(*, cart, payment_method, shipping_address, notes=None, using="store", expected_version=None):
     from storeApp.models import Order, OrderItem
 
     with transaction.atomic(using=using):
@@ -193,6 +234,7 @@ def checkout_cart(*, cart, payment_method, shipping_address, notes=None, using="
             .select_for_update()
             .get(id=cart.id)
         )
+        _assert_cart_version(cart=locked_cart, expected_version=expected_version)
         if locked_cart.status != Cart.ACTIVE:
             raise CartServiceError("Cart is not active")
         if not locked_cart.shipping_method:
@@ -267,5 +309,10 @@ def checkout_cart(*, cart, payment_method, shipping_address, notes=None, using="
                 "shipping_discount_amount",
                 "total",
             ]
+        )
+        _invalidate_cart_related_cache(
+            cart=locked_cart,
+            order_voucher_code=voucher_result["order_voucher"].code if voucher_result["order_voucher"] else None,
+            shipping_voucher_code=voucher_result["shipping_voucher"].code if voucher_result["shipping_voucher"] else None,
         )
         return order
