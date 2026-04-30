@@ -21,8 +21,8 @@ Luồng chuẩn ở trang category:
 1. Gọi listing: `GET /api/store/{category_slug}?page=1&page_size=12...`
 2. Gọi filters: `GET /api/store/dynamic-filters/{category_slug}/?include_variants=true&include_counts=true`
 3. Render:
-   - Nếu `overLimit = false`: render filter sidebar bình thường.
-   - Nếu `overLimit = true`: ưu tiên hiển thị `subcategories`, không ép render full filters.
+  - Nếu `overLimit = false`: render filter sidebar bình thường.
+  - Nếu `overLimit = true`: ưu tiên hiển thị `subcategories`, không ép render full filters.
 
 Lưu ý FE:
 
@@ -41,7 +41,7 @@ Lưu ý FE:
 
 ### 4.1 DB alias
 
-Phải query đúng DB chứa bảng `store_*`:
+Phải query đúng DB chứa bảng `store_`*:
 
 - Ưu tiên alias `store` nếu tồn tại trong `settings.DATABASES`
 - fallback `default` khi single-db environment
@@ -104,12 +104,16 @@ Khi review PR liên quan dynamic filters, cần kiểm tra:
 
 1. `python3 manage.py check`
 2. Test root category:
-   - `/api/store/dynamic-filters/thuoc/?include_variants=true&include_counts=true`
+  - `/api/store/dynamic-filters/thuoc/?include_variants=true&include_counts=true`
 3. Test nested category:
-   - `/api/store/dynamic-filters/duoc-my-pham/cham-soc-co-the/?include_variants=true&include_counts=true`
+  - `/api/store/dynamic-filters/duoc-my-pham/cham-soc-co-the/?include_variants=true&include_counts=true`
 4. Test listing cùng slug:
-   - `/api/store/duoc-my-pham/cham-soc-co-the?page=1&page_size=12`
+  - `/api/store/duoc-my-pham/cham-soc-co-the?page=1&page_size=12`
 5. Confirm không có lỗi:
-   - `relation "store_category" does not exist`
-   - `Invalid field name ... select_related: 'medicine'`
+  - `relation "store_category" does not exist`
+  - `Invalid field name ... select_related: 'medicine'`
 
+## 8) Related guidelines
+
+- Cart-first checkout flow: `storeApp/guidelines/cart-first-checkout.md`
+- Search APIs + facets: `storeApp/guidelines/search-faceted-api.md`

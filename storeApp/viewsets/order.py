@@ -10,6 +10,7 @@ from django.db import transaction, IntegrityError
 from storeApp.models import (
     Order,
     OrderItem,
+    Cart,
     ShippingMethod,
     PaymentMethod,
     ProductVariant,
@@ -22,6 +23,7 @@ from storeApp.services.voucher_engine import (
     consume_vouchers,
     resolve_voucher_discounts,
 )
+from storeApp.services.cart_service import CartServiceError, CartVersionConflictError, checkout_cart
 
 class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView,
                    generics.CreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
@@ -185,6 +187,84 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
 
     def create(self, request, *args, **kwargs):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        cart_id = data.get("cart_id")
+        if cart_id:
+            payment_id = data.get("payment_method_id") or data.get("payment_method")
+            expected_version_raw = data.get("expected_version")
+            shipping_address = data.get("shipping_address")
+            notes = data.get("notes")
+            if payment_id is None:
+                return Response(
+                    {'error': 'payment_method or payment_method_id is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if not shipping_address:
+                return Response(
+                    {'error': 'shipping_address is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                payment_method_obj = PaymentMethod.objects.get(id=payment_id, active=True)
+            except (PaymentMethod.DoesNotExist, TypeError, ValueError):
+                return Response(
+                    {'error': 'PaymentMethod not found', 'payment_method_id': payment_id},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                cart = Cart.objects.select_related(
+                    "shipping_method", "order_voucher", "shipping_voucher"
+                ).get(id=cart_id, user_id=request.user.id)
+            except Cart.DoesNotExist:
+                return Response(
+                    {'error': 'Cart not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            try:
+                expected_version = int(expected_version_raw) if expected_version_raw is not None else int(cart.version)
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'expected_version must be a valid integer'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                order = checkout_cart(
+                    cart=cart,
+                    payment_method=payment_method_obj,
+                    shipping_address=shipping_address,
+                    notes=notes,
+                    using='store',
+                    expected_version=expected_version,
+                )
+            except CartVersionConflictError as exc:
+                return Response(
+                    {
+                        'error': str(exc),
+                        'details': {
+                            'expected_version': exc.expected_version,
+                            'current_version': exc.current_version,
+                        },
+                    },
+                    status=status.HTTP_409_CONFLICT
+                )
+            except (CartServiceError, VoucherEngineError) as exc:
+                if isinstance(exc, VoucherEngineError):
+                    return Response(
+                        {'error': 'Validation failed', 'details': exc.to_detail()},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                return Response(
+                    {'error': str(exc)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            response_serializer = self.get_serializer(order)
+            headers = self.get_success_headers(response_serializer.data)
+            headers["X-Checkout-Flow"] = "cart"
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
         raw_items = data.pop('items', [])
         order_voucher_code = (data.pop('order_voucher_code', None) or '').strip()
         shipping_voucher_code = (data.pop('shipping_voucher_code', None) or '').strip()
@@ -331,6 +411,8 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         
         response_serializer = self.get_serializer(order)
         headers = self.get_success_headers(response_serializer.data)
+        headers["X-Checkout-Flow"] = "legacy-order-create"
+        headers["X-Checkout-Deprecation"] = "Use /api/store/carts/checkout/ as primary flow"
         return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
     
     @action(methods=['post'], detail=True, url_path='update-status')
