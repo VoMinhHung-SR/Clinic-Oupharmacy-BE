@@ -13,6 +13,7 @@ from .viewsets import (
     DynamicFiltersViewSet,
     SearchTermsViewSet,
     SearchSuggestViewSet,
+    CartViewSet,
 )
 from .views import products_by_category_slug, contact_support_request, search_products
 
@@ -28,6 +29,7 @@ router.register("medicine-batches", MedicineBatchViewSet, basename="medicine-bat
 router.register("notifications", NotificationViewSet, basename="notification")
 router.register("dynamic-filters", DynamicFiltersViewSet, basename="dynamic-filters")
 router.register("search-terms", SearchTermsViewSet, basename="search-terms")
+router.register("carts", CartViewSet, basename="cart")
 
 urlpatterns = [
     # Router URLs (các routes khác như /products/, /categories/, etc.)

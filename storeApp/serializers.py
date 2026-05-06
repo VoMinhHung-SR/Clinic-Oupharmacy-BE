@@ -2,7 +2,22 @@ from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
 from django.contrib.auth import get_user_model
 
-from .models import MedicineBatch, Brand, ShippingMethod, PaymentMethod, Order, OrderItem, Notification, SearchKeyword, Product, ProductVariant, Category, ProductVariantUnit
+from .models import (
+    MedicineBatch,
+    Brand,
+    ShippingMethod,
+    PaymentMethod,
+    Order,
+    OrderItem,
+    Notification,
+    SearchKeyword,
+    Product,
+    ProductVariant,
+    Category,
+    ProductVariantUnit,
+    Cart,
+    CartItem,
+)
 from mainApp.serializers import UserSerializer
 
 User = get_user_model()
@@ -66,6 +81,8 @@ class OrderSerializer(ModelSerializer):
     user = SerializerMethodField()
     shipping_method = ShippingMethodSerializer(read_only=True)
     payment_method = PaymentMethodSerializer(read_only=True)
+    order_voucher_code = serializers.SerializerMethodField()
+    shipping_voucher_code = serializers.SerializerMethodField()
     
     class Meta:
         model = Order
@@ -73,11 +90,18 @@ class OrderSerializer(ModelSerializer):
             'id', 'order_number', 'user_id', 'user', 'items', 'subtotal', 
             'shipping_fee', 'total', 'status', 'notes', 
             'shipping_method', 'payment_method', 'shipping_address',
+            'discount_amount', 'shipping_discount_amount',
+            'order_voucher_code', 'shipping_voucher_code',
             'created_date', 'updated_date'
         ]
         extra_kwargs = {
             'order_number': {'required': False, 'allow_blank': True}
         }
+        read_only_fields = [
+            'order_number', 'subtotal', 'shipping_fee', 'total',
+            'discount_amount', 'shipping_discount_amount', 'status',
+            'order_voucher_code', 'shipping_voucher_code',
+        ]
     
     def create(self, validated_data):
         if hasattr(self, '_shipping_method'):
@@ -87,6 +111,8 @@ class OrderSerializer(ModelSerializer):
         request = self.context.get('request')
         if request and getattr(request, 'user', None) and request.user.is_authenticated:
             validated_data['user_id'] = request.user.id
+        if hasattr(self, '_computed_order_fields'):
+            validated_data.update(self._computed_order_fields)
         return super().create(validated_data)
     
     def get_user(self, obj):
@@ -97,6 +123,129 @@ class OrderSerializer(ModelSerializer):
             except User.DoesNotExist:
                 return None
         return None
+
+    def get_order_voucher_code(self, obj):
+        return obj.order_voucher.code if obj.order_voucher else None
+
+    def get_shipping_voucher_code(self, obj):
+        return obj.shipping_voucher.code if obj.shipping_voucher else None
+
+
+class CartItemSerializer(ModelSerializer):
+    name = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
+    packing = serializers.SerializerMethodField()
+    unit_options = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CartItem
+        fields = [
+            "id",
+            "product_variant",
+            "product_variant_unit",
+            "quantity",
+            "unit_price_snapshot",
+            "name",
+            "packing",
+            "unit_options",
+            "image_url",
+            "created_date",
+            "updated_date",
+        ]
+
+    def get_name(self, obj):
+        try:
+            if obj.product_variant and obj.product_variant.product:
+                return f"{obj.product_variant.product.web_name or obj.product_variant.product.name} - {obj.product_variant.packing}"
+        except Exception:
+            return None
+        return None
+
+    def get_image_url(self, obj):
+        try:
+            if obj.product_variant and obj.product_variant.image:
+                from mainApp import cloud_context
+                return f"{cloud_context}{obj.product_variant.image}"
+            if obj.product_variant and obj.product_variant.images and isinstance(obj.product_variant.images, list):
+                if not obj.product_variant.images:
+                    return None
+                first = obj.product_variant.images[0]
+                if isinstance(first, dict):
+                    url = first.get("url")
+                else:
+                    url = first if isinstance(first, str) else None
+                if not url:
+                    return None
+                if url.startswith("http"):
+                    return url
+                from mainApp import cloud_context
+                return f"{cloud_context}{url}"
+        except Exception:
+            return None
+        return None
+
+    def get_packing(self, obj):
+        try:
+            if obj.product_variant_unit and obj.product_variant_unit.unit_name:
+                return obj.product_variant_unit.unit_name
+            if obj.product_variant and obj.product_variant.packing:
+                return obj.product_variant.packing
+        except Exception:
+            return None
+        return None
+
+    def get_unit_options(self, obj):
+        try:
+            variant = getattr(obj, "product_variant", None)
+            if not variant:
+                return []
+            units = variant.units.filter(is_published=True).order_by("unit_order", "id")
+            return [
+                {
+                    "id": unit.id,
+                    "unit_name": unit.unit_name,
+                    "is_default": bool(unit.is_default),
+                    "price_value": unit.price_value,
+                }
+                for unit in units
+            ]
+        except Exception:
+            return []
+
+
+class CartSerializer(ModelSerializer):
+    items = CartItemSerializer(many=True, read_only=True)
+    shipping_method = ShippingMethodSerializer(read_only=True)
+    order_voucher_code = serializers.SerializerMethodField()
+    shipping_voucher_code = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Cart
+        fields = [
+            "id",
+            "user_id",
+            "status",
+            "items",
+            "shipping_method",
+            "subtotal",
+            "shipping_fee",
+            "discount_amount",
+            "shipping_discount_amount",
+            "total",
+            "version",
+            "order_voucher_code",
+            "shipping_voucher_code",
+            "checkout_order",
+            "created_date",
+            "updated_date",
+        ]
+        read_only_fields = fields
+
+    def get_order_voucher_code(self, obj):
+        return obj.order_voucher.code if obj.order_voucher else None
+
+    def get_shipping_voucher_code(self, obj):
+        return obj.shipping_voucher.code if obj.shipping_voucher else None
 
 
 class MedicineBatchSerializer(ModelSerializer):

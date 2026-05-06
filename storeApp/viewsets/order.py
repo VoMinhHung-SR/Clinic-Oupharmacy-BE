@@ -10,6 +10,7 @@ from django.db import transaction, IntegrityError
 from storeApp.models import (
     Order,
     OrderItem,
+    Cart,
     ShippingMethod,
     PaymentMethod,
     ProductVariant,
@@ -17,10 +18,21 @@ from storeApp.models import (
 )
 from storeApp.serializers import OrderSerializer
 from storeApp.services.stock import get_available_stock, deduct_stock, restore_stock
+from storeApp.services.voucher_engine import (
+    VoucherEngineError,
+    consume_vouchers,
+    resolve_voucher_discounts,
+)
+from storeApp.services.cart_service import CartServiceError, CartVersionConflictError, checkout_cart
 
 class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView,
                    generics.CreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
-    queryset = Order.objects.all()
+    queryset = Order.objects.select_related(
+        'shipping_method',
+        'payment_method',
+        'order_voucher',
+        'shipping_voucher',
+    ).all()
     serializer_class = OrderSerializer
 
     def get_permissions(self):
@@ -92,7 +104,10 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         
         # Validate ProductVariant exists and active
         try:
-            product_variant = ProductVariant.objects.get(id=product_variant_id, active=True)
+            product_variant = ProductVariant.objects.select_related('product__category').get(
+                id=product_variant_id,
+                active=True,
+            )
         except ProductVariant.DoesNotExist:
             return {'item_index': idx, 'product_variant': product_variant_id, 'error': 'ProductVariant not found or inactive'}
 
@@ -169,10 +184,90 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         for item in order.items.all():
             quantity_in_base = item.product_variant_unit.quantity_in_base if item.product_variant_unit else 1
             restore_stock(item.product_variant_id, item.quantity * quantity_in_base)
-    
+
     def create(self, request, *args, **kwargs):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        cart_id = data.get("cart_id")
+        if cart_id:
+            payment_id = data.get("payment_method_id") or data.get("payment_method")
+            expected_version_raw = data.get("expected_version")
+            shipping_address = data.get("shipping_address")
+            notes = data.get("notes")
+            if payment_id is None:
+                return Response(
+                    {'error': 'payment_method or payment_method_id is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if not shipping_address:
+                return Response(
+                    {'error': 'shipping_address is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                payment_method_obj = PaymentMethod.objects.get(id=payment_id, active=True)
+            except (PaymentMethod.DoesNotExist, TypeError, ValueError):
+                return Response(
+                    {'error': 'PaymentMethod not found', 'payment_method_id': payment_id},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                cart = Cart.objects.select_related(
+                    "shipping_method", "order_voucher", "shipping_voucher"
+                ).get(id=cart_id, user_id=request.user.id)
+            except Cart.DoesNotExist:
+                return Response(
+                    {'error': 'Cart not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            try:
+                expected_version = int(expected_version_raw) if expected_version_raw is not None else int(cart.version)
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'expected_version must be a valid integer'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                order = checkout_cart(
+                    cart=cart,
+                    payment_method=payment_method_obj,
+                    shipping_address=shipping_address,
+                    notes=notes,
+                    using='store',
+                    expected_version=expected_version,
+                )
+            except CartVersionConflictError as exc:
+                return Response(
+                    {
+                        'error': str(exc),
+                        'details': {
+                            'expected_version': exc.expected_version,
+                            'current_version': exc.current_version,
+                        },
+                    },
+                    status=status.HTTP_409_CONFLICT
+                )
+            except (CartServiceError, VoucherEngineError) as exc:
+                if isinstance(exc, VoucherEngineError):
+                    return Response(
+                        {'error': 'Validation failed', 'details': exc.to_detail()},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                return Response(
+                    {'error': str(exc)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            response_serializer = self.get_serializer(order)
+            headers = self.get_success_headers(response_serializer.data)
+            headers["X-Checkout-Flow"] = "cart"
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
         raw_items = data.pop('items', [])
+        order_voucher_code = (data.pop('order_voucher_code', None) or '').strip()
+        shipping_voucher_code = (data.pop('shipping_voucher_code', None) or '').strip()
         items_data = raw_items if isinstance(raw_items, list) else ([raw_items] if raw_items else [])
         
         if not items_data:
@@ -227,12 +322,48 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        order_subtotal = Decimal('0')
+        for item_data in normalized_items:
+            order_subtotal += item_data['price'] * item_data['quantity']
+        shipping_fee_base = Decimal(str(shipping_method_obj.price))
+
+        product_mids = set()
+        category_slugs = set()
+        for item_data in normalized_items:
+            product = item_data['product_variant'].product
+            if product and product.mid:
+                product_mids.add(str(product.mid))
+            category = getattr(product, 'category', None)
+            if category and category.slug:
+                category_slugs.add(str(category.slug))
+
         # Create order and items in transaction
         try:
             with transaction.atomic(using='store'):
+                user_id = request.user.id if request.user and request.user.is_authenticated else None
+                voucher_result = resolve_voucher_discounts(
+                    order_voucher_code=order_voucher_code,
+                    shipping_voucher_code=shipping_voucher_code,
+                    order_subtotal=order_subtotal,
+                    shipping_fee_base=shipping_fee_base,
+                    product_mids=product_mids,
+                    category_slugs=category_slugs,
+                    user_id=user_id,
+                    using='store',
+                )
+
                 serializer = self.get_serializer(data=data)
                 serializer._shipping_method = shipping_method_obj
                 serializer._payment_method = payment_method_obj
+                serializer._computed_order_fields = {
+                    'subtotal': order_subtotal,
+                    'shipping_fee': voucher_result['final_shipping_fee'],
+                    'total': voucher_result['final_total'],
+                    'order_voucher': voucher_result['order_voucher'],
+                    'shipping_voucher': voucher_result['shipping_voucher'],
+                    'discount_amount': voucher_result['order_discount_amount'],
+                    'shipping_discount_amount': voucher_result['shipping_discount_amount'],
+                }
                 serializer.is_valid(raise_exception=True)
                 order = serializer.save()
                 # Create order items and deduct stock
@@ -248,9 +379,23 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                         item_data['product_variant'].id,
                         item_data['required_base_quantity'],
                     )
+                consume_vouchers(
+                    order=order,
+                    user_id=user_id,
+                    order_voucher=voucher_result['order_voucher'],
+                    shipping_voucher=voucher_result['shipping_voucher'],
+                    order_discount_amount=voucher_result['order_discount_amount'],
+                    shipping_discount_amount=voucher_result['shipping_discount_amount'],
+                    using='store',
+                )
         except DRFValidationError as e:
             return Response(
                 {'error': 'Validation failed', 'details': e.detail},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except VoucherEngineError as e:
+            return Response(
+                {'error': 'Validation failed', 'details': e.to_detail()},
                 status=status.HTTP_400_BAD_REQUEST
             )
         except IntegrityError as e:
@@ -264,8 +409,11 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        headers = self.get_success_headers(serializer.data)
-        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED, headers=headers)
+        response_serializer = self.get_serializer(order)
+        headers = self.get_success_headers(response_serializer.data)
+        headers["X-Checkout-Flow"] = "legacy-order-create"
+        headers["X-Checkout-Deprecation"] = "Use /api/store/carts/checkout/ as primary flow"
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
     
     @action(methods=['post'], detail=True, url_path='update-status')
     def update_status(self, request, pk=None):
