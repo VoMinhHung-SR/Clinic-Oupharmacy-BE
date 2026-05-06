@@ -14,6 +14,7 @@ from storeApp.services.cart_service import (
     get_or_create_active_cart,
     recalculate_cart,
     remove_item,
+    update_item,
 )
 from storeApp.services.voucher_engine import VoucherEngineError
 
@@ -98,28 +99,36 @@ class CartViewSet(viewsets.ViewSet):
             return Response({"error": "Validation failed", "details": exc.to_detail()}, status=status.HTTP_400_BAD_REQUEST)
         return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
 
-    @action(methods=["patch"], detail=False, url_path="items/(?P<item_id>[^/.]+)")
-    def update_item(self, request, item_id=None):
+    @action(methods=["patch", "delete"], detail=False, url_path="items/(?P<item_id>[^/.]+)")
+    def item_detail(self, request, item_id=None):
         cart = self._active_cart(request)
         try:
             expected_version = self._parse_expected_version(request)
         except CartServiceError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        quantity = request.data.get("quantity")
         try:
-            item = cart.items.get(id=item_id)
-            add_or_update_item(
-                cart=cart,
-                product_variant_id=item.product_variant_id,
-                product_variant_unit_id=item.product_variant_unit_id,
-                quantity=int(quantity),
-                using="store",
-            )
+            if request.method.lower() == "patch":
+                quantity_raw = request.data.get("quantity")
+                unit_raw = request.data.get("product_variant_unit_id") or request.data.get("product_variant_unit")
+                quantity = int(quantity_raw) if quantity_raw is not None else None
+                product_variant_unit_id = int(unit_raw) if unit_raw is not None else None
+                update_item(
+                    cart=cart,
+                    item_id=item_id,
+                    quantity=quantity,
+                    product_variant_unit_id=product_variant_unit_id,
+                    using="store",
+                )
+            else:
+                remove_item(cart=cart, item_id=item_id, using="store")
             cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
         except CartItem.DoesNotExist:
             return Response({"error": "Cart item not found"}, status=status.HTTP_404_NOT_FOUND)
         except (TypeError, ValueError):
-            return Response({"error": "quantity must be a valid number"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "quantity and product_variant_unit_id must be valid numbers"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except CartVersionConflictError as exc:
             return Response(
                 {
@@ -132,34 +141,10 @@ class CartViewSet(viewsets.ViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
         except CartServiceError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            status_code = status.HTTP_404_NOT_FOUND if request.method.lower() == "delete" else status.HTTP_400_BAD_REQUEST
+            return Response({"error": str(exc)}, status=status_code)
         except VoucherEngineError as exc:
             return Response({"error": "Validation failed", "details": exc.to_detail()}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(CartSerializer(cart).data)
-
-    @action(methods=["delete"], detail=False, url_path="items/(?P<item_id>[^/.]+)")
-    def delete_item(self, request, item_id=None):
-        cart = self._active_cart(request)
-        try:
-            expected_version = self._parse_expected_version(request)
-        except CartServiceError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            remove_item(cart=cart, item_id=item_id, using="store")
-            cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
-        except CartVersionConflictError as exc:
-            return Response(
-                {
-                    "error": str(exc),
-                    "details": {
-                        "expected_version": exc.expected_version,
-                        "current_version": exc.current_version,
-                    },
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-        except CartServiceError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
         return Response(CartSerializer(cart).data)
 
     @action(methods=["post"], detail=False, url_path="select-shipping")
@@ -278,6 +263,17 @@ class CartViewSet(viewsets.ViewSet):
         payment_method_id = request.data.get("payment_method_id")
         shipping_address = request.data.get("shipping_address")
         notes = request.data.get("notes")
+        raw_line_ids = request.data.get("cart_item_ids")
+        checkout_item_ids = None
+        if raw_line_ids is not None:
+            if not isinstance(raw_line_ids, list):
+                return Response({"error": "cart_item_ids must be a list or null"}, status=status.HTTP_400_BAD_REQUEST)
+            if len(raw_line_ids) == 0:
+                return Response({"error": "cart_item_ids cannot be empty"}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                checkout_item_ids = [int(x) for x in raw_line_ids]
+            except (TypeError, ValueError):
+                return Response({"error": "cart_item_ids must be a list of integers"}, status=status.HTTP_400_BAD_REQUEST)
         if not payment_method_id:
             return Response({"error": "payment_method_id is required"}, status=status.HTTP_400_BAD_REQUEST)
         if not shipping_address:
@@ -292,6 +288,7 @@ class CartViewSet(viewsets.ViewSet):
                 notes=notes,
                 using="store",
                 expected_version=expected_version,
+                checkout_item_ids=checkout_item_ids,
             )
         except PaymentMethod.DoesNotExist:
             return Response({"error": "PaymentMethod not found"}, status=status.HTTP_400_BAD_REQUEST)

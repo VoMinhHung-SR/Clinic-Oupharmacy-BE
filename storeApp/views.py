@@ -346,10 +346,21 @@ def products_by_category_slug(request, category_slug):
     search_backend.search_fields = ['product__name', 'packing', 'product__web_name']
     queryset = search_backend.filter_queryset(request, queryset, None)
     
-    ordering_backend = filters.OrderingFilter()
-    ordering_backend.ordering_fields = ['price_value', 'created_date', 'in_stock', 'product_ranking']
-    ordering_backend.ordering = ['-created_date']
-    queryset = ordering_backend.filter_queryset(request, queryset, None)
+    # Ensure queryset is always deterministically ordered before pagination.
+    # Using OrderingFilter with `view=None` can skip default ordering and trigger
+    # UnorderedObjectListWarning in DRF paginator.
+    allowed_ordering_fields = {'price_value', 'created_date', 'in_stock', 'product_ranking', 'id'}
+    raw_ordering = (request.query_params.get('ordering') or '').strip()
+    if raw_ordering:
+        parsed_ordering = [part.strip() for part in raw_ordering.split(',') if part.strip()]
+        sanitized_ordering = []
+        for field in parsed_ordering:
+            normalized = field[1:] if field.startswith('-') else field
+            if normalized in allowed_ordering_fields:
+                sanitized_ordering.append(field)
+        queryset = queryset.order_by(*(sanitized_ordering or ['-created_date', '-id']))
+    else:
+        queryset = queryset.order_by('-created_date', '-id')
     
     paginator = ProductPagination()
     page = paginator.paginate_queryset(queryset, request)
