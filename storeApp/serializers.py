@@ -133,6 +133,9 @@ class OrderSerializer(ModelSerializer):
 
 class CartItemSerializer(ModelSerializer):
     name = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
+    packing = serializers.SerializerMethodField()
+    unit_options = serializers.SerializerMethodField()
 
     class Meta:
         model = CartItem
@@ -143,6 +146,9 @@ class CartItemSerializer(ModelSerializer):
             "quantity",
             "unit_price_snapshot",
             "name",
+            "packing",
+            "unit_options",
+            "image_url",
             "created_date",
             "updated_date",
         ]
@@ -154,6 +160,57 @@ class CartItemSerializer(ModelSerializer):
         except Exception:
             return None
         return None
+
+    def get_image_url(self, obj):
+        try:
+            if obj.product_variant and obj.product_variant.image:
+                from mainApp import cloud_context
+                return f"{cloud_context}{obj.product_variant.image}"
+            if obj.product_variant and obj.product_variant.images and isinstance(obj.product_variant.images, list):
+                if not obj.product_variant.images:
+                    return None
+                first = obj.product_variant.images[0]
+                if isinstance(first, dict):
+                    url = first.get("url")
+                else:
+                    url = first if isinstance(first, str) else None
+                if not url:
+                    return None
+                if url.startswith("http"):
+                    return url
+                from mainApp import cloud_context
+                return f"{cloud_context}{url}"
+        except Exception:
+            return None
+        return None
+
+    def get_packing(self, obj):
+        try:
+            if obj.product_variant_unit and obj.product_variant_unit.unit_name:
+                return obj.product_variant_unit.unit_name
+            if obj.product_variant and obj.product_variant.packing:
+                return obj.product_variant.packing
+        except Exception:
+            return None
+        return None
+
+    def get_unit_options(self, obj):
+        try:
+            variant = getattr(obj, "product_variant", None)
+            if not variant:
+                return []
+            units = variant.units.filter(is_published=True).order_by("unit_order", "id")
+            return [
+                {
+                    "id": unit.id,
+                    "unit_name": unit.unit_name,
+                    "is_default": bool(unit.is_default),
+                    "price_value": unit.price_value,
+                }
+                for unit in units
+            ]
+        except Exception:
+            return []
 
 
 class CartSerializer(ModelSerializer):

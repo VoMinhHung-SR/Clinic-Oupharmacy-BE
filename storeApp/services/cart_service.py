@@ -56,7 +56,7 @@ def _assert_cart_version(*, cart, expected_version):
 
 
 def _resolve_unit(*, product_variant, product_variant_unit_id=None, using="store"):
-    if product_variant_unit_id:
+    if product_variant_unit_id is not None:
         try:
             return ProductVariantUnit.objects.using(using).get(
                 id=product_variant_unit_id,
@@ -141,12 +141,118 @@ def remove_item(*, cart, item_id, using="store"):
     )
 
 
-def _build_context(*, cart, using="store"):
-    items = list(
-        cart.items.using(using)
+def update_item(
+    *,
+    cart,
+    item_id,
+    quantity=None,
+    product_variant_unit_id=None,
+    using="store",
+):
+    item = (
+        CartItem.objects.using(using)
         .select_related("product_variant__product__category", "product_variant_unit")
-        .all()
+        .filter(cart_id=cart.id, id=item_id)
+        .first()
     )
+    if not item:
+        raise CartServiceError("Cart item not found")
+
+    if quantity is None and product_variant_unit_id is None:
+        raise CartServiceError("At least one of quantity or product_variant_unit_id is required")
+
+    next_quantity = int(item.quantity) if quantity is None else int(quantity)
+    if next_quantity <= 0:
+        raise CartServiceError("quantity must be greater than 0")
+
+    next_unit = item.product_variant_unit or _resolve_unit(
+        product_variant=item.product_variant,
+        using=using,
+    )
+    if product_variant_unit_id is not None:
+        next_unit = _resolve_unit(
+            product_variant=item.product_variant,
+            product_variant_unit_id=product_variant_unit_id,
+            using=using,
+        )
+
+    existing_same_unit = (
+        CartItem.objects.using(using)
+        .filter(
+            cart_id=cart.id,
+            product_variant_id=item.product_variant_id,
+            product_variant_unit_id=next_unit.id,
+        )
+        .exclude(id=item.id)
+        .first()
+    )
+    final_quantity = next_quantity + int(existing_same_unit.quantity) if existing_same_unit else next_quantity
+    required_base_quantity = final_quantity * int(next_unit.quantity_in_base)
+    total_available = get_available_stock(item.product_variant_id)
+    if total_available < required_base_quantity:
+        raise CartServiceError(
+            f"Insufficient stock in base unit. Available: {total_available}, Requested: {required_base_quantity}"
+        )
+
+    unit_price = _to_decimal(next_unit.price_value)
+    if existing_same_unit:
+        existing_same_unit.quantity = final_quantity
+        existing_same_unit.unit_price_snapshot = unit_price
+        existing_same_unit.save(update_fields=["quantity", "unit_price_snapshot"])
+        item.delete()
+        updated_item = existing_same_unit
+    else:
+        update_fields = []
+        if int(item.quantity) != next_quantity:
+            item.quantity = next_quantity
+            update_fields.append("quantity")
+        if item.product_variant_unit_id != next_unit.id:
+            item.product_variant_unit = next_unit
+            update_fields.append("product_variant_unit")
+        if _to_decimal(item.unit_price_snapshot) != unit_price:
+            item.unit_price_snapshot = unit_price
+            update_fields.append("unit_price_snapshot")
+        if update_fields:
+            item.save(update_fields=update_fields)
+        updated_item = item
+
+    _invalidate_cart_related_cache(
+        cart=cart,
+        order_voucher_code=getattr(cart.order_voucher, "code", None),
+        shipping_voucher_code=getattr(cart.shipping_voucher, "code", None),
+    )
+    return updated_item
+
+
+def _build_context(*, cart, using="store", item_ids=None):
+    """
+    Summarize cart lines for totals / voucher context.
+
+    item_ids: optional list of CartItem primary keys to include. When provided, must be
+    non-empty and every id must belong to this cart (otherwise CartServiceError).
+    When None, all lines are included (default checkout behavior).
+    """
+    qs = cart.items.using(using).select_related("product_variant__product__category", "product_variant_unit")
+    if item_ids is not None:
+        unique_ids = []
+        seen_ids = set()
+        for raw_id in item_ids:
+            try:
+                parsed_id = int(raw_id)
+            except (TypeError, ValueError) as exc:
+                raise CartServiceError("cart_item_ids must contain only integers") from exc
+            if parsed_id in seen_ids:
+                continue
+            seen_ids.add(parsed_id)
+            unique_ids.append(parsed_id)
+        if len(unique_ids) == 0:
+            raise CartServiceError("cart_item_ids cannot be empty")
+        items = list(qs.filter(id__in=unique_ids))
+        found = {int(i.id) for i in items}
+        if found != seen_ids:
+            raise CartServiceError("One or more cart_item_ids are invalid for this cart")
+    else:
+        items = list(qs.all())
     subtotal = Decimal("0")
     product_mids = set()
     category_slugs = set()
@@ -224,7 +330,16 @@ def recalculate_cart(*, cart, using="store", expected_version=None):
     return cart
 
 
-def checkout_cart(*, cart, payment_method, shipping_address, notes=None, using="store", expected_version=None):
+def checkout_cart(
+    *,
+    cart,
+    payment_method,
+    shipping_address,
+    notes=None,
+    using="store",
+    expected_version=None,
+    checkout_item_ids=None,
+):
     from storeApp.models import Order, OrderItem
 
     with transaction.atomic(using=using):
@@ -240,7 +355,9 @@ def checkout_cart(*, cart, payment_method, shipping_address, notes=None, using="
         if not locked_cart.shipping_method:
             raise CartServiceError("Shipping method is required before checkout")
 
-        items, subtotal, shipping_fee_base, product_mids, category_slugs = _build_context(cart=locked_cart, using=using)
+        items, subtotal, shipping_fee_base, product_mids, category_slugs = _build_context(
+            cart=locked_cart, using=using, item_ids=checkout_item_ids
+        )
         if not items:
             raise CartServiceError("Cart must have at least one item")
 
@@ -292,24 +409,34 @@ def checkout_cart(*, cart, payment_method, shipping_address, notes=None, using="
             using=using,
         )
 
-        locked_cart.status = Cart.CHECKED_OUT
-        locked_cart.checkout_order = order
-        locked_cart.subtotal = subtotal
-        locked_cart.shipping_fee = voucher_result["final_shipping_fee"]
-        locked_cart.discount_amount = voucher_result["order_discount_amount"]
-        locked_cart.shipping_discount_amount = voucher_result["shipping_discount_amount"]
-        locked_cart.total = voucher_result["final_total"]
-        locked_cart.save(
-            update_fields=[
-                "status",
-                "checkout_order",
-                "subtotal",
-                "shipping_fee",
-                "discount_amount",
-                "shipping_discount_amount",
-                "total",
-            ]
-        )
+        paid_line_ids = [item.id for item in items]
+        CartItem.objects.using(using).filter(cart_id=locked_cart.id, id__in=paid_line_ids).delete()
+        remaining_exists = CartItem.objects.using(using).filter(cart_id=locked_cart.id).exists()
+
+        if remaining_exists:
+            locked_cart.checkout_order = None
+            locked_cart.status = Cart.ACTIVE
+            locked_cart.save(update_fields=["checkout_order", "status"])
+            recalculate_cart(cart=locked_cart, using=using, expected_version=locked_cart.version)
+        else:
+            locked_cart.status = Cart.CHECKED_OUT
+            locked_cart.checkout_order = order
+            locked_cart.subtotal = subtotal
+            locked_cart.shipping_fee = voucher_result["final_shipping_fee"]
+            locked_cart.discount_amount = voucher_result["order_discount_amount"]
+            locked_cart.shipping_discount_amount = voucher_result["shipping_discount_amount"]
+            locked_cart.total = voucher_result["final_total"]
+            locked_cart.save(
+                update_fields=[
+                    "status",
+                    "checkout_order",
+                    "subtotal",
+                    "shipping_fee",
+                    "discount_amount",
+                    "shipping_discount_amount",
+                    "total",
+                ]
+            )
         _invalidate_cart_related_cache(
             cart=locked_cart,
             order_voucher_code=voucher_result["order_voucher"].code if voucher_result["order_voucher"] else None,
