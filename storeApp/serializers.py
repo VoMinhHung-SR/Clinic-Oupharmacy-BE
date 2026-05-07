@@ -331,12 +331,16 @@ class ProductVariantSerializer(ModelSerializer):
     price_value = SerializerMethodField()
     compare_at_price = serializers.SerializerMethodField()
     discount_percent = serializers.SerializerMethodField()
+    default_unit_id = serializers.SerializerMethodField()
+    default_unit_name = serializers.SerializerMethodField()
+    unit_options = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductVariant
         fields = [
             'id', 'in_stock', 'image', 'image_url', 'images', "packing",
             'price_display', 'price_value', 'compare_at_price', 'discount_percent',
+            'default_unit_id', 'default_unit_name', 'unit_options',
             'product_ranking', 'is_published', 'is_hot',
             'registration_number', 'base_unit',
             'product', 'category', 'category_info', 'brand', 'active',
@@ -418,6 +422,37 @@ class ProductVariantSerializer(ModelSerializer):
         if compare <= price or compare <= 0:
             return 0
         return int(round((compare - price) / compare * 100))
+
+    def get_default_unit_id(self, obj):
+        unit = self._get_default_unit(obj)
+        return unit.id if unit else None
+
+    def get_default_unit_name(self, obj):
+        unit = self._get_default_unit(obj)
+        return unit.unit_name if unit else None
+
+    def get_unit_options(self, obj):
+        prefetched_units = getattr(obj, "prefetched_units", None)
+        if prefetched_units is not None:
+            units = prefetched_units
+        else:
+            units_manager = getattr(obj, "units", None)
+            if units_manager is None:
+                return []
+            units = units_manager.filter(is_published=True).order_by("unit_order", "id")
+
+        return [
+            {
+                "unit_id": unit.id,
+                "unit_name": unit.unit_name,
+                "quantity_in_base": unit.quantity_in_base,
+                "price_value": unit.price_value,
+                "price_display": unit.price_display,
+                "compare_at_price": unit.compare_at_price,
+                "is_default": bool(unit.is_default),
+            }
+            for unit in units
+        ]
 
 
 class CategoryLevel2Serializer(ModelSerializer):

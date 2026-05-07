@@ -137,6 +137,13 @@ class SearchApiTests(APITestCase):
             in_stock=8,
             ranking=80,
         )
+        self._create_extra_variant_for_existing_product(
+            slug="thuoc-cam-cum-a",
+            packing="Hộp 6 vỉ x 10 viên",
+            price_value=120000,
+            in_stock=3,
+            ranking=60,
+        )
 
     def _create_variant(self, name, web_name, slug, category, price_value, in_stock, ranking):
         product = Product.objects.create(
@@ -163,6 +170,25 @@ class SearchApiTests(APITestCase):
         )
         return variant
 
+    def _create_extra_variant_for_existing_product(self, slug, packing, price_value, in_stock, ranking):
+        product = Product.objects.get(slug=slug)
+        variant = ProductVariant.objects.create(
+            product=product,
+            packing=packing,
+            is_published=True,
+            in_stock=in_stock,
+            product_ranking=ranking,
+        )
+        ProductVariantUnit.objects.create(
+            variant=variant,
+            unit_name="Hộp",
+            quantity_in_base=1,
+            price_value=price_value,
+            is_default=True,
+            is_published=True,
+        )
+        return variant
+
     def test_search_returns_items_facets_and_meta(self):
         response = self.client.get("/api/store/search/?q=cảm cúm&page=1&page_size=2")
         self.assertEqual(response.status_code, 200)
@@ -172,8 +198,12 @@ class SearchApiTests(APITestCase):
         self.assertIn("meta", response.data)
         self.assertEqual(response.data["meta"]["page"], 1)
         self.assertEqual(response.data["meta"]["page_size"], 2)
-        self.assertEqual(response.data["meta"]["total"], 2)
+        self.assertEqual(response.data["meta"]["total"], 3)
         self.assertEqual(len(response.data["items"]), 2)
+        first_item = response.data["items"][0]
+        self.assertIn("unit_options", first_item)
+        self.assertIn("default_unit_id", first_item)
+        self.assertIn("default_unit_name", first_item)
 
     def test_search_applies_filters_and_reports_applied_filters(self):
         response = self.client.get(
@@ -197,10 +227,10 @@ class SearchApiTests(APITestCase):
         stock_counts = {item["key"]: item["count"] for item in facets["in_stock"]}
 
         self.assertEqual(price_counts["under_100k"], 1)
-        self.assertEqual(price_counts["100k_300k"], 1)
+        self.assertEqual(price_counts["100k_300k"], 2)
         self.assertEqual(price_counts["300k_500k"], 0)
         self.assertEqual(price_counts["over_500k"], 1)
-        self.assertEqual(stock_counts[True], 2)
+        self.assertEqual(stock_counts[True], 3)
         self.assertEqual(stock_counts[False], 1)
 
 
