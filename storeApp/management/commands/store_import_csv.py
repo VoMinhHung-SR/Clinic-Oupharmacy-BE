@@ -1,25 +1,17 @@
 """
 store_import_csv.py
 -------------------
-Management command: Import dữ liệu CSV trực tiếp vào storeApp models.
+Management command: Import scraper output (CSV hoặc JSON) vào storeApp models.
 
-Supports 3 data folders:
-  storeApp/test/data/new/thuoc/
-  storeApp/test/data/new/duoc-mi-pham/
-  storeApp/test/data/new/thuc-pham-chuc-nang/
+Supports cả 2 format từ product_scraper_tool:
+  - .csv: legacy export (flat dotted keys, nested arrays là JSON-string)
+  - .json: scraper v1.3.0+ output (array of products, nested dict native)
 
-Rules:
-- 1 sản phẩm có thể thuộc nhiều danh mục (nhiều CSV rows cùng name/slug, category khác nhau).
-- 1 sản phẩm có thể có nhiều packing/variant (từ pricing.packageOptions hoặc nhiều row).
-- Batch cũ bị xóa trước khi tạo batch mới (tránh conflict), giữ logic random ngày.
-- Sau khi tạo batch: đồng bộ ProductVariant.in_stock = tổng remaining_quantity (theo storeApp.services.stock).
-- ProductVariantUnit: chuẩn hóa đúng một is_default / variant (payload + reconcile DB sau upsert).
-
-Chạy:
-  python manage.py store_import_csv [path] [--dry-run] [--update-existing] [--no-batches]
-
-  path (optional): thư mục hoặc file CSV cụ thể.
-                   Mặc định: storeApp/test/data/new/
+Schema mapping với scraper JSON v1.3.4:
+  - Variants/units lấy từ `pricing.saleUnits[]` (ưu tiên), fallback `pricing.packageOptions`
+  - 6 content fields chứa sanitized HTML (description/usage/dosage/adverseEffect/careful/preservation)
+  - `ingredients` là comma-list "Name: amount, ..."
+  - SKIP `specifications.registrationNumber` (scraper output đang concatenated garbage)
 """
 
 import csv
@@ -60,31 +52,69 @@ DEFAULT_DATA_DIR = "storeApp/test/data/new"
 BATCH_SIZE = 300  # bulk_create chunk size
 
 # ============================================================
-# Helper utilities (standalone — không import từ product_import.py
-# vì product_import.py target mainApp models)
+# Helper utilities
 # ============================================================
 
-def _parse_price_value(price_display: str) -> float:
-    """'123.456đ' → 123456.0"""
-    if not price_display:
-        return 0.0
-    s = price_display.replace("đ", "").replace(".", "").replace(",", "").strip()
-    try:
-        return float(s)
-    except (ValueError, TypeError):
-        return 0.0
-
-
-def _parse_json_field(raw: str, default=None):
+def _parse_json_field(raw, default=None):
     if default is None:
         default = []
-    if not raw or not raw.strip():
+    if raw is None:
+        return default
+    if isinstance(raw, (list, dict)):
+        return raw
+    if not isinstance(raw, str) or not raw.strip():
         return default
     try:
         result = json.loads(raw)
         return result if result is not None else default
     except (json.JSONDecodeError, TypeError):
         return default
+
+
+def _flatten_dict(item: dict, prefix: str = "") -> dict:
+    """Nested dict → flat dotted dict; lists/scalars stop recursion."""
+    out: dict = {}
+    for k, v in item.items():
+        key = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            out.update(_flatten_dict(v, key))
+        else:
+            out[key] = v
+    return out
+
+
+def _build_variant_payloads_from_sale_units(
+    sale_units: list,
+    default_packing: str,
+) -> list:
+    """Direct payload từ scraper saleUnits[] (giữ unitOrder + isDefault gốc)."""
+    if not sale_units:
+        return []
+
+    units = []
+    for su in sale_units:
+        if not isinstance(su, dict):
+            continue
+        unit_name = (su.get("unitName") or "").strip()
+        if not unit_name:
+            continue
+        units.append({
+            "unit_name": unit_name[:50],
+            "unit_order": _to_int(su.get("unitOrder"), 0),
+            "quantity_in_base": max(_to_int(su.get("quantityInBase"), 1), 1),
+            "price_value": float(su.get("priceValue") or 0),
+            "price_display": (str(su.get("priceDisplay") or "").strip())[:50] or None,
+            "is_default": bool(su.get("isDefault")),
+        })
+
+    if not units:
+        return []
+
+    units.sort(key=lambda u: (u["unit_order"], 0 if u["is_default"] else 1))
+    normalize_single_default_unit_per_variant(units)
+    base_unit = units[0]["unit_name"]
+    packing = (default_packing or "").strip()[:100] or "Default"
+    return [{"packing": packing, "base_unit": base_unit, "units": units}]
 
 
 def _to_int(value, default=0) -> int:
@@ -149,6 +179,31 @@ def _random_import_date(today: date) -> date:
     return start + timedelta(days=random.randint(0, delta))
 
 
+_RANDOM_PRICE_RANGE = (10_000, 500_000)
+_RANDOM_SHELF_LIFE_MONTHS = (12, 18, 24, 36)
+
+
+def _random_price_value() -> float:
+    return float(random.randint(*_RANDOM_PRICE_RANGE))
+
+
+def _format_price_display(value: float, unit_name: str = "") -> str:
+    s = f"{int(value):,}".replace(",", ".") + "đ"
+    return f"{s} / {unit_name}" if unit_name else s
+
+
+def _random_shelf_life() -> str:
+    return f"{random.choice(_RANDOM_SHELF_LIFE_MONTHS)} tháng"
+
+
+def _ensure_unit_pricing(units: list) -> None:
+    for u in units:
+        if not u.get("price_value"):
+            u["price_value"] = _random_price_value()
+            if not u.get("price_display"):
+                u["price_display"] = _format_price_display(u["price_value"], u.get("unit_name", ""))
+
+
 # ============================================================
 # StoreApp Category helper (mirror of Category.get_or_create_from_array
 # but using StoreCategory via 'store' DB alias)
@@ -192,7 +247,7 @@ def _get_or_create_store_category(category_array: list, cache: dict) -> Optional
 
 class Command(BaseCommand):
     help = (
-        "Import dữ liệu CSV trực tiếp vào storeApp models "
+        "Import scraper output (.csv hoặc .json) vào storeApp models "
         "(Brand, Category, Product, ProductVariant, ProductVariantUnit, MedicineBatch, ProductVariantStats)."
     )
 
@@ -201,7 +256,7 @@ class Command(BaseCommand):
             "path",
             nargs="?",
             default=DEFAULT_DATA_DIR,
-            help=f"Thư mục hoặc file CSV cụ thể (default: {DEFAULT_DATA_DIR})",
+            help=f"Thư mục hoặc file .csv/.json cụ thể (default: {DEFAULT_DATA_DIR})",
         )
         parser.add_argument(
             "--dry-run",
@@ -238,13 +293,12 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.WARNING("⚠  DRY-RUN mode — không ghi vào DB."))
 
-        # Collect all CSV files
-        csv_files = self._collect_csv_files(path)
-        if not csv_files:
-            self.stdout.write(self.style.ERROR(f"Không tìm thấy file CSV nào trong: {path}"))
+        data_files = self._collect_data_files(path)
+        if not data_files:
+            self.stdout.write(self.style.ERROR(f"Không tìm thấy file .csv/.json nào trong: {path}"))
             return
 
-        self.stdout.write(f"📂 Tìm thấy {len(csv_files)} file CSV.")
+        self.stdout.write(f"📂 Tìm thấy {len(data_files)} file (csv/json).")
 
         # Shared caches across files
         category_cache: dict = {}
@@ -265,10 +319,10 @@ class Command(BaseCommand):
             "errors": 0,
         }
 
-        for csv_file in csv_files:
-            self.stdout.write(f"\n📄 {os.path.relpath(csv_file, os.getcwd())}")
+        for data_file in data_files:
+            self.stdout.write(f"\n📄 {os.path.relpath(data_file, os.getcwd())}")
             file_stats = self._import_file(
-                csv_file=csv_file,
+                data_file=data_file,
                 dry_run=dry_run,
                 update_existing=update_existing,
                 no_batches=no_batches,
@@ -305,10 +359,9 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("⚠  DRY-RUN complete — không có dữ liệu nào bị lưu."))
 
     # ----------------------------------------------------------
-    # Collect CSV files
+    # Collect data files (.csv + .json)
     # ----------------------------------------------------------
-    def _collect_csv_files(self, path: str):
-        # Resolve relative paths from Django BASE_DIR (project root)
+    def _collect_data_files(self, path: str):
         if not os.path.isabs(path):
             try:
                 from django.conf import settings
@@ -318,22 +371,22 @@ class Command(BaseCommand):
             path = os.path.join(base, path)
 
         files = []
-        if os.path.isfile(path) and path.endswith(".csv"):
+        if os.path.isfile(path) and path.endswith((".csv", ".json")):
             return [path]
         if os.path.isdir(path):
             for root, dirs, filenames in os.walk(path):
                 dirs.sort()
                 for name in sorted(filenames):
-                    if name.endswith(".csv"):
+                    if name.endswith((".csv", ".json")):
                         files.append(os.path.join(root, name))
         return files
 
     # ----------------------------------------------------------
-    # Import 1 CSV file
+    # Import 1 file (csv hoặc json)
     # ----------------------------------------------------------
     def _import_file(
         self,
-        csv_file: str,
+        data_file: str,
         dry_run: bool,
         update_existing: bool,
         no_batches: bool,
@@ -356,9 +409,16 @@ class Command(BaseCommand):
         }
 
         try:
-            with open(csv_file, encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f)
-                rows = list(reader)
+            if data_file.endswith(".json"):
+                with open(data_file, encoding="utf-8") as f:
+                    items = json.load(f)
+                if not isinstance(items, list):
+                    items = [items]
+                rows = [_flatten_dict(it) for it in items if isinstance(it, dict)]
+            else:
+                with open(data_file, encoding="utf-8-sig") as f:
+                    reader = csv.DictReader(f)
+                    rows = list(reader)
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"  ✗ Không đọc được file: {e}"))
             stats["errors"] += 1
@@ -386,7 +446,7 @@ class Command(BaseCommand):
                 for k, v in row_stats.items():
                     stats[k] = stats.get(k, 0) + v
             except Exception as e:
-                name = row.get("basicInfo.name", "?")[:60]
+                name = str(row.get("basicInfo.name", "?"))[:60]
                 logger.exception(f"Row {row_num} error ({name})")
                 self.stdout.write(
                     self.style.ERROR(f"  ✗ Row {row_num} [{name}]: {e}")
@@ -437,47 +497,54 @@ class Command(BaseCommand):
             return stats  # name missing
 
         # ── 4. ProductVariants ────────────────────────────────
-        # Build list of packing options from pricing.packageOptions
-        # Fallback: 1 variant từ pricing.packageSize + pricing.priceDisplay
-        default_packing = (row.get("pricing.packageSize") or "").strip()[:100]
-        default_price_display = (row.get("pricing.priceDisplay") or "").strip()[:50]
+        default_packing = str(row.get("pricing.packageSize") or "").strip()[:100]
+        default_price_display = str(row.get("pricing.priceDisplay") or "").strip()[:50]
         default_price_value = _parse_price_value(
-            row.get("pricing.priceDisplay") or row.get("pricing.priceValue") or ""
+            str(row.get("pricing.priceDisplay") or row.get("pricing.priceValue") or "")
         )
 
-        package_options = _parse_package_options(
-            row.get("pricing.packageOptions", ""),
-            default_packing=default_packing,
-            default_price_display=default_price_display,
-            default_price_value=default_price_value,
-        )
-        variant_payloads = _build_variant_payloads(
-            package_options=package_options,
-            default_packing=default_packing,
-            default_price_display=default_price_display,
-            default_price_value=default_price_value,
-        )
+        sale_units = row.get("pricing.saleUnits")
+        if isinstance(sale_units, list) and sale_units:
+            variant_payloads = _build_variant_payloads_from_sale_units(
+                sale_units=sale_units,
+                default_packing=default_packing,
+            )
+        else:
+            package_options = _parse_package_options(
+                row.get("pricing.packageOptions", ""),
+                default_packing=default_packing,
+                default_price_display=default_price_display,
+                default_price_value=default_price_value,
+            )
+            variant_payloads = _build_variant_payloads(
+                package_options=package_options,
+                default_packing=default_packing,
+                default_price_display=default_price_display,
+                default_price_value=default_price_value,
+            )
 
-        # Common variant metadata (không đổi theo packing)
-        images = _parse_json_field(row.get("media.images", "[]"), default=[])
-        image_url = (row.get("media.image") or "").strip()
+        for payload in variant_payloads:
+            _ensure_unit_pricing(payload.get("units", []))
+
+        images = _parse_json_field(row.get("media.images", []), default=[])
+        image_url = str(row.get("media.image") or "").strip()
         if image_url and image_url not in images:
             images.insert(0, image_url)
 
+        shelf_life = str(row.get("specifications.shelfLife") or "").strip()[:100] or _random_shelf_life()
+
         variant_common = {
-            "in_stock": random.randint(50, 300),  # default stock
-            "image": None,  # CloudinaryField — skip upload
+            "in_stock": random.randint(50, 300),
+            "image": None,
             "images": images,
-            "registration_number": (row.get("specifications.registrationNumber") or "").strip()[:100],
             "base_unit": "unit",
             "packing_meta": {
-                "origin": (row.get("specifications.origin") or "").strip()[:200],
-                "manufacturer": (row.get("specifications.manufacturer") or "").strip(),
-                "shelf_life": (row.get("specifications.shelfLife") or "").strip()[:100],
-                "specifications": _parse_json_field(row.get("specifications.specifications", "{}"), default={}),
+                "origin": str(row.get("specifications.origin") or "").strip()[:200],
+                "manufacturer": str(row.get("specifications.manufacturer") or "").strip(),
+                "shelf_life": shelf_life,
             },
             "product_ranking": _to_int(row.get("metadata.productRanking"), 0),
-            "sku": (row.get("basicInfo.sku") or "").strip()[:100] or None,
+            "sku": str(row.get("basicInfo.sku") or "").strip()[:100] or None,
             "is_published": _to_bool(row.get("metadata.isPublish", "true"), True),
             "is_hot": _to_bool(row.get("metadata.isHot", "false"), False),
         }
@@ -616,7 +683,7 @@ class Command(BaseCommand):
     # Brand resolution
     # ----------------------------------------------------------
     def _resolve_brand(self, row: dict, brand_cache: dict, dry_run: bool, stats: dict) -> Optional[int]:
-        raw_name = row.get("basicInfo.brand", "").strip()
+        raw_name = str(row.get("basicInfo.brand") or "").strip()
         brand_name = _normalize_brand(raw_name)
         if not brand_name:
             return None
@@ -652,11 +719,11 @@ class Command(BaseCommand):
 
     def _extract_country_from_row(self, row: dict) -> Optional[str]:
         for field in ("basicInfo.country", "brand.country", "specifications.country"):
-            val = row.get(field, "").strip()
+            val = str(row.get(field) or "").strip()
             if val:
                 return _extract_country(val) or val
         for field in ("specifications.origin", "specifications.manufacturer"):
-            val = row.get(field, "").strip()
+            val = str(row.get(field) or "").strip()
             country = _extract_country(val)
             if country:
                 return country
@@ -674,25 +741,29 @@ class Command(BaseCommand):
         dry_run: bool,
         stats: dict,
     ) -> Optional[Product]:
-        name = row.get("basicInfo.name", "").strip()
+        name = str(row.get("basicInfo.name") or "").strip()
         if not name:
             return None
 
-        mid = row.get("basicInfo.sku", "").strip() or None
-        slug = row.get("basicInfo.slug", "").strip() or None
+        sku_raw = row.get("basicInfo.sku")
+        mid = str(sku_raw).strip() if sku_raw not in (None, "") else None
+        slug = str(row.get("basicInfo.slug") or "").strip() or None
+
+        def _txt(key):
+            return str(row.get(key) or "").strip() or None
 
         product_defaults = {
             "name": name,
             "mid": mid,
             "slug": slug,
-            "web_name": (row.get("basicInfo.webName") or "").strip() or None,
-            "description": (row.get("content.description") or "").strip() or None,
-            "ingredients": (row.get("content.ingredients") or "").strip() or None,
-            "usage": (row.get("content.usage") or "").strip() or None,
-            "dosage": (row.get("content.dosage") or "").strip() or None,
-            "adverse_effect": (row.get("content.adverseEffect") or "").strip() or None,
-            "careful": (row.get("content.careful") or "").strip() or None,
-            "preservation": (row.get("content.preservation") or "").strip() or None,
+            "web_name": _txt("basicInfo.webName"),
+            "description": _txt("content.description"),
+            "ingredients": _txt("content.ingredients"),
+            "usage": _txt("content.usage"),
+            "dosage": _txt("content.dosage"),
+            "adverse_effect": _txt("content.adverseEffect"),
+            "careful": _txt("content.careful"),
+            "preservation": _txt("content.preservation"),
             "brand_id": brand_id,
             "category": leaf_category,
         }

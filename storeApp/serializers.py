@@ -597,22 +597,21 @@ class CategoryLevel0Serializer(ModelSerializer):
         if hasattr(obj, '_prefetched_objects_cache') and 'children' in obj._prefetched_objects_cache:
             level1_categories = list(obj._prefetched_objects_cache['children'])
         else:
-            level1_categories = list(Category.objects.using('default').filter(
+            level1_categories = list(Category.objects.filter(
                 parent=obj,
                 level=1,
                 active=True
             ).order_by('name'))
-        
         if level1_categories:
             level1_ids = [cat.id for cat in level1_categories]
-            level2_all = Category.objects.using('default').filter(
+            level2_all = Category.objects.filter(
                 parent_id__in=level1_ids,
                 level=2,
                 active=True
             ).order_by('parent_id', 'name')
-            
+
             from django.db.models import Count
-            level2_counts = Category.objects.using('default').filter(
+            level2_counts = Category.objects.filter(
                 level=2,
                 active=True,
                 parent_id__in=level1_ids
