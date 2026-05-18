@@ -270,15 +270,47 @@ def _build_context(*, cart, using="store", item_ids=None):
     return items, subtotal, shipping_fee_base, product_mids, category_slugs
 
 
+def _item_required_base_quantity(item) -> int:
+    unit = item.product_variant_unit
+    if not unit:
+        raise CartServiceError("Cart item is missing product_variant_unit")
+    return int(item.quantity) * int(unit.quantity_in_base)
+
+
+def _assert_checkout_stock(*, items, using="store"):
+    """Ensure batch stock (base unit) covers all checkout lines; aggregate per variant."""
+    required_by_variant: dict[int, int] = {}
+    for item in items:
+        variant_id = int(item.product_variant_id)
+        required_by_variant[variant_id] = required_by_variant.get(variant_id, 0) + _item_required_base_quantity(item)
+
+    for variant_id, required_base_quantity in required_by_variant.items():
+        total_available = get_available_stock(variant_id)
+        if total_available < required_base_quantity:
+            raise CartServiceError(
+                f"Insufficient stock in base unit. Available: {total_available}, "
+                f"Requested: {required_base_quantity} (product_variant_id={variant_id})"
+            )
+
+
 def recalculate_cart(*, cart, using="store", expected_version=None):
     _assert_cart_version(cart=cart, expected_version=expected_version)
     items, subtotal, shipping_fee_base, product_mids, category_slugs = _build_context(cart=cart, using=using)
     if not items:
-        cart.subtotal = Decimal("0")
-        cart.shipping_fee = Decimal("0")
-        cart.discount_amount = Decimal("0")
-        cart.shipping_discount_amount = Decimal("0")
-        cart.total = Decimal("0")
+        zero = Decimal("0")
+        if (
+            cart.subtotal == zero
+            and cart.shipping_fee == zero
+            and cart.discount_amount == zero
+            and cart.shipping_discount_amount == zero
+            and cart.total == zero
+        ):
+            return cart
+        cart.subtotal = zero
+        cart.shipping_fee = zero
+        cart.discount_amount = zero
+        cart.shipping_discount_amount = zero
+        cart.total = zero
         cart.version = F("version") + 1
         cart.save(
             update_fields=[
@@ -305,11 +337,23 @@ def recalculate_cart(*, cart, using="store", expected_version=None):
         using=using,
         lock_for_update=False,
     )
+    new_shipping_fee = voucher_result["final_shipping_fee"]
+    new_discount = voucher_result["order_discount_amount"]
+    new_shipping_discount = voucher_result["shipping_discount_amount"]
+    new_total = voucher_result["final_total"]
+    if (
+        cart.subtotal == subtotal
+        and cart.shipping_fee == new_shipping_fee
+        and cart.discount_amount == new_discount
+        and cart.shipping_discount_amount == new_shipping_discount
+        and cart.total == new_total
+    ):
+        return cart
     cart.subtotal = subtotal
-    cart.shipping_fee = voucher_result["final_shipping_fee"]
-    cart.discount_amount = voucher_result["order_discount_amount"]
-    cart.shipping_discount_amount = voucher_result["shipping_discount_amount"]
-    cart.total = voucher_result["final_total"]
+    cart.shipping_fee = new_shipping_fee
+    cart.discount_amount = new_discount
+    cart.shipping_discount_amount = new_shipping_discount
+    cart.total = new_total
     cart.version = F("version") + 1
     cart.save(
         update_fields=[
@@ -330,6 +374,16 @@ def recalculate_cart(*, cart, using="store", expected_version=None):
     return cart
 
 
+def set_cart_shipping_method(*, cart_id, shipping_method, expected_version, using="store"):
+    """Atomically set shipping after version check; avoids applying shipping when optimistic lock fails."""
+    with transaction.atomic(using=using):
+        cart = Cart.objects.using(using).select_for_update(of=("self",)).get(id=cart_id)
+        _assert_cart_version(cart=cart, expected_version=expected_version)
+        cart.shipping_method = shipping_method
+        cart.save(update_fields=["shipping_method"])
+        return recalculate_cart(cart=cart, using=using, expected_version=cart.version)
+
+
 def checkout_cart(
     *,
     cart,
@@ -346,7 +400,7 @@ def checkout_cart(
         locked_cart = (
             Cart.objects.using(using)
             .select_related("shipping_method", "order_voucher", "shipping_voucher")
-            .select_for_update()
+            .select_for_update(of=("self",))
             .get(id=cart.id)
         )
         _assert_cart_version(cart=locked_cart, expected_version=expected_version)
@@ -360,6 +414,8 @@ def checkout_cart(
         )
         if not items:
             raise CartServiceError("Cart must have at least one item")
+
+        _assert_checkout_stock(items=items, using=using)
 
         voucher_result = resolve_voucher_discounts(
             order_voucher_code=locked_cart.order_voucher.code if locked_cart.order_voucher else None,
@@ -396,8 +452,11 @@ def checkout_cart(
                 quantity=item.quantity,
                 price=item.unit_price_snapshot,
             )
-            required_base_quantity = int(item.quantity) * int(item.product_variant_unit.quantity_in_base)
-            deduct_stock(item.product_variant_id, required_base_quantity)
+            required_base_quantity = _item_required_base_quantity(item)
+            try:
+                deduct_stock(item.product_variant_id, required_base_quantity)
+            except ValueError as exc:
+                raise CartServiceError(str(exc)) from exc
 
         consume_vouchers(
             order=order,

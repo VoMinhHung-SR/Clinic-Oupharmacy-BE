@@ -16,6 +16,36 @@ Tài liệu này chuẩn hóa flow checkout theo hướng **cart-first** cho Sto
 
 Flow này là luồng chính cần ưu tiên cho FE và các tích hợp mới.
 
+### Payload `POST /api/store/carts/checkout/` (địa chỉ giao hàng)
+
+- **Legacy:** `shipping_address` — chuỗi không rỗng; lưu nguyên trên `Order` (client cũ).
+- **Khuyến nghị:** `delivery` — object, BE validate và format thành một `shipping_address` đa dòng trên `Order` (không thêm cột DB):
+  - `orderer`: `{ name, phone, email? }`
+  - `recipient`: `{ name, phone }`
+  - `address`: `{ province?, district?, ward?, detail }` (`detail` = địa chỉ cụ thể; tỉnh/huyện/xã là nhãn sau sáp nhập do FE/mainApp cung cấp).
+- Nếu gửi cả hai: chuỗi `shipping_address` **không rỗng** được ưu tiên (tương thích ngược).
+
+Ví dụ `delivery`:
+
+```json
+{
+  "expected_version": 3,
+  "payment_method_id": 1,
+  "delivery": {
+    "orderer": { "name": "Nguyễn A", "phone": "0382xxxxxx", "email": "a@mail.com" },
+    "recipient": { "name": "Trần B", "phone": "0382xxxxxx" },
+    "address": {
+      "province": "Thành phố Hồ Chí Minh",
+      "district": "Thủ Đức",
+      "ward": "Linh Xuân",
+      "detail": "12 Đường X"
+    }
+  }
+}
+```
+
+Validation lỗi trả `400` với `{ "error": "Validation failed", "details": { ... } }` (chi tiết field theo DRF).
+
 ## 3) Endpoints cart-first
 
 - `GET /api/store/carts/current/`

@@ -24,6 +24,7 @@ from storeApp.services.voucher_engine import (
     resolve_voucher_discounts,
 )
 from storeApp.services.cart_service import CartServiceError, CartVersionConflictError, checkout_cart
+from storeApp.services.checkout_delivery import resolve_checkout_shipping_address
 
 class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView,
                    generics.CreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
@@ -191,12 +192,22 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         if cart_id:
             payment_id = data.get("payment_method_id") or data.get("payment_method")
             expected_version_raw = data.get("expected_version")
-            shipping_address = data.get("shipping_address")
+            shipping_address_raw = data.get("shipping_address")
+            delivery_raw = data.get("delivery")
             notes = data.get("notes")
             if payment_id is None:
                 return Response(
                     {'error': 'payment_method or payment_method_id is required'},
                     status=status.HTTP_400_BAD_REQUEST
+                )
+            shipping_address, delivery_errors = resolve_checkout_shipping_address(
+                shipping_address=shipping_address_raw,
+                delivery=delivery_raw,
+            )
+            if delivery_errors is not None:
+                return Response(
+                    {'error': 'Validation failed', 'details': delivery_errors},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
             if not shipping_address:
                 return Response(

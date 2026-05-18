@@ -14,8 +14,10 @@ from storeApp.services.cart_service import (
     get_or_create_active_cart,
     recalculate_cart,
     remove_item,
+    set_cart_shipping_method,
     update_item,
 )
+from storeApp.services.checkout_delivery import resolve_checkout_shipping_address
 from storeApp.services.voucher_engine import VoucherEngineError
 
 
@@ -159,10 +161,13 @@ class CartViewSet(viewsets.ViewSet):
             shipping_method = ShippingMethod.objects.get(id=shipping_method_id, active=True)
         except ShippingMethod.DoesNotExist:
             return Response({"error": "ShippingMethod not found"}, status=status.HTTP_400_BAD_REQUEST)
-        cart.shipping_method = shipping_method
-        cart.save(update_fields=["shipping_method"])
         try:
-            cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
+            cart = set_cart_shipping_method(
+                cart_id=cart.id,
+                shipping_method=shipping_method,
+                expected_version=expected_version,
+                using="store",
+            )
         except CartVersionConflictError as exc:
             return Response(
                 {
@@ -261,7 +266,8 @@ class CartViewSet(viewsets.ViewSet):
         except CartServiceError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         payment_method_id = request.data.get("payment_method_id")
-        shipping_address = request.data.get("shipping_address")
+        shipping_address_raw = request.data.get("shipping_address")
+        delivery_raw = request.data.get("delivery")
         notes = request.data.get("notes")
         raw_line_ids = request.data.get("cart_item_ids")
         checkout_item_ids = None
@@ -276,8 +282,13 @@ class CartViewSet(viewsets.ViewSet):
                 return Response({"error": "cart_item_ids must be a list of integers"}, status=status.HTTP_400_BAD_REQUEST)
         if not payment_method_id:
             return Response({"error": "payment_method_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-        if not shipping_address:
-            return Response({"error": "shipping_address is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        shipping_address, delivery_errors = resolve_checkout_shipping_address(
+            shipping_address=shipping_address_raw,
+            delivery=delivery_raw,
+        )
+        if delivery_errors is not None:
+            return Response({"error": "Validation failed", "details": delivery_errors}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             payment_method = PaymentMethod.objects.get(id=payment_method_id, active=True)

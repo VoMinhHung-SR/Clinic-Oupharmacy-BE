@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 
 from .models import (
     MedicineBatch,
@@ -580,8 +581,37 @@ class CategoryLevel1Serializer(ModelSerializer):
         return CategoryLevel2Serializer(level2_categories, many=True).data
 
     def get_top_products(self, obj):
-        # We need to implement this or use a product ranking service in storeApp
-        return []
+        """
+        Top selling variants under this level-1 category (subtree), one variant per product.
+        Uses ProductVariant.product_ranking (and is_hot) for ordering.
+        """
+        slug = (obj.path_slug or "").strip()
+        if slug:
+            category_q = (
+                Q(product__category_id=obj.pk)
+                | Q(product__category__path_slug=slug)
+                | Q(product__category__path_slug__startswith=f"{slug}/")
+            )
+        else:
+            category_q = Q(product__category_id=obj.pk)
+
+        qs = (
+            ProductVariant.objects.filter(is_published=True)
+            .filter(category_q)
+            .select_related("product", "product__category")
+            .order_by("-product_ranking", "-is_hot", "-id")
+        )
+        picked = []
+        seen_products = set()
+        for variant in qs[:40]:
+            pid = variant.product_id
+            if pid in seen_products:
+                continue
+            seen_products.add(pid)
+            picked.append(variant)
+            if len(picked) >= 5:
+                break
+        return MinimalProductVariantSerializer(picked, many=True).data
 
 
 class CategoryLevel0Serializer(ModelSerializer):

@@ -11,7 +11,7 @@ Schema mapping với scraper JSON v1.3.4:
   - Variants/units lấy từ `pricing.saleUnits[]` (ưu tiên), fallback `pricing.packageOptions`
   - 6 content fields chứa sanitized HTML (description/usage/dosage/adverseEffect/careful/preservation)
   - `ingredients` là comma-list "Name: amount, ..."
-  - SKIP `specifications.registrationNumber` (scraper output đang concatenated garbage)
+  - SKIP `specifications.registrationNumber` (non-import; scraper DOM bleed)
 """
 
 import csv
@@ -20,6 +20,7 @@ import logging
 import os
 import random
 from datetime import date, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
 from dateutil.relativedelta import relativedelta
@@ -50,6 +51,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DATA_DIR = "storeApp/test/data/new"
 BATCH_SIZE = 300  # bulk_create chunk size
+DEFAULT_STOCK = 100
+DEFAULT_BATCH_COUNT = 1
+# MedicineBatch.quantity = đơn vị cơ sở; ≈ default_unit.quantity_in_base × random(pack mult)
+DEFAULT_BATCH_PACK_MULT_MIN = 10
+DEFAULT_BATCH_PACK_MULT_MAX = 40
 
 # ============================================================
 # Helper utilities
@@ -112,7 +118,8 @@ def _build_variant_payloads_from_sale_units(
 
     units.sort(key=lambda u: (u["unit_order"], 0 if u["is_default"] else 1))
     normalize_single_default_unit_per_variant(units)
-    base_unit = units[0]["unit_name"]
+    # ProductVariant.base_unit = đơn vị cơ sở nhỏ nhất (quantity_in_base thấp nhất)
+    base_unit = min(units, key=lambda u: (u["quantity_in_base"], u["unit_order"]))["unit_name"]
     packing = (default_packing or "").strip()[:100] or "Default"
     return [{"packing": packing, "base_unit": base_unit, "units": units}]
 
@@ -196,12 +203,48 @@ def _random_shelf_life() -> str:
     return f"{random.choice(_RANDOM_SHELF_LIFE_MONTHS)} tháng"
 
 
-def _ensure_unit_pricing(units: list) -> None:
+def _compute_synthetic_batch_quantity(
+    quantity_in_base: int,
+    pack_mult_min: int,
+    pack_mult_max: int,
+) -> int:
+    """Batch qty theo đơn vị cơ sở ≈ số đơn vị bán mặc định × quantity_in_base."""
+    qib = max(int(quantity_in_base or 1), 1)
+    lo = max(int(pack_mult_min), 1)
+    hi = max(int(pack_mult_max), lo)
+    return qib * random.randint(lo, hi)
+
+
+def _compute_import_price_per_base_unit(price_value, quantity_in_base: int) -> Optional[Decimal]:
+    if not price_value or quantity_in_base <= 0:
+        return None
+    try:
+        return (
+            Decimal(str(price_value)) / Decimal(quantity_in_base)
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:
+        return None
+
+
+def _ensure_unit_pricing(
+    units: list,
+    fallback_price: float = 0,
+    fallback_display: str = "",
+) -> None:
     for u in units:
-        if not u.get("price_value"):
-            u["price_value"] = _random_price_value()
+        if u.get("price_value"):
+            continue
+        if fallback_price:
+            u["price_value"] = float(fallback_price)
             if not u.get("price_display"):
-                u["price_display"] = _format_price_display(u["price_value"], u.get("unit_name", ""))
+                u["price_display"] = (
+                    fallback_display
+                    or _format_price_display(u["price_value"], u.get("unit_name", ""))
+                )
+            continue
+        u["price_value"] = _random_price_value()
+        if not u.get("price_display"):
+            u["price_display"] = _format_price_display(u["price_value"], u.get("unit_name", ""))
 
 
 # ============================================================
@@ -279,6 +322,40 @@ class Command(BaseCommand):
             default=None,
             help="Giới hạn số rows xử lý mỗi file (dùng để test).",
         )
+        parser.add_argument(
+            "--default-stock",
+            type=int,
+            default=DEFAULT_STOCK,
+            dest="default_stock",
+            help=f"in_stock trên variant khi không sync batch (default: {DEFAULT_STOCK}).",
+        )
+        parser.add_argument(
+            "--batch-pack-mult-min",
+            type=int,
+            default=DEFAULT_BATCH_PACK_MULT_MIN,
+            dest="batch_pack_mult_min",
+            help=(
+                "Số đơn vị bán mặc định (× quantity_in_base) tối thiểu cho mỗi batch "
+                f"(default: {DEFAULT_BATCH_PACK_MULT_MIN})."
+            ),
+        )
+        parser.add_argument(
+            "--batch-pack-mult-max",
+            type=int,
+            default=DEFAULT_BATCH_PACK_MULT_MAX,
+            dest="batch_pack_mult_max",
+            help=(
+                "Số đơn vị bán mặc định (× quantity_in_base) tối đa cho mỗi batch "
+                f"(default: {DEFAULT_BATCH_PACK_MULT_MAX})."
+            ),
+        )
+        parser.add_argument(
+            "--batch-count",
+            type=int,
+            default=DEFAULT_BATCH_COUNT,
+            dest="batch_count",
+            help=f"Số batch tạo mỗi variant (default: {DEFAULT_BATCH_COUNT}).",
+        )
 
     # ----------------------------------------------------------
     # Entry point
@@ -289,6 +366,10 @@ class Command(BaseCommand):
         update_existing = options["update_existing"]
         no_batches = options["no_batches"]
         limit = options.get("limit")
+        self.default_stock = max(int(options["default_stock"]), 0)
+        self.batch_pack_mult_min = max(int(options["batch_pack_mult_min"]), 1)
+        self.batch_pack_mult_max = max(int(options["batch_pack_mult_max"]), self.batch_pack_mult_min)
+        self.batch_count = max(int(options["batch_count"]), 1)
 
         if dry_run:
             self.stdout.write(self.style.WARNING("⚠  DRY-RUN mode — không ghi vào DB."))
@@ -317,6 +398,8 @@ class Command(BaseCommand):
             "variant_units_updated": 0,
             "batches_created": 0,
             "errors": 0,
+            "units_from_sale_units": 0,
+            "units_from_package_options": 0,
         }
 
         for data_file in data_files:
@@ -335,7 +418,8 @@ class Command(BaseCommand):
                       "products_created", "products_updated",
                       "variants_created", "variants_updated",
                       "variant_units_created", "variant_units_updated",
-                      "batches_created", "errors"):
+                      "batches_created", "errors",
+                      "units_from_sale_units", "units_from_package_options"):
                 total_stats[k] += file_stats.get(k, 0)
 
             self._print_file_stats(file_stats)
@@ -354,6 +438,10 @@ class Command(BaseCommand):
         self.stdout.write(f"  VariantUnits tạo : {total_stats['variant_units_created']}")
         self.stdout.write(f"  VariantUnits cập nl: {total_stats['variant_units_updated']}")
         self.stdout.write(f"  Batches tạo   : {total_stats['batches_created']}")
+        self.stdout.write(
+            f"  Units source  : saleUnits={total_stats['units_from_sale_units']}  "
+            f"packageOptions={total_stats['units_from_package_options']}"
+        )
         self.stdout.write(f"  Lỗi           : {total_stats['errors']}")
         if dry_run:
             self.stdout.write(self.style.WARNING("⚠  DRY-RUN complete — không có dữ liệu nào bị lưu."))
@@ -406,6 +494,8 @@ class Command(BaseCommand):
             "variant_units_updated": 0,
             "batches_created": 0,
             "errors": 0,
+            "units_from_sale_units": 0,
+            "units_from_package_options": 0,
         }
 
         try:
@@ -477,6 +567,8 @@ class Command(BaseCommand):
             "variant_units_created": 0,
             "variant_units_updated": 0,
             "batches_created": 0,
+            "units_from_sale_units": 0,
+            "units_from_package_options": 0,
         }
 
         # ── 1. Brand ──────────────────────────────────────────
@@ -503,12 +595,13 @@ class Command(BaseCommand):
             str(row.get("pricing.priceDisplay") or row.get("pricing.priceValue") or "")
         )
 
-        sale_units = row.get("pricing.saleUnits")
-        if isinstance(sale_units, list) and sale_units:
+        sale_units = _parse_json_field(row.get("pricing.saleUnits"), default=[])
+        if sale_units:
             variant_payloads = _build_variant_payloads_from_sale_units(
                 sale_units=sale_units,
                 default_packing=default_packing,
             )
+            stats["units_from_sale_units"] += 1
         else:
             package_options = _parse_package_options(
                 row.get("pricing.packageOptions", ""),
@@ -522,9 +615,14 @@ class Command(BaseCommand):
                 default_price_display=default_price_display,
                 default_price_value=default_price_value,
             )
+            stats["units_from_package_options"] += 1
 
         for payload in variant_payloads:
-            _ensure_unit_pricing(payload.get("units", []))
+            _ensure_unit_pricing(
+                payload.get("units", []),
+                fallback_price=default_price_value,
+                fallback_display=default_price_display,
+            )
 
         images = _parse_json_field(row.get("media.images", []), default=[])
         image_url = str(row.get("media.image") or "").strip()
@@ -534,7 +632,7 @@ class Command(BaseCommand):
         shelf_life = str(row.get("specifications.shelfLife") or "").strip()[:100] or _random_shelf_life()
 
         variant_common = {
-            "in_stock": random.randint(50, 300),
+            "in_stock": self.default_stock,
             "image": None,
             "images": images,
             "base_unit": "unit",
@@ -546,6 +644,7 @@ class Command(BaseCommand):
             "product_ranking": _to_int(row.get("metadata.productRanking"), 0),
             "sku": str(row.get("basicInfo.sku") or "").strip()[:100] or None,
             "is_published": _to_bool(row.get("metadata.isPublish", "true"), True),
+            # Scraper does not emit metadata.isHot yet; default False until formatter adds it.
             "is_hot": _to_bool(row.get("metadata.isHot", "false"), False),
         }
 
@@ -718,10 +817,7 @@ class Command(BaseCommand):
         return brand.id
 
     def _extract_country_from_row(self, row: dict) -> Optional[str]:
-        for field in ("basicInfo.country", "brand.country", "specifications.country"):
-            val = str(row.get(field) or "").strip()
-            if val:
-                return _extract_country(val) or val
+        # Country columns are not in current scraper CSV; origin/manufacturer below are the real sources.
         for field in ("specifications.origin", "specifications.manufacturer"):
             val = str(row.get(field) or "").strip()
             country = _extract_country(val)
@@ -800,6 +896,22 @@ class Command(BaseCommand):
     # ----------------------------------------------------------
     # MedicineBatch creation
     # ----------------------------------------------------------
+    def _resolve_variant_default_unit(self, variant: ProductVariant) -> Optional[ProductVariantUnit]:
+        unit = (
+            ProductVariantUnit.objects.using("store")
+            .filter(variant=variant, is_default=True)
+            .order_by("unit_order", "id")
+            .first()
+        )
+        if unit:
+            return unit
+        return (
+            ProductVariantUnit.objects.using("store")
+            .filter(variant=variant)
+            .order_by("unit_order", "id")
+            .first()
+        )
+
     def _create_batches(self, variants: list) -> int:
         today = timezone.now().date()
         created = 0
@@ -811,13 +923,25 @@ class Command(BaseCommand):
             # Xóa batch cũ của variant này (tránh conflict)
             MedicineBatch.objects.using("store").filter(product_variant=variant).delete()
 
-            # Tạo 1-2 batch mới
-            num_batches = random.randint(1, 2)
+            default_unit = self._resolve_variant_default_unit(variant)
+            qib = max(default_unit.quantity_in_base, 1) if default_unit else 1
+            import_price_per_base = None
+            if default_unit and default_unit.price_value:
+                import_price_per_base = _compute_import_price_per_base_unit(
+                    default_unit.price_value,
+                    qib,
+                )
+
+            num_batches = self.batch_count
             for _ in range(num_batches):
                 import_date = _random_import_date(today)
                 expiry_months = random.choice([6, 12, 18, 24, 36])
                 expiry_date = _add_months(import_date, expiry_months)
-                quantity = random.randint(50, 500)
+                quantity = _compute_synthetic_batch_quantity(
+                    qib,
+                    self.batch_pack_mult_min,
+                    self.batch_pack_mult_max,
+                )
 
                 # Unique batch_number
                 for _ in range(50):
@@ -837,7 +961,7 @@ class Command(BaseCommand):
                     expiry_date=expiry_date,
                     quantity=quantity,
                     remaining_quantity=quantity,
-                    import_price_per_base_unit=None,
+                    import_price_per_base_unit=import_price_per_base,
                     active=True,
                 )
                 created += 1

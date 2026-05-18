@@ -2,6 +2,9 @@ from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
+from decimal import Decimal
+
+from django.test import SimpleTestCase
 from rest_framework.test import APITestCase
 from unittest.mock import Mock, patch
 
@@ -659,3 +662,278 @@ class CartCurrentCacheReadThroughTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         gateway.get_cart_summary.assert_called_once()
         gateway.set_cart_summary.assert_called_once()
+
+
+class CheckoutDeliveryResolveTests(SimpleTestCase):
+    def test_legacy_nonempty_string_wins(self):
+        from storeApp.services.checkout_delivery import resolve_checkout_shipping_address
+
+        legacy = "  Only legacy text  "
+        delivery = {
+            "orderer": {"name": "X", "phone": "0382590839"},
+            "recipient": {"name": "Y", "phone": "0382590839"},
+            "address": {"detail": "123 Đường ABC"},
+        }
+        text, err = resolve_checkout_shipping_address(shipping_address=legacy, delivery=delivery)
+        self.assertIsNone(err)
+        self.assertEqual(text, "Only legacy text")
+
+    def test_delivery_builds_multiline_address(self):
+        from storeApp.services.checkout_delivery import resolve_checkout_shipping_address
+
+        delivery = {
+            "orderer": {"name": "Đặt Hàng", "phone": "0382590839", "email": "u@example.com"},
+            "recipient": {"name": "Nhận Hàng", "phone": "0382590839"},
+            "address": {
+                "province": "Hà Nội",
+                "district": "Ba Đình",
+                "ward": "Phường 1",
+                "detail": "12 Ngõ 3",
+            },
+        }
+        text, err = resolve_checkout_shipping_address(shipping_address="", delivery=delivery)
+        self.assertIsNone(err)
+        self.assertIn("Người đặt:", text)
+        self.assertIn("Email người đặt:", text)
+        self.assertIn("Người nhận:", text)
+        self.assertIn("Địa chỉ hành chính sau sáp nhập:", text)
+        self.assertIn("Địa chỉ cụ thể:", text)
+
+    def test_neither_string_nor_delivery_errors(self):
+        from storeApp.services.checkout_delivery import resolve_checkout_shipping_address
+
+        text, err = resolve_checkout_shipping_address(shipping_address="   ", delivery=None)
+        self.assertIsNone(text)
+        self.assertIsNotNone(err)
+
+
+class CartCheckoutDeliveryApiTests(APITestCase):
+    databases = {"default", "store"}
+
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            email="checkout-delivery-user@example.com",
+            password="test-pass-123",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        self.shipping_method = ShippingMethod.objects.create(
+            name="Standard",
+            price=30000,
+            estimated_days=2,
+            active=True,
+        )
+        self.payment_method = PaymentMethod.objects.create(
+            name="COD",
+            code="COD",
+            active=True,
+        )
+        self.category = Category.objects.create(name="Thuốc ho", slug="thuoc-ho")
+        self.product = Product.objects.create(
+            name="Thuốc ho A",
+            mid="MID-CHK-DLV-001",
+            slug="thuoc-ho-a",
+            category=self.category,
+        )
+        self.variant = ProductVariant.objects.create(
+            product=self.product,
+            packing="Hộp",
+            in_stock=100,
+            is_published=True,
+        )
+        self.unit = ProductVariantUnit.objects.create(
+            variant=self.variant,
+            quantity_in_base=1,
+            unit_name="Hộp",
+            unit_order=0,
+            price_value=50000,
+            is_default=True,
+            is_published=True,
+        )
+        MedicineBatch.objects.create(
+            batch_number="BATCH-CHK-DLV-001",
+            product_variant=self.variant,
+            import_date=timezone.now().date() - timedelta(days=5),
+            expiry_date=timezone.now().date() + timedelta(days=365),
+            quantity=100,
+            remaining_quantity=100,
+        )
+
+    def _delivery_body(self):
+        return {
+            "orderer": {"name": "Đặt Hàng", "phone": "0382590839", "email": "orderer@example.com"},
+            "recipient": {"name": "Nhận Hàng", "phone": "0382590839"},
+            "address": {"province": "HN", "district": "Ba Đình", "ward": "P1", "detail": "12 Phố Huế"},
+        }
+
+    def test_carts_checkout_accepts_delivery_object(self):
+        cart_data = self.client.get("/api/store/carts/current/").data
+        v0 = cart_data["version"]
+
+        add = self.client.post(
+            "/api/store/carts/items/",
+            {
+                "expected_version": v0,
+                "product_variant_id": self.variant.id,
+                "product_variant_unit_id": self.unit.id,
+                "quantity": 1,
+            },
+            format="json",
+        )
+        self.assertEqual(add.status_code, 200)
+        v1 = add.data["version"]
+
+        ship = self.client.post(
+            "/api/store/carts/select-shipping/",
+            {
+                "expected_version": v1,
+                "shipping_method_id": self.shipping_method.id,
+            },
+            format="json",
+        )
+        self.assertEqual(ship.status_code, 200)
+        v2 = ship.data["version"]
+
+        checkout = self.client.post(
+            "/api/store/carts/checkout/",
+            {
+                "expected_version": v2,
+                "payment_method_id": self.payment_method.id,
+                "delivery": self._delivery_body(),
+            },
+            format="json",
+        )
+        self.assertEqual(checkout.status_code, 201, checkout.data)
+        self.assertIn("Người đặt:", checkout.data["shipping_address"])
+        self.assertIn("Người nhận:", checkout.data["shipping_address"])
+        order = Order.objects.filter(user_id=self.user.id).order_by("-id").first()
+        self.assertIsNotNone(order)
+        self.assertIn("Email người đặt:", order.shipping_address)
+
+    def test_carts_checkout_delivery_validation_error(self):
+        cart_data = self.client.get("/api/store/carts/current/").data
+        v0 = cart_data["version"]
+
+        add = self.client.post(
+            "/api/store/carts/items/",
+            {
+                "expected_version": v0,
+                "product_variant_id": self.variant.id,
+                "product_variant_unit_id": self.unit.id,
+                "quantity": 1,
+            },
+            format="json",
+        )
+        self.assertEqual(add.status_code, 200)
+        v1 = add.data["version"]
+
+        ship = self.client.post(
+            "/api/store/carts/select-shipping/",
+            {
+                "expected_version": v1,
+                "shipping_method_id": self.shipping_method.id,
+            },
+            format="json",
+        )
+        self.assertEqual(ship.status_code, 200)
+        v2 = ship.data["version"]
+
+        bad_delivery = {
+            "orderer": {"name": "A", "phone": "invalid"},
+            "recipient": {"name": "B", "phone": "0382590839"},
+            "address": {"detail": "12 Phố Huế"},
+        }
+        checkout = self.client.post(
+            "/api/store/carts/checkout/",
+            {
+                "expected_version": v2,
+                "payment_method_id": self.payment_method.id,
+                "delivery": bad_delivery,
+            },
+            format="json",
+        )
+        self.assertEqual(checkout.status_code, 400)
+        self.assertEqual(checkout.data.get("error"), "Validation failed")
+
+    def test_carts_checkout_insufficient_stock_returns_400_not_500(self):
+        cart_data = self.client.get("/api/store/carts/current/").data
+        v0 = cart_data["version"]
+
+        add = self.client.post(
+            "/api/store/carts/items/",
+            {
+                "expected_version": v0,
+                "product_variant_id": self.variant.id,
+                "product_variant_unit_id": self.unit.id,
+                "quantity": 2,
+            },
+            format="json",
+        )
+        self.assertEqual(add.status_code, 200)
+        v1 = add.data["version"]
+
+        ship = self.client.post(
+            "/api/store/carts/select-shipping/",
+            {
+                "expected_version": v1,
+                "shipping_method_id": self.shipping_method.id,
+            },
+            format="json",
+        )
+        self.assertEqual(ship.status_code, 200)
+        v2 = ship.data["version"]
+
+        MedicineBatch.objects.filter(product_variant_id=self.variant.id).update(remaining_quantity=1)
+
+        orders_before = Order.objects.filter(user_id=self.user.id).count()
+        checkout = self.client.post(
+            "/api/store/carts/checkout/",
+            {
+                "expected_version": v2,
+                "payment_method_id": self.payment_method.id,
+                "delivery": self._delivery_body(),
+            },
+            format="json",
+        )
+        self.assertEqual(checkout.status_code, 400, checkout.data)
+        self.assertIn("Insufficient stock", checkout.data.get("error", ""))
+        self.assertEqual(Order.objects.filter(user_id=self.user.id).count(), orders_before)
+
+
+class StoreImportCsvHelperTests(SimpleTestCase):
+    def test_parse_sale_units_from_csv_json_string(self):
+        from storeApp.management.commands.store_import_csv import (
+            _build_variant_payloads_from_sale_units,
+            _parse_json_field,
+        )
+
+        raw = (
+            '[{"unitName":"Hộp","quantityInBase":120,"unitOrder":0,'
+            '"isDefault":true,"priceValue":330000,"priceDisplay":"330.000đ / Hộp"}]'
+        )
+        sale_units = _parse_json_field(raw, default=[])
+        self.assertEqual(len(sale_units), 1)
+        payloads = _build_variant_payloads_from_sale_units(sale_units, "Hộp x 120")
+        self.assertEqual(payloads[0]["units"][0]["quantity_in_base"], 120)
+        self.assertEqual(payloads[0]["units"][0]["price_value"], 330000.0)
+
+    def test_ensure_unit_pricing_uses_row_fallback_before_random(self):
+        from storeApp.management.commands.store_import_csv import _ensure_unit_pricing
+
+        units = [{"unit_name": "Hộp", "price_value": 0, "price_display": None}]
+        _ensure_unit_pricing(units, fallback_price=250000, fallback_display="250.000đ / Hộp")
+        self.assertEqual(units[0]["price_value"], 250000.0)
+        self.assertEqual(units[0]["price_display"], "250.000đ / Hộp")
+
+    def test_batch_quantity_scales_with_quantity_in_base(self):
+        from storeApp.management.commands.store_import_csv import _compute_synthetic_batch_quantity
+
+        qty = _compute_synthetic_batch_quantity(40, 10, 10)
+        self.assertEqual(qty, 400)
+
+    def test_import_price_per_base_unit_from_sale_unit(self):
+        from storeApp.management.commands.store_import_csv import _compute_import_price_per_base_unit
+
+        price = _compute_import_price_per_base_unit(425000, 40)
+        self.assertEqual(price, Decimal("10625.00"))

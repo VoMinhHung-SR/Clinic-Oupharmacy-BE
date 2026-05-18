@@ -15,7 +15,8 @@ from storeApp.models import MedicineBatch, ProductVariant
 def get_available_stock(product_variant_id):
     """
     Sum remaining_quantity from Batches (store): active, remaining_quantity > 0, expiry_date >= today.
-    Fallback: if no such batches, return ProductVariant.in_stock.
+
+  Source of truth for checkout / deduct_stock — must match deduct_stock (no in_stock fallback).
     """
     today = timezone.now().date()
     total = (
@@ -28,13 +29,7 @@ def get_available_stock(product_variant_id):
         )
         .aggregate(total=models.Sum('remaining_quantity'))['total']
     )
-    if total is not None:
-        return int(total)
-    try:
-        variant = ProductVariant.objects.using('store').get(id=product_variant_id)
-        return getattr(variant, 'in_stock', 0) or 0
-    except ProductVariant.DoesNotExist:
-        return 0
+    return int(total) if total is not None else 0
 
 
 def deduct_stock(product_variant_id, quantity):
@@ -69,7 +64,8 @@ def deduct_stock(product_variant_id, quantity):
             batch.save(update_fields=['remaining_quantity'])
     if remaining > 0:
         raise ValueError(
-            f'Insufficient stock for product_variant_id {product_variant_id}. Could not deduct {remaining} units.'
+            f'Insufficient stock for product_variant_id {product_variant_id}. '
+            f'Could not deduct {remaining} of {quantity} base unit(s).'
         )
     sync_in_stock_cache(product_variant_id)
 

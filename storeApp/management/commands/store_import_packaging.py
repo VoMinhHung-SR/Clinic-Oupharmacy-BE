@@ -153,14 +153,14 @@ def _build_variant_payloads(package_options: list, default_packing: str, default
             }]
 
         base = units[0]
-        base_unit = base["unit_name"]
+        infer_base_unit = base["unit_name"]
         base_price = base["price_value"] or 0.0
 
         for idx, unit in enumerate(units):
             unit["unit_order"] = idx
             unit["is_default"] = idx == 0
             unit["quantity_in_base"] = _infer_quantity_in_base(
-                base_unit=base_unit,
+                base_unit=infer_base_unit,
                 target_unit=unit["unit_name"],
                 packing=packing,
                 base_price=base_price,
@@ -168,9 +168,11 @@ def _build_variant_payloads(package_options: list, default_packing: str, default
             )
 
         normalize_single_default_unit_per_variant(units)
+        # Variant.base_unit = đơn vị cơ sở nhỏ nhất (old CSV / packageOptions refactor path)
+        smallest_base = min(units, key=lambda u: (u.get("quantity_in_base", 1), u.get("unit_order", 0)))
         payloads.append({
             "packing": packing,
-            "base_unit": base_unit,
+            "base_unit": smallest_base["unit_name"],
             "units": units,
         })
 
