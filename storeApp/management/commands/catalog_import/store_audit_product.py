@@ -5,16 +5,16 @@ Usage:
   cd Clinic-Oupharmacy-BE
 
   # Tổng quan catalog DB
-  python manage.py store_audit_product --overview
+  python manage.py store_catalog audit --overview
 
   # So sánh theo mid (basicInfo.sku)
-  python manage.py store_audit_product --mid 00002393
+  python manage.py store_catalog audit --mid 00002393
 
   # So sánh theo slug
-  python manage.py store_audit_product --slug diabetna-vien-uong-ha-duong-huyet-mo-mau-370
+  python manage.py store_catalog audit --slug diabetna-vien-uong-ha-duong-huyet-mo-mau-370
 
   # Chỉ định file CSV new (mặc định quét storeApp/test/data/new)
-  python manage.py store_audit_product --mid 00002393 --scrape-root storeApp/test/data/new
+  python manage.py store_catalog audit --mid 00002393 --scrape-root storeApp/test/data/new
 """
 
 from __future__ import annotations
@@ -149,7 +149,7 @@ class Command(BaseCommand):
             self._print_refactor_schema()
             if not options["mid"] and not options["slug"]:
                 self.stdout.write(
-                    "\nTip: python manage.py store_audit_product --mid <sku> [--payload-only]"
+                    "\nTip: python manage.py store_catalog audit --mid <sku> [--payload-only]"
                 )
                 return
 

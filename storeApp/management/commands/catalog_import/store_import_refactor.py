@@ -7,16 +7,16 @@ Dry-run mặc định (không ghi DB). Dùng --apply để import thật.
 
 Ví dụ:
   # Smoke: 1 file CSV nhỏ nhất trong data/old (2 dòng data)
-  python manage.py store_import_refactor --dry-run --sample
+  python manage.py store_catalog import-refactor --dry-run --sample
 
   # Toàn bộ data/old (packageOptions refactor + batch simulated)
-  python manage.py store_import_refactor --dry-run
+  python manage.py store_catalog import-refactor --dry-run
 
   # Old rồi new (2 phase)
-  python manage.py store_import_refactor --dry-run --phase both
+  python manage.py store_catalog import-refactor --dry-run --phase both
 
   # Ghi DB
-  python manage.py store_import_refactor --apply --phase both --update-existing
+  python manage.py store_catalog import-refactor --apply --phase both --update-existing
 """
 
 from __future__ import annotations
@@ -26,8 +26,9 @@ import os
 from typing import Optional
 
 from django.conf import settings
-from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+
+from storeApp.management.commands.catalog_import.run import run_import_csv
 
 DEFAULT_OLD_DIR = "storeApp/test/data/old"
 DEFAULT_NEW_DIR = "storeApp/test/data/new"
@@ -209,12 +210,12 @@ class Command(BaseCommand):
             if options["no_smart_random_price"]:
                 kwargs["no_smart_random_price"] = True
 
-            call_command("store_import_csv", import_path, **kwargs)
+            run_import_csv(import_path, **kwargs)
 
         self.stdout.write(self.style.SUCCESS("\n✅ store_import_refactor hoàn tất."))
         if dry_run:
             self.stdout.write(
-                "   Ghi DB: python manage.py store_import_refactor --apply "
+                "   Ghi DB: python manage.py store_catalog import-refactor --apply "
                 f"--phase {options['phase']} --update-existing"
             )
 

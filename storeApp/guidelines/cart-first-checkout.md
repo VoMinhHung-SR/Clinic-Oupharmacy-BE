@@ -251,7 +251,7 @@ Base path: `/api/store/carts/` (alias DB `store`).
 
 ### Ops
 
-- [ ] `python manage.py store_audit_product --overview` — units price > 0, default unit OK.  
+- [ ] `python manage.py store_catalog audit --overview` — units price > 0, default unit OK.  
 - [ ] Spot-check `in_stock` vs batch nếu báo hết hàng sai.
 
 ---

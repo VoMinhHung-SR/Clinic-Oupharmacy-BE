@@ -903,7 +903,7 @@ class CartCheckoutDeliveryApiTests(APITestCase):
 
 class StoreImportCsvHelperTests(SimpleTestCase):
     def test_parse_sale_units_from_csv_json_string(self):
-        from storeApp.management.commands.store_import_csv import (
+        from storeApp.management.commands.catalog_import.store_import_csv import (
             _build_variant_payloads_from_sale_units,
             _parse_json_field,
         )
@@ -919,7 +919,7 @@ class StoreImportCsvHelperTests(SimpleTestCase):
         self.assertEqual(payloads[0]["units"][0]["price_value"], 330000.0)
 
     def test_ensure_unit_pricing_uses_row_fallback_before_random(self):
-        from storeApp.management.commands.store_import_pricing import ensure_unit_pricing
+        from storeApp.management.commands.catalog_import.store_import_pricing import ensure_unit_pricing
 
         units = [
             {
@@ -934,7 +934,7 @@ class StoreImportCsvHelperTests(SimpleTestCase):
         self.assertEqual(units[0]["price_value"], 400000.0)
 
     def test_smart_random_scales_with_quantity_in_base(self):
-        from storeApp.management.commands.store_import_pricing import smart_random_unit_price
+        from storeApp.management.commands.catalog_import.store_import_pricing import smart_random_unit_price
 
         random.seed(42)
         hop = smart_random_unit_price("Hộp", 40)
@@ -944,7 +944,7 @@ class StoreImportCsvHelperTests(SimpleTestCase):
         self.assertGreater(hop, vien)
 
     def test_infer_sibling_price_for_zero_unit(self):
-        from storeApp.management.commands.store_import_pricing import ensure_unit_pricing
+        from storeApp.management.commands.catalog_import.store_import_pricing import ensure_unit_pricing
 
         units = [
             {"unit_name": "Viên", "quantity_in_base": 1, "price_value": 5000, "is_default": False},
@@ -954,13 +954,13 @@ class StoreImportCsvHelperTests(SimpleTestCase):
         self.assertEqual(units[1]["price_value"], 200000.0)
 
     def test_batch_quantity_scales_with_quantity_in_base(self):
-        from storeApp.management.commands.store_import_csv import _compute_synthetic_batch_quantity
+        from storeApp.management.commands.catalog_import.store_import_csv import _compute_synthetic_batch_quantity
 
         qty = _compute_synthetic_batch_quantity(40, 10, 10)
         self.assertEqual(qty, 400)
 
     def test_import_price_per_base_unit_from_sale_unit(self):
-        from storeApp.management.commands.store_import_csv import _compute_import_price_per_base_unit
+        from storeApp.management.commands.catalog_import.store_import_csv import _compute_import_price_per_base_unit
 
         price = _compute_import_price_per_base_unit(425000, 40)
         self.assertEqual(price, Decimal("10625.00"))

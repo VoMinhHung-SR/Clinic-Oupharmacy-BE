@@ -1,6 +1,6 @@
 """
 Management command to backfill MedicineUnitStats for existing MedicineUnits
-Chạy: python manage.py backfill_medicine_unit_stats
+Chạy: python manage.py store_backfill medicine-unit-stats
 """
 from django.core.management.base import BaseCommand
 from django.db import transaction

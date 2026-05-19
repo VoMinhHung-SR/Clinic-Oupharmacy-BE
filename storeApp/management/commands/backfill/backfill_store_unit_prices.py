@@ -8,9 +8,9 @@ Strategy priority (practical + safe):
 4) Infer from priced units in same category (median price per base unit)
 
 Usage:
-  python manage.py backfill_store_unit_prices --dry-run
-  python manage.py backfill_store_unit_prices
-  python manage.py backfill_store_unit_prices --database=store --limit=500
+  python manage.py store_backfill unit-prices --dry-run
+  python manage.py store_backfill unit-prices
+  python manage.py store_backfill unit-prices --database=store --limit=500
 """
 
 import random
