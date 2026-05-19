@@ -36,6 +36,7 @@ from .store_import_packaging import (
     normalize_single_default_unit_per_variant,
     reconcile_single_default_variant_units_in_db,
 )
+from .store_import_pricing import ensure_unit_pricing, format_price_display, is_positive_price
 from storeApp.models import (
     Brand,
     Category,
@@ -186,17 +187,7 @@ def _random_import_date(today: date) -> date:
     return start + timedelta(days=random.randint(0, delta))
 
 
-_RANDOM_PRICE_RANGE = (10_000, 500_000)
 _RANDOM_SHELF_LIFE_MONTHS = (12, 18, 24, 36)
-
-
-def _random_price_value() -> float:
-    return float(random.randint(*_RANDOM_PRICE_RANGE))
-
-
-def _format_price_display(value: float, unit_name: str = "") -> str:
-    s = f"{int(value):,}".replace(",", ".") + "đ"
-    return f"{s} / {unit_name}" if unit_name else s
 
 
 def _random_shelf_life() -> str:
@@ -215,6 +206,13 @@ def _compute_synthetic_batch_quantity(
     return qib * random.randint(lo, hi)
 
 
+def _default_unit_from_payload(units: list) -> Optional[dict]:
+    for u in units or []:
+        if u.get("is_default"):
+            return u
+    return units[0] if units else None
+
+
 def _compute_import_price_per_base_unit(price_value, quantity_in_base: int) -> Optional[Decimal]:
     if not price_value or quantity_in_base <= 0:
         return None
@@ -224,27 +222,6 @@ def _compute_import_price_per_base_unit(price_value, quantity_in_base: int) -> O
         ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     except Exception:
         return None
-
-
-def _ensure_unit_pricing(
-    units: list,
-    fallback_price: float = 0,
-    fallback_display: str = "",
-) -> None:
-    for u in units:
-        if u.get("price_value"):
-            continue
-        if fallback_price:
-            u["price_value"] = float(fallback_price)
-            if not u.get("price_display"):
-                u["price_display"] = (
-                    fallback_display
-                    or _format_price_display(u["price_value"], u.get("unit_name", ""))
-                )
-            continue
-        u["price_value"] = _random_price_value()
-        if not u.get("price_display"):
-            u["price_display"] = _format_price_display(u["price_value"], u.get("unit_name", ""))
 
 
 # ============================================================
@@ -356,6 +333,12 @@ class Command(BaseCommand):
             dest="batch_count",
             help=f"Số batch tạo mỗi variant (default: {DEFAULT_BATCH_COUNT}).",
         )
+        parser.add_argument(
+            "--no-smart-random-price",
+            action="store_true",
+            dest="no_smart_random_price",
+            help="Giá thiếu: random phẳng 10k–500k thay vì theo tier đơn vị × quantity_in_base.",
+        )
 
     # ----------------------------------------------------------
     # Entry point
@@ -370,6 +353,7 @@ class Command(BaseCommand):
         self.batch_pack_mult_min = max(int(options["batch_pack_mult_min"]), 1)
         self.batch_pack_mult_max = max(int(options["batch_pack_mult_max"]), self.batch_pack_mult_min)
         self.batch_count = max(int(options["batch_count"]), 1)
+        self.use_smart_random_price = not options["no_smart_random_price"]
 
         if dry_run:
             self.stdout.write(self.style.WARNING("⚠  DRY-RUN mode — không ghi vào DB."))
@@ -437,7 +421,8 @@ class Command(BaseCommand):
         self.stdout.write(f"  Variants cập nl: {total_stats['variants_updated']}")
         self.stdout.write(f"  VariantUnits tạo : {total_stats['variant_units_created']}")
         self.stdout.write(f"  VariantUnits cập nl: {total_stats['variant_units_updated']}")
-        self.stdout.write(f"  Batches tạo   : {total_stats['batches_created']}")
+        batch_label = "Batches (simulated)" if dry_run and not options["no_batches"] else "Batches tạo"
+        self.stdout.write(f"  {batch_label:16}: {total_stats['batches_created']}")
         self.stdout.write(
             f"  Units source  : saleUnits={total_stats['units_from_sale_units']}  "
             f"packageOptions={total_stats['units_from_package_options']}"
@@ -596,6 +581,11 @@ class Command(BaseCommand):
         )
 
         sale_units = _parse_json_field(row.get("pricing.saleUnits"), default=[])
+        # Scrape price 0 / missing → fill via ensure_unit_pricing (smart tier × qib)
+        if sale_units:
+            for su in sale_units:
+                if isinstance(su, dict) and not is_positive_price(su.get("priceValue")):
+                    su["priceValue"] = 0
         if sale_units:
             variant_payloads = _build_variant_payloads_from_sale_units(
                 sale_units=sale_units,
@@ -618,10 +608,11 @@ class Command(BaseCommand):
             stats["units_from_package_options"] += 1
 
         for payload in variant_payloads:
-            _ensure_unit_pricing(
+            ensure_unit_pricing(
                 payload.get("units", []),
                 fallback_price=default_price_value,
                 fallback_display=default_price_display,
+                use_smart_random=self.use_smart_random_price,
             )
 
         images = _parse_json_field(row.get("media.images", []), default=[])
@@ -642,7 +633,6 @@ class Command(BaseCommand):
                 "shelf_life": shelf_life,
             },
             "product_ranking": _to_int(row.get("metadata.productRanking"), 0),
-            "sku": str(row.get("basicInfo.sku") or "").strip()[:100] or None,
             "is_published": _to_bool(row.get("metadata.isPublish", "true"), True),
             # Scraper does not emit metadata.isHot yet; default False until formatter adds it.
             "is_hot": _to_bool(row.get("metadata.isHot", "false"), False),
@@ -654,6 +644,8 @@ class Command(BaseCommand):
             if dry_run:
                 stats["variants_created"] += 1
                 stats["variant_units_created"] += len(payload.get("units", []))
+                if not no_batches:
+                    stats["batches_created"] += self._count_simulated_batches(payload)
                 continue
 
             variant_instance, created, unit_stats = self._upsert_variant_with_units(
@@ -705,6 +697,18 @@ class Command(BaseCommand):
             .filter(product=product, packing=packing)
             .first()
         )
+        if not existing_variant and update_existing:
+            siblings = list(
+                ProductVariant.objects.using("store").filter(product=product).order_by("id")
+            )
+            if len(siblings) == 1:
+                existing_variant = siblings[0]
+
+        variant_fields["sku"] = self._resolve_variant_sku(
+            product=product,
+            row=row,
+            exclude_variant_id=existing_variant.id if existing_variant else None,
+        )
 
         if existing_variant:
             if update_existing:
@@ -738,6 +742,34 @@ class Command(BaseCommand):
         )
         return variant_instance, created, unit_stats
 
+    def _resolve_variant_sku(
+        self,
+        product: Product,
+        row: dict,
+        exclude_variant_id: Optional[int] = None,
+    ) -> Optional[str]:
+        """
+        ProductVariant.sku is globally unique; Product.mid already stores Long Châu MID.
+        Only set variant.sku when no other variant row owns it (avoids duplicate on 2nd packing).
+        """
+        mid = str(row.get("basicInfo.sku") or "").strip()[:100] or None
+        if not mid:
+            return None
+        qs = ProductVariant.objects.using("store").filter(sku=mid)
+        if exclude_variant_id:
+            qs = qs.exclude(pk=exclude_variant_id)
+        if qs.exists():
+            return None
+        return mid
+
+    @staticmethod
+    def _clear_variant_default_units(variant: ProductVariant) -> None:
+        """Partial unique index: one is_default per variant — clear before setting new default."""
+        ProductVariantUnit.objects.using("store").filter(
+            variant=variant,
+            is_default=True,
+        ).update(is_default=False)
+
     def _upsert_variant_units(self, variant: ProductVariant, units: list, is_published: bool, update_existing: bool) -> dict:
         # Một variant: đúng một is_default=True trong payload (CSV/packageOptions có thể thiếu hoặc trùng).
         normalize_single_default_unit_per_variant(units)
@@ -763,11 +795,15 @@ class Command(BaseCommand):
             existing_unit = existing_units.get(unit_key)
             if existing_unit:
                 if update_existing:
+                    if unit_defaults["is_default"]:
+                        self._clear_variant_default_units(variant)
                     for field, val in unit_defaults.items():
                         setattr(existing_unit, field, val)
                     existing_unit.save(using="store")
                     stats["updated"] += 1
             else:
+                if unit_defaults["is_default"]:
+                    self._clear_variant_default_units(variant)
                 ProductVariantUnit.objects.using("store").create(
                     variant=variant,
                     **unit_defaults,
@@ -896,6 +932,10 @@ class Command(BaseCommand):
     # ----------------------------------------------------------
     # MedicineBatch creation
     # ----------------------------------------------------------
+    def _count_simulated_batches(self, payload: dict) -> int:
+        """Dry-run: số batch sẽ tạo cho variant (qty/base tính khi --apply)."""
+        return self.batch_count
+
     def _resolve_variant_default_unit(self, variant: ProductVariant) -> Optional[ProductVariantUnit]:
         unit = (
             ProductVariantUnit.objects.using("store")

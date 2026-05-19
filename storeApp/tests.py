@@ -919,12 +919,39 @@ class StoreImportCsvHelperTests(SimpleTestCase):
         self.assertEqual(payloads[0]["units"][0]["price_value"], 330000.0)
 
     def test_ensure_unit_pricing_uses_row_fallback_before_random(self):
-        from storeApp.management.commands.store_import_csv import _ensure_unit_pricing
+        from storeApp.management.commands.store_import_pricing import ensure_unit_pricing
 
-        units = [{"unit_name": "Hộp", "price_value": 0, "price_display": None}]
-        _ensure_unit_pricing(units, fallback_price=250000, fallback_display="250.000đ / Hộp")
-        self.assertEqual(units[0]["price_value"], 250000.0)
-        self.assertEqual(units[0]["price_display"], "250.000đ / Hộp")
+        units = [
+            {
+                "unit_name": "Hộp",
+                "quantity_in_base": 40,
+                "price_value": 0,
+                "price_display": None,
+                "is_default": True,
+            }
+        ]
+        ensure_unit_pricing(units, fallback_price=400000, fallback_display="400.000đ / Hộp")
+        self.assertEqual(units[0]["price_value"], 400000.0)
+
+    def test_smart_random_scales_with_quantity_in_base(self):
+        from storeApp.management.commands.store_import_pricing import smart_random_unit_price
+
+        random.seed(42)
+        hop = smart_random_unit_price("Hộp", 40)
+        vien = smart_random_unit_price("Viên", 1)
+        self.assertGreaterEqual(hop, 40_000)
+        self.assertLessEqual(vien, 15_000)
+        self.assertGreater(hop, vien)
+
+    def test_infer_sibling_price_for_zero_unit(self):
+        from storeApp.management.commands.store_import_pricing import ensure_unit_pricing
+
+        units = [
+            {"unit_name": "Viên", "quantity_in_base": 1, "price_value": 5000, "is_default": False},
+            {"unit_name": "Hộp", "quantity_in_base": 40, "price_value": 0, "is_default": True},
+        ]
+        ensure_unit_pricing(units, fallback_price=0, use_smart_random=False)
+        self.assertEqual(units[1]["price_value"], 200000.0)
 
     def test_batch_quantity_scales_with_quantity_in_base(self):
         from storeApp.management.commands.store_import_csv import _compute_synthetic_batch_quantity
