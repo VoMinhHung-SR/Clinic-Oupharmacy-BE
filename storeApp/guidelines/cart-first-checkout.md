@@ -16,8 +16,9 @@ Source of truth code: `storeApp/services/cart_service.py`, `storeApp/viewsets/ca
 | Pricing / voucher trên cart | **Live** | 2 slot: `order_voucher`, `shipping_voucher` |
 | Checkout `delivery` (orderer / recipient / address) | **Live** | `checkout_delivery.py` → `Order.shipping_address` |
 | Partial checkout `cart_item_ids` | **Live** | BE + FE `/don-hang`; cart có thể còn ACTIVE |
-| Đổi đơn vị bán (PATCH `product_variant_unit_id`) | **BE live** | FE giỏ hàng: plan mở (`cart-packaging-switch`) |
-| Guest checkout (không login) | **Chưa** | Guest = `localStorage` only; plan `guest-checkout-cart-first` |
+| Đổi đơn vị bán (PATCH `product_variant_unit_id`) | **Live** | Guest + login; `unit_options` lưu khi add (2026-05) |
+| Guest checkout (không login) | **Chưa** | Guest giỏ OK; **Mua hàng** → openLogin (expected); plan `guest-checkout-cart-first` |
+| Xác nhận đơn — địa chỉ 2 dòng | **Live (FE)** | Parse `Order.shipping_address` BE text; không đổi BE format |
 | Legacy `POST /orders/` | **Compat** | Nhánh `cart_id`; ưu tiên `carts/checkout` |
 | Cart cache | **Noop** | `CartCacheGateway`; có thể Redis sau |
 
@@ -180,7 +181,10 @@ Base path: `/api/store/carts/` (alias DB `store`).
 1. `useCurrentCart` → `version`, items, vouchers.  
 2. `/don-hang`: `selectShipping` + `applyVoucher` với `expected_version`.  
 3. `checkoutCart({ delivery, payment_method_id, expected_version, cart_item_ids? })`.  
-4. Redirect xác nhận với `order_number` / `order_id`.
+4. Redirect xác nhận với `order_number` / `order_id`.  
+5. `/don-hang/xac-nhan-don-hang`: `ShippingAddressDisplay` — 2 dòng (người nhận + địa chỉ), parse từ text BE.
+
+**Test đã pass (2026-05):** đổi unit (Viên ↔ Vỉ) → checkout → order OK. Guest: Mua hàng → login modal.
 
 ---
 

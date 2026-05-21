@@ -225,6 +225,7 @@ class CartSerializer(ModelSerializer):
         fields = [
             "id",
             "user_id",
+            "guest_session_id",
             "status",
             "items",
             "shipping_method",
@@ -497,12 +498,6 @@ class MinimalProductVariantSerializer(serializers.ModelSerializer):
         if category_slug:
             return f"{category_slug}/{medicine_slug}"
         return medicine_slug
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        if 'web_slug' in data:
-            data['web-slug'] = data.pop('web_slug')
-        return data
 
     def get_thumbnail(self, obj):
         if obj.image:

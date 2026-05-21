@@ -1,8 +1,9 @@
+import uuid
+
 from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
-from decimal import Decimal
 
 from django.test import SimpleTestCase
 from rest_framework.test import APITestCase
@@ -21,6 +22,7 @@ from storeApp.models import (
     Voucher,
     VoucherRedemption,
     Order,
+    Cart,
 )
 
 
@@ -899,6 +901,139 @@ class CartCheckoutDeliveryApiTests(APITestCase):
         self.assertEqual(checkout.status_code, 400, checkout.data)
         self.assertIn("Insufficient stock", checkout.data.get("error", ""))
         self.assertEqual(Order.objects.filter(user_id=self.user.id).count(), orders_before)
+
+
+class GuestCartCheckoutTests(APITestCase):
+    databases = {"default", "store"}
+
+    def setUp(self):
+        self.guest_session_id = str(uuid.uuid4())
+        self.client.credentials(HTTP_X_GUEST_SESSION=self.guest_session_id)
+
+        self.shipping_method = ShippingMethod.objects.create(
+            name="Guest Standard",
+            price=25000,
+            estimated_days=2,
+            active=True,
+        )
+        self.payment_method = PaymentMethod.objects.create(
+            name="Guest COD",
+            code="GUEST_COD",
+            active=True,
+        )
+        self.category = Category.objects.create(name="Guest Cat", slug="guest-cat")
+        self.product = Product.objects.create(
+            name="Guest Product A",
+            mid="MID-GUEST-001",
+            slug="guest-product-a",
+            category=self.category,
+        )
+        self.variant = ProductVariant.objects.create(
+            product=self.product,
+            packing="Hộp",
+            in_stock=50,
+            is_published=True,
+        )
+        self.unit = ProductVariantUnit.objects.create(
+            variant=self.variant,
+            quantity_in_base=1,
+            unit_name="Hộp",
+            unit_order=0,
+            price_value=80000,
+            is_default=True,
+            is_published=True,
+        )
+        MedicineBatch.objects.create(
+            batch_number="BATCH-GUEST-001",
+            product_variant=self.variant,
+            import_date=timezone.now().date() - timedelta(days=3),
+            expiry_date=timezone.now().date() + timedelta(days=200),
+            quantity=50,
+            remaining_quantity=50,
+        )
+
+    def _delivery_body(self):
+        return {
+            "orderer": {"name": "Khách Lẻ", "phone": "0901234567", "email": "guest@example.com"},
+            "recipient": {"name": "Khách Lẻ", "phone": "0901234567"},
+            "address": {"province": "HN", "district": "Cầu Giấy", "ward": "Dịch Vọng", "detail": "1 Guest St"},
+        }
+
+    def test_guest_cart_current_without_header_is_forbidden(self):
+        anon = self.client_class()()
+        response = anon.get("/api/store/carts/current/")
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_guest_cart_add_and_checkout_creates_order_without_user(self):
+        current = self.client.get("/api/store/carts/current/")
+        self.assertEqual(current.status_code, 200)
+        self.assertIsNone(current.data.get("user_id"))
+        self.assertEqual(str(current.data.get("guest_session_id")), self.guest_session_id)
+        v0 = current.data["version"]
+
+        add = self.client.post(
+            "/api/store/carts/items/",
+            {
+                "expected_version": v0,
+                "product_variant_id": self.variant.id,
+                "product_variant_unit_id": self.unit.id,
+                "quantity": 1,
+            },
+            format="json",
+        )
+        self.assertEqual(add.status_code, 200)
+        v1 = add.data["version"]
+
+        ship = self.client.post(
+            "/api/store/carts/select-shipping/",
+            {
+                "expected_version": v1,
+                "shipping_method_id": self.shipping_method.id,
+            },
+            format="json",
+        )
+        self.assertEqual(ship.status_code, 200)
+        v2 = ship.data["version"]
+
+        checkout = self.client.post(
+            "/api/store/carts/checkout/",
+            {
+                "expected_version": v2,
+                "payment_method_id": self.payment_method.id,
+                "delivery": self._delivery_body(),
+            },
+            format="json",
+        )
+        self.assertEqual(checkout.status_code, 201, checkout.data)
+        order = Order.objects.get(order_number=checkout.data["order_number"])
+        self.assertIsNone(order.user_id)
+        self.assertIn("Người nhận:", order.shipping_address)
+
+    def test_merge_guest_cart_into_user_on_login(self):
+        current = self.client.get("/api/store/carts/current/").data
+        v0 = current["version"]
+        self.client.post(
+            "/api/store/carts/items/",
+            {
+                "expected_version": v0,
+                "product_variant_id": self.variant.id,
+                "product_variant_unit_id": self.unit.id,
+                "quantity": 2,
+            },
+            format="json",
+        )
+
+        user_model = get_user_model()
+        user = user_model.objects.create_user(
+            email="guest-merge-user@example.com",
+            password="test-pass-123",
+        )
+        self.client.force_authenticate(user=user)
+        merge = self.client.post("/api/store/carts/merge-guest/", {}, format="json")
+        self.assertEqual(merge.status_code, 200)
+        self.assertEqual(merge.data["items"][0]["quantity"], 2)
+        guest_cart = Cart.objects.filter(guest_session_id=self.guest_session_id, status=Cart.ABANDONED).first()
+        self.assertIsNotNone(guest_cart)
 
 
 class StoreImportCsvHelperTests(SimpleTestCase):

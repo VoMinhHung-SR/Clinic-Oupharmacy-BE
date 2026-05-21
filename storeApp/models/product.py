@@ -391,7 +391,21 @@ class Product(BaseModel):
     specifications = models.JSONField(default=dict, null=True, blank=True)
 
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="products",
+        help_text="Primary category (canonical URL); kept in sync with ProductCategory.is_primary",
+    )
+    categories = models.ManyToManyField(
+        Category,
+        through="ProductCategory",
+        related_name="categorized_products",
+        blank=True,
+        help_text="All category assignments (primary + additional); logic/backfill in follow-up tasks",
+    )
 
     def __str__(self):
         return self.name
@@ -405,6 +419,52 @@ class Product(BaseModel):
             models.Index(fields=["slug"]),
             models.Index(fields=["name"]),
         ]
+
+
+class ProductCategory(BaseModel):
+    
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="product_categories",
+        db_column="product_id",
+    )
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.CASCADE,
+        related_name="product_categories",
+        db_column="category_id",
+    )
+    is_primary = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Exactly one primary row per product when assigned",
+    )
+    sort_order = models.SmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "store_product_category"
+        verbose_name = "Product category"
+        verbose_name_plural = "Product categories"
+        ordering = ["product_id", "-is_primary", "sort_order", "category_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "category"],
+                name="store_product_category_unique_product_category",
+            ),
+            models.UniqueConstraint(
+                fields=["product"],
+                condition=models.Q(is_primary=True),
+                name="store_product_category_one_primary_per_product",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["category", "product"], name="st_pc_cat_prod_ix"),
+            models.Index(fields=["product", "is_primary"], name="st_pc_prod_pri_ix"),
+        ]
+
+    def __str__(self):
+        return f"{self.product_id} → {self.category_id}" + (" (primary)" if self.is_primary else "")
 
 
 class ProductVariant(BaseModel):

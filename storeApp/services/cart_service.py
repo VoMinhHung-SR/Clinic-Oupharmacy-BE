@@ -1,7 +1,9 @@
 from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
+
+from storeApp.services.guest_session import guest_session_uuid
 
 from storeApp.models import Cart, CartItem, ProductVariant, ProductVariantUnit
 from storeApp.services.cart_cache import get_cart_cache_gateway
@@ -23,7 +25,8 @@ class CartVersionConflictError(CartServiceError):
 def _invalidate_cart_related_cache(*, cart, order_voucher_code=None, shipping_voucher_code=None):
     cache_gateway = get_cart_cache_gateway()
     cache_gateway.invalidate_cart_summary(cart_id=cart.id)
-    cache_gateway.invalidate_user_active_cart(user_id=cart.user_id)
+    if cart.user_id is not None:
+        cache_gateway.invalidate_user_active_cart(user_id=cart.user_id)
     for code in (order_voucher_code, shipping_voucher_code):
         if code:
             cache_gateway.invalidate_voucher_light(voucher_code=code)
@@ -36,16 +39,79 @@ def _to_decimal(value):
         raise CartServiceError("Invalid decimal value")
 
 
-def get_or_create_active_cart(*, user_id, using="store"):
-    cart = (
-        Cart.objects.using(using)
-        .select_related("shipping_method", "order_voucher", "shipping_voucher")
-        .filter(user_id=user_id, status=Cart.ACTIVE)
-        .first()
+def get_or_create_active_cart(*, user_id=None, guest_session_id=None, using="store"):
+    if user_id is not None and guest_session_id is not None:
+        raise CartServiceError("Cannot set both user_id and guest_session_id")
+    if user_id is None and not guest_session_id:
+        raise CartServiceError("user_id or guest_session_id is required")
+
+    qs = Cart.objects.using(using).select_related("shipping_method", "order_voucher", "shipping_voucher").filter(
+        status=Cart.ACTIVE
     )
+    if user_id is not None:
+        cart = qs.filter(user_id=user_id).first()
+        if cart:
+            return cart
+        try:
+            return Cart.objects.using(using).create(user_id=user_id, status=Cart.ACTIVE)
+        except IntegrityError:
+            cart = qs.filter(user_id=user_id).first()
+            if cart:
+                return cart
+            raise
+
+    try:
+        guest_uuid = guest_session_uuid(guest_session_id)
+    except ValueError as exc:
+        raise CartServiceError("Invalid guest session id") from exc
+
+    cart = qs.filter(guest_session_id=guest_uuid).first()
     if cart:
         return cart
-    return Cart.objects.using(using).create(user_id=user_id, status=Cart.ACTIVE)
+    try:
+        return Cart.objects.using(using).create(guest_session_id=guest_uuid, status=Cart.ACTIVE)
+    except IntegrityError:
+        cart = qs.filter(guest_session_id=guest_uuid).first()
+        if cart:
+            return cart
+        raise
+
+
+def merge_guest_cart_into_user(*, guest_session_id, user_id, using="store"):
+    """Move guest ACTIVE cart lines into user ACTIVE cart (login handoff)."""
+    try:
+        guest_uuid = guest_session_uuid(guest_session_id)
+    except ValueError as exc:
+        raise CartServiceError("Invalid guest session id") from exc
+
+    with transaction.atomic(using=using):
+        guest_cart = (
+            Cart.objects.using(using)
+            .select_for_update()
+            .filter(guest_session_id=guest_uuid, status=Cart.ACTIVE)
+            .first()
+        )
+        if not guest_cart:
+            return get_or_create_active_cart(user_id=user_id, using=using)
+
+        user_cart = get_or_create_active_cart(user_id=user_id, using=using)
+        user_cart = Cart.objects.using(using).select_for_update().get(id=user_cart.id)
+
+        for guest_item in CartItem.objects.using(using).filter(cart_id=guest_cart.id).select_related(
+            "product_variant_unit"
+        ):
+            add_or_update_item(
+                cart=user_cart,
+                product_variant_id=guest_item.product_variant_id,
+                product_variant_unit_id=guest_item.product_variant_unit_id,
+                quantity=guest_item.quantity,
+                using=using,
+            )
+
+        guest_cart.status = Cart.ABANDONED
+        guest_cart.save(update_fields=["status"])
+        user_cart = recalculate_cart(cart=user_cart, using=using, expected_version=user_cart.version)
+        return user_cart
 
 
 def _assert_cart_version(*, cart, expected_version):
@@ -266,7 +332,10 @@ def _build_context(*, cart, using="store", item_ids=None):
         if category and category.slug:
             category_slugs.add(str(category.slug))
 
-    shipping_fee_base = Decimal(str(cart.shipping_method.price)) if cart.shipping_method else Decimal("0")
+    if cart.shipping_method and cart.shipping_method.price is not None:
+        shipping_fee_base = Decimal(str(cart.shipping_method.price))
+    else:
+        shipping_fee_base = Decimal("0")
     return items, subtotal, shipping_fee_base, product_mids, category_slugs
 
 
@@ -293,8 +362,9 @@ def _assert_checkout_stock(*, items, using="store"):
             )
 
 
-def recalculate_cart(*, cart, using="store", expected_version=None):
-    _assert_cart_version(cart=cart, expected_version=expected_version)
+def recalculate_cart(*, cart, using="store", expected_version=None, check_version=True):
+    if check_version:
+        _assert_cart_version(cart=cart, expected_version=expected_version)
     items, subtotal, shipping_fee_base, product_mids, category_slugs = _build_context(cart=cart, using=using)
     if not items:
         zero = Decimal("0")
