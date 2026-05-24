@@ -1036,11 +1036,136 @@ class GuestCartCheckoutTests(APITestCase):
         self.assertIsNotNone(guest_cart)
 
 
+class StoreConstantsUnitTests(SimpleTestCase):
+    def test_free_shipping_threshold_default(self):
+        from storeApp.services.store_constants import (
+            FREE_SHIPPING_ORDER_SUBTOTAL,
+            apply_free_shipping_base,
+            qualifies_for_free_shipping,
+        )
+
+        self.assertEqual(FREE_SHIPPING_ORDER_SUBTOTAL, Decimal("300000"))
+        self.assertTrue(qualifies_for_free_shipping(Decimal("300000")))
+        self.assertFalse(qualifies_for_free_shipping(Decimal("299999.99")))
+        base = Decimal("25000")
+        self.assertEqual(apply_free_shipping_base(Decimal("300000"), base), Decimal("0"))
+        self.assertEqual(apply_free_shipping_base(Decimal("100000"), base), base)
+
+
+class FreeShippingThresholdTests(APITestCase):
+    databases = {"default", "store"}
+
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            email="free-shipping-user@example.com",
+            password="test-pass-123",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        self.shipping_method = ShippingMethod.objects.create(
+            name="Standard",
+            price=25000,
+            estimated_days=2,
+            active=True,
+        )
+        self.payment_method = PaymentMethod.objects.create(
+            name="COD",
+            code="COD",
+            active=True,
+        )
+        self.category = Category.objects.create(name="TPCN", slug="tpcn-free-ship")
+        self.product = Product.objects.create(
+            name="Product Free Ship",
+            mid="MID-FREE-SHIP-001",
+            slug="product-free-ship",
+            category=self.category,
+        )
+        self.variant = ProductVariant.objects.create(
+            product=self.product,
+            packing="Hộp",
+            in_stock=100,
+            is_published=True,
+        )
+        self.unit = ProductVariantUnit.objects.create(
+            variant=self.variant,
+            quantity_in_base=1,
+            unit_name="Hộp",
+            unit_order=0,
+            price_value=150000,
+            is_default=True,
+            is_published=True,
+        )
+        MedicineBatch.objects.create(
+            batch_number="BATCH-FREE-SHIP-001",
+            product_variant=self.variant,
+            import_date=timezone.now().date() - timedelta(days=5),
+            expiry_date=timezone.now().date() + timedelta(days=365),
+            quantity=100,
+            remaining_quantity=100,
+        )
+
+    def _add_items_and_select_shipping(self, quantity):
+        cart_data = self.client.get("/api/store/carts/current/").data
+        v0 = cart_data["version"]
+        add = self.client.post(
+            "/api/store/carts/items/",
+            {
+                "expected_version": v0,
+                "product_variant_id": self.variant.id,
+                "product_variant_unit_id": self.unit.id,
+                "quantity": quantity,
+            },
+            format="json",
+        )
+        self.assertEqual(add.status_code, 200)
+        ship = self.client.post(
+            "/api/store/carts/select-shipping/",
+            {
+                "expected_version": add.data["version"],
+                "shipping_method_id": self.shipping_method.id,
+            },
+            format="json",
+        )
+        self.assertEqual(ship.status_code, 200)
+        return ship.data
+
+    def test_cart_applies_free_shipping_when_subtotal_meets_threshold(self):
+        cart = self._add_items_and_select_shipping(quantity=2)
+        self.assertEqual(cart["subtotal"], "300000.00")
+        self.assertEqual(cart["shipping_fee"], "0.00")
+        self.assertTrue(cart["free_shipping_applied"])
+        self.assertEqual(cart["total"], "300000.00")
+
+    def test_cart_charges_shipping_below_threshold(self):
+        cart = self._add_items_and_select_shipping(quantity=1)
+        self.assertEqual(cart["subtotal"], "150000.00")
+        self.assertEqual(cart["shipping_fee"], "25000.00")
+        self.assertFalse(cart["free_shipping_applied"])
+        self.assertEqual(cart["total"], "175000.00")
+
+    def test_checkout_order_shipping_fee_zero_when_threshold_met(self):
+        cart = self._add_items_and_select_shipping(quantity=2)
+        checkout = self.client.post(
+            "/api/store/carts/checkout/",
+            {
+                "expected_version": cart["version"],
+                "payment_method_id": self.payment_method.id,
+                "shipping_address": "123 Free Ship Street",
+            },
+            format="json",
+        )
+        self.assertEqual(checkout.status_code, 201, checkout.data)
+        self.assertEqual(checkout.data["shipping_fee"], "0.00")
+        self.assertEqual(checkout.data["subtotal"], "300000.00")
+        self.assertEqual(checkout.data["total"], "300000.00")
+
+
 class StoreImportCsvHelperTests(SimpleTestCase):
     def test_parse_sale_units_from_csv_json_string(self):
-        from storeApp.management.commands.catalog_import.store_import_csv import (
-            _build_variant_payloads_from_sale_units,
-            _parse_json_field,
+        from storeApp.management.commands.catalog_import.store_import_row import (
+            build_variant_payloads_from_sale_units as _build_variant_payloads_from_sale_units,
+            parse_json_field as _parse_json_field,
         )
 
         raw = (
@@ -1089,13 +1214,55 @@ class StoreImportCsvHelperTests(SimpleTestCase):
         self.assertEqual(units[1]["price_value"], 200000.0)
 
     def test_batch_quantity_scales_with_quantity_in_base(self):
-        from storeApp.management.commands.catalog_import.store_import_csv import _compute_synthetic_batch_quantity
+        from storeApp.management.commands.catalog_import.store_import_row import compute_synthetic_batch_quantity
 
-        qty = _compute_synthetic_batch_quantity(40, 10, 10)
+        qty = compute_synthetic_batch_quantity(40, 10, 10)
         self.assertEqual(qty, 400)
 
     def test_import_price_per_base_unit_from_sale_unit(self):
-        from storeApp.management.commands.catalog_import.store_import_csv import _compute_import_price_per_base_unit
+        from storeApp.management.commands.catalog_import.store_import_row import compute_import_price_per_base_unit
 
-        price = _compute_import_price_per_base_unit(425000, 40)
+        price = compute_import_price_per_base_unit(425000, 40)
         self.assertEqual(price, Decimal("10625.00"))
+
+
+class StoreImportCategoryMergeTests(TestCase):
+    databases = {"default", "store"}
+
+    def test_assign_category_merges_without_replacing_primary(self):
+        from storeApp.models import Category, Product, ProductCategory
+
+        root_a, _ = Category.objects.using("store").get_or_create(
+            slug="cat-a", parent=None, defaults={"name": "Cat A"}
+        )
+        leaf_a, _ = Category.objects.using("store").get_or_create(
+            slug="leaf-a", parent=root_a, defaults={"name": "Leaf A"}
+        )
+        root_b, _ = Category.objects.using("store").get_or_create(
+            slug="cat-b", parent=None, defaults={"name": "Cat B"}
+        )
+        leaf_b, _ = Category.objects.using("store").get_or_create(
+            slug="leaf-b", parent=root_b, defaults={"name": "Leaf B"}
+        )
+
+        product = Product.objects.using("store").create(
+            name="Multi-cat test product",
+            mid="TEST-MULTI-CAT-001",
+            slug="multi-cat-test-product",
+        )
+        product.assign_category(leaf_a, using="store", set_primary_if_none=True)
+        product.refresh_from_db(using="store")
+        self.assertEqual(product.category_id, leaf_a.id)
+
+        product.assign_category(leaf_b, using="store", set_primary_if_none=True)
+        product.refresh_from_db(using="store")
+        self.assertEqual(product.category_id, leaf_a.id)
+
+        links = list(
+            ProductCategory.objects.using("store")
+            .filter(product=product)
+            .values_list("category_id", "is_primary")
+        )
+        self.assertEqual(len(links), 2)
+        self.assertIn((leaf_a.id, True), links)
+        self.assertIn((leaf_b.id, False), links)

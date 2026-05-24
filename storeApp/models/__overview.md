@@ -4,7 +4,7 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 
 - DB alias: `store` (`storeApp/db_router.py`). Mọi model kế thừa `BaseModel` → `created_date`, `updated_date`, `active`.
 - Catalog canonical: `Product` / `ProductVariant` / `ProductVariantUnit` (legacy `mainApp.Medicine*` đã drop).
-- Import CLI: `manage.py store_catalog import-csv` → `catalog_import/store_import_csv.py`. Audit: `store_catalog audit`.
+- Import CLI: `manage.py store_catalog import-csv` → `catalog_import/` (orchestration: `store_import_csv.py`). Audit: `store_catalog audit`. Backfill M2M: `backfill_product_categories`.
 
 ## Files
 
@@ -29,7 +29,7 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 | `mid` | Unique SKU — khóa upsert import |
 | `name`, `slug` | Unique |
 | `category` | FK **primary** (canonical URL; sync với M2M sau) |
-| `categories` | M2M `through=ProductCategory` — **schema live, logic/API chưa** |
+| `categories` | M2M `through=ProductCategory` — import merge qua `Product.assign_category()`; API/list chưa |
 | `content.*` (7) | Detail only; HTML sanitized (scraper) hoặc plain text cũ; FE DOMPurify |
 | `ingredients` | Comma-list `"Name: amount, …"` — FE parse riêng |
 
@@ -101,7 +101,7 @@ Voucher ──< VoucherRedemption >── Order
 1. **Giá/tồn:** snapshot cart/order theo PVU; stock check = `qty × quantity_in_base` vs batch sum.
 2. **Đổi unit trong cart:** conflict unique line; bump `version`; re-snapshot price.
 3. **Voucher:** không trộn scope order vs shipping.
-4. **Category:** list/filter/voucher vẫn dùng `Product.category` (FK) cho đến khi bật M2M API/import.
+4. **Category:** list/filter/voucher vẫn dùng `Product.category` (FK); import đã merge M2M (`assign_category`).
 5. **Guest:** không tạo User khi checkout; `Order.user_id = null`.
 
 ## Catalog contract (tóm tắt)
@@ -115,7 +115,7 @@ Voucher ──< VoucherRedemption >── Order
 
 **Product card:** ảnh, tên, giá default unit, `unit_options`, link `/{categorySlug}/{slug}`, add = variant id + PVU id.
 
-**Multi-category (planned):** cùng `mid` nhiều leaf → thêm row `ProductCategory`; FK `category` = primary; import hiện last-write-wins trên FK.
+**Multi-category (import):** cùng `mid` nhiều leaf → thêm row `ProductCategory`; FK `category` = primary; giữ primary cũ khi import path mới.
 
 ## Docs liên quan
 

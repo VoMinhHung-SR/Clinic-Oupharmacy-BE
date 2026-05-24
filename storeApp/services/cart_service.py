@@ -336,6 +336,10 @@ def _build_context(*, cart, using="store", item_ids=None):
         shipping_fee_base = Decimal(str(cart.shipping_method.price))
     else:
         shipping_fee_base = Decimal("0")
+
+    from storeApp.services.store_constants import apply_free_shipping_base
+
+    shipping_fee_base = apply_free_shipping_base(subtotal, shipping_fee_base)
     return items, subtotal, shipping_fee_base, product_mids, category_slugs
 
 

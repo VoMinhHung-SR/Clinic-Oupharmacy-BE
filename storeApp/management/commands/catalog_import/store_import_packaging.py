@@ -4,10 +4,15 @@ from typing import Optional
 
 
 def _parse_price_value(price_display: str) -> float:
-    """'123.456đ' -> 123456.0"""
+    """'123.456đ' / '330.000đ / Hộp' / 'CONSULT' -> float VND (0 if unknown)."""
     if not price_display:
         return 0.0
-    s = price_display.replace("đ", "").replace(".", "").replace(",", "").strip()
+    s = str(price_display).strip()
+    if s.upper() == "CONSULT":
+        return 0.0
+    if "/" in s:
+        s = s.split("/", 1)[0].strip()
+    s = s.replace("đ", "").replace(".", "").replace(",", "").strip()
     try:
         return float(s)
     except (ValueError, TypeError):

@@ -14,10 +14,11 @@ Source of truth code: `storeApp/services/cart_service.py`, `storeApp/viewsets/ca
 | Cart-first API (`/carts/*`) | **Live** | `CartViewSet`, `IsAuthenticated` |
 | Optimistic lock `expected_version` | **Live** | Mutate + checkout; `409` khi stale |
 | Pricing / voucher trên cart | **Live** | 2 slot: `order_voucher`, `shipping_voucher` |
+| Miễn phí vận chuyển (đơn ≥ 300k) | **Live** | `store_constants.FREE_SHIPPING_ORDER_SUBTOTAL`; BE tính `shipping_fee` — FE không gửi flag |
 | Checkout `delivery` (orderer / recipient / address) | **Live** | `checkout_delivery.py` → `Order.shipping_address` |
 | Partial checkout `cart_item_ids` | **Live** | BE + FE `/don-hang`; cart có thể còn ACTIVE |
 | Đổi đơn vị bán (PATCH `product_variant_unit_id`) | **Live** | Guest + login; `unit_options` lưu khi add (2026-05) |
-| Guest checkout (không login) | **Chưa** | Guest giỏ OK; **Mua hàng** → openLogin (expected); plan `guest-checkout-cart-first` |
+| Guest checkout (không login) | **Live** | `X-Guest-Session`, `carts/checkout`, xác nhận qua sessionStorage; plan `[Done] guest-checkout-cart-first` |
 | Xác nhận đơn — địa chỉ 2 dòng | **Live (FE)** | Parse `Order.shipping_address` BE text; không đổi BE format |
 | Legacy `POST /orders/` | **Compat** | Nhánh `cart_id`; ưu tiên `carts/checkout` |
 | Cart cache | **Noop** | `CartCacheGateway`; có thể Redis sau |
@@ -212,6 +213,7 @@ Base path: `/api/store/carts/` (alias DB `store`).
 | 4 | Tồn kho: tổng `quantity × quantity_in_base` theo variant; so với batch còn lại. |
 | 5 | Voucher: validate theo `subtotal`, `product_mids`, `category_slugs` tại thời điểm checkout. |
 | 6 | Partial checkout: chỉ xóa dòng đã thanh toán; recalculate cart còn lại. |
+| 7 | Miễn phí ship: `subtotal` (toàn giỏ hoặc `cart_item_ids` khi checkout) ≥ `FREE_SHIPPING_ORDER_SUBTOTAL` (mặc định 300_000, `store_constants` / `settings`) → `shipping_fee_base = 0` trước voucher ship. Cart API chỉ thêm `free_shipping_applied` (UI); tiền ship = `shipping_fee`; giá list option = `shipping_method.price`. |
 
 ---
 

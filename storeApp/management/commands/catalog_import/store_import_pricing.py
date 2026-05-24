@@ -52,6 +52,13 @@ def is_positive_price(value) -> bool:
         return False
 
 
+def is_consult_price_display(value) -> bool:
+    """Scrape/legacy rows may keep price_display=CONSULT while price_value was filled later."""
+    if value is None:
+        return False
+    return str(value).strip().upper() == "CONSULT"
+
+
 def round_vnd(amount: float) -> float:
     """Round to nearest 1.000đ, minimum floor."""
     rounded = max(_MIN_UNIT_PRICE_VND, int(round(amount / _VND_ROUND_STEP)) * _VND_ROUND_STEP)
@@ -119,9 +126,12 @@ def _apply_row_fallback(units: list, fallback_price: float, fallback_display: st
             u["price_display"] = format_price_display(u["price_value"], u.get("unit_name", ""))
 
 
-def format_price_display(value: float, unit_name: str = "") -> str:
+def format_price_display(value: float, unit_name: str = "", *, max_len: int = 50) -> str:
     s = f"{int(value):,}".replace(",", ".") + "đ"
-    return f"{s} / {unit_name}" if unit_name else s
+    if unit_name:
+        short_unit = str(unit_name).strip()[:20]
+        s = f"{s} / {short_unit}"
+    return s[:max_len] if len(s) > max_len else s
 
 
 def ensure_unit_pricing(
@@ -147,7 +157,7 @@ def ensure_unit_pricing(
 
     for u in units:
         if is_positive_price(u.get("price_value")):
-            if not u.get("price_display"):
+            if not u.get("price_display") or is_consult_price_display(u.get("price_display")):
                 u["price_display"] = format_price_display(
                     float(u["price_value"]), u.get("unit_name", "")
                 )
@@ -161,7 +171,7 @@ def ensure_unit_pricing(
         else:
             u["price_value"] = float(random.randint(10_000, 500_000))
 
-        if not u.get("price_display"):
+        if not u.get("price_display") or is_consult_price_display(u.get("price_display")):
             u["price_display"] = format_price_display(
                 float(u["price_value"]), u.get("unit_name", "")
             )

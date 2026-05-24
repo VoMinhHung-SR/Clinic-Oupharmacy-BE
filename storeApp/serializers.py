@@ -219,6 +219,7 @@ class CartSerializer(ModelSerializer):
     shipping_method = ShippingMethodSerializer(read_only=True)
     order_voucher_code = serializers.SerializerMethodField()
     shipping_voucher_code = serializers.SerializerMethodField()
+    free_shipping_applied = serializers.SerializerMethodField()
 
     class Meta:
         model = Cart
@@ -237,6 +238,7 @@ class CartSerializer(ModelSerializer):
             "version",
             "order_voucher_code",
             "shipping_voucher_code",
+            "free_shipping_applied",
             "checkout_order",
             "created_date",
             "updated_date",
@@ -248,6 +250,13 @@ class CartSerializer(ModelSerializer):
 
     def get_shipping_voucher_code(self, obj):
         return obj.shipping_voucher.code if obj.shipping_voucher else None
+
+    def get_free_shipping_applied(self, obj):
+        from decimal import Decimal
+
+        from storeApp.services.store_constants import qualifies_for_free_shipping
+
+        return qualifies_for_free_shipping(Decimal(str(obj.subtotal or 0)))
 
 
 class MedicineBatchSerializer(ModelSerializer):

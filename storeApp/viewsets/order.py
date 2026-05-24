@@ -337,6 +337,9 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         for item_data in normalized_items:
             order_subtotal += item_data['price'] * item_data['quantity']
         shipping_fee_base = Decimal(str(shipping_method_obj.price))
+        from storeApp.services.store_constants import apply_free_shipping_base
+
+        shipping_fee_base = apply_free_shipping_base(order_subtotal, shipping_fee_base)
 
         product_mids = set()
         category_slugs = set()

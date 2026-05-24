@@ -28,7 +28,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Count, Q
 
-from storeApp.models import MedicineBatch, Product, ProductVariant, ProductVariantUnit
+from storeApp.models import MedicineBatch, Product, ProductCategory, ProductVariant, ProductVariantUnit
 
 # Schema tham chiếu refactor (core: base_unit, price, quantity_in_base) — keys only, no sample data.
 REFACTOR_PAYLOAD_SCHEMA = {
@@ -38,7 +38,8 @@ REFACTOR_PAYLOAD_SCHEMA = {
         "name": "string",
         "web_name": "string|null",
         "brand": "string|null",
-        "category_slug": "string|null",
+        "category_slug": "string|null (primary FK)",
+        "category_slugs": "string[] (M2M paths, primary first)",
         "content": {
             "description": "html|string|null",
             "ingredients": "text|null",
@@ -203,7 +204,7 @@ class Command(BaseCommand):
         self.stdout.write(json.dumps(REFACTOR_PAYLOAD_SCHEMA, indent=2, ensure_ascii=False))
 
     @staticmethod
-    def _build_db_payload(product: Product, variants: list) -> dict:
+    def _build_db_payload(product: Product, variants: list, using: str = "store") -> dict:
         """Canonical lookup shape after import (cart/API cares about units[]."""
         variant_payloads = []
         for v in variants:
@@ -235,6 +236,16 @@ class Command(BaseCommand):
                     "remaining_quantity_sum": batch_sum,
                 },
             })
+        category_slugs = []
+        for pc in (
+            ProductCategory.objects.using(using)
+            .filter(product=product)
+            .select_related("category")
+            .order_by("-is_primary", "sort_order", "category_id")
+        ):
+            if pc.category and pc.category.path_slug:
+                category_slugs.append(pc.category.path_slug)
+
         return {
             "product": {
                 "id": product.id,
@@ -244,6 +255,7 @@ class Command(BaseCommand):
                 "web_name": product.web_name,
                 "brand": product.brand.name if product.brand_id else None,
                 "category_slug": product.category.path_slug if product.category_id else None,
+                "category_slugs": category_slugs,
                 "content": {
                     "description": _content_shape(product.description),
                     "ingredients": _content_shape(product.ingredients),
@@ -282,8 +294,18 @@ class Command(BaseCommand):
         self.stdout.write(f"  slug      : {product.slug}")
         self.stdout.write(f"  brand     : {product.brand.name if product.brand_id else '-'}")
         self.stdout.write(
-            f"  category  : {product.category.path_slug if product.category_id else '-'}"
+            f"  category  : {product.category.path_slug if product.category_id else '-'} (primary FK)"
         )
+        m2m_slugs = [
+            pc.category.path_slug
+            for pc in ProductCategory.objects.using(using)
+            .filter(product=product)
+            .select_related("category")
+            .order_by("-is_primary", "sort_order")
+            if pc.category_id
+        ]
+        if m2m_slugs:
+            self.stdout.write(f"  categories: {', '.join(m2m_slugs)}")
 
         variants = list(
             ProductVariant.objects.using(using)
@@ -291,7 +313,7 @@ class Command(BaseCommand):
             .prefetch_related("units", "batches")
         )
 
-        db_payload = self._build_db_payload(product, variants)
+        db_payload = self._build_db_payload(product, variants, using=using)
         if payload_only:
             self.stdout.write(json.dumps(db_payload, indent=2, ensure_ascii=False))
             return
