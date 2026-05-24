@@ -2,10 +2,12 @@
 Smart synthetic pricing for store_import_csv when scrape price is missing or zero.
 
 Strategy per variant (units list):
-  1) Treat price_value <= 0 as missing (CONSULT / stale crawl).
+  1) Treat price_value <= 0 and scrape "CONSULT" as missing (no listed price).
   2) Infer from sibling units with known price (median VND per base unit × quantity_in_base).
-  3) Row fallback (priceDisplay/priceValue) scaled by quantity_in_base.
+  3) Row fallback (priceDisplay/priceValue) for units that had a real scrape price — not for CONSULT scrape.
   4) Tiered random per base unit by unit_name (viên/gói vs hộp vs thùng).
+
+CONSULT on scrape → same as old catalog: synthetic VND price + formatted price_display (not stored as "CONSULT").
 """
 
 from __future__ import annotations
@@ -53,20 +55,29 @@ def is_positive_price(value) -> bool:
 
 
 def is_consult_price_display(value) -> bool:
-    """Scrape/legacy rows may keep price_display=CONSULT while price_value was filled later."""
     if value is None:
         return False
     return str(value).strip().upper() == "CONSULT"
 
 
+def scrape_price_was_consult(unit: dict) -> bool:
+    """Scrape marked CONSULT — use random tier, skip row-level price fallback."""
+    return bool(unit.get("scrape_was_consult"))
+
+
+def mark_scrape_consult_unit(unit: dict) -> None:
+    """Normalize unit parsed from CONSULT scrape before ensure_unit_pricing."""
+    unit["scrape_was_consult"] = True
+    unit["price_value"] = 0
+    unit["price_display"] = None
+
+
 def round_vnd(amount: float) -> float:
-    """Round to nearest 1.000đ, minimum floor."""
     rounded = max(_MIN_UNIT_PRICE_VND, int(round(amount / _VND_ROUND_STEP)) * _VND_ROUND_STEP)
     return float(rounded)
 
 
 def smart_random_unit_price(unit_name: str, quantity_in_base: int) -> float:
-    """Random giá bán theo tier đơn vị × quantity_in_base (đơn vị cơ sở)."""
     qib = max(int(quantity_in_base or 1), 1)
     lo, hi = _per_base_range_for_unit(unit_name)
     per_base = random.randint(lo, hi)
@@ -118,7 +129,7 @@ def _apply_row_fallback(units: list, fallback_price: float, fallback_display: st
     per_base = float(fallback_price) / def_qib
 
     for u in units:
-        if is_positive_price(u.get("price_value")):
+        if scrape_price_was_consult(u) or is_positive_price(u.get("price_value")):
             continue
         qib = max(int(u.get("quantity_in_base") or 1), 1)
         u["price_value"] = round_vnd(per_base * qib)
@@ -143,13 +154,18 @@ def ensure_unit_pricing(
 ) -> None:
     """
     Fill missing/zero unit prices in-place.
-    use_smart_random=False → flat random 10k–500k (legacy).
+    Scrape CONSULT → random (optional sibling infer); row fallback does not apply to CONSULT units.
     """
     if not units:
         return
 
     for u in units:
-        if not is_positive_price(u.get("price_value")):
+        if is_consult_price_display(u.get("price_display")) or (
+            isinstance(u.get("price_value"), str)
+            and str(u.get("price_value")).strip().upper() == "CONSULT"
+        ):
+            mark_scrape_consult_unit(u)
+        elif not is_positive_price(u.get("price_value")):
             u["price_value"] = 0
 
     _infer_missing_from_siblings(units)
@@ -175,3 +191,6 @@ def ensure_unit_pricing(
             u["price_display"] = format_price_display(
                 float(u["price_value"]), u.get("unit_name", "")
             )
+
+    for u in units:
+        u.pop("scrape_was_consult", None)

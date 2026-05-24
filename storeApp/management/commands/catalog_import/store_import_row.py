@@ -12,6 +12,7 @@ from typing import Optional
 from dateutil.relativedelta import relativedelta
 
 from .store_import_packaging import normalize_single_default_unit_per_variant
+from .store_import_pricing import is_consult_price_display, mark_scrape_consult_unit
 
 COUNTRY_MAP = {
     "úc": "Úc", "australia": "Úc",
@@ -188,14 +189,20 @@ def build_variant_payloads_from_sale_units(
         )
         if not unit_name:
             continue
-        units.append({
+        consult = is_consult_price_display(su.get("priceDisplay")) or str(
+            su.get("priceValue") or ""
+        ).strip().upper() == "CONSULT"
+        unit_entry = {
             "unit_name": unit_name,
             "unit_order": to_int(su.get("unitOrder"), 0),
             "quantity_in_base": max(to_int(su.get("quantityInBase"), 1), 1),
             "price_value": float(su.get("priceValue") or 0),
             "price_display": clip_db_str(su.get("priceDisplay"), 50),
             "is_default": bool(su.get("isDefault")),
-        })
+        }
+        if consult:
+            mark_scrape_consult_unit(unit_entry)
+        units.append(unit_entry)
 
     if not units:
         return []

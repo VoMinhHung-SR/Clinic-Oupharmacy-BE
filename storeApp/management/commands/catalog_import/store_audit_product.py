@@ -4,8 +4,9 @@ So sánh 1 Product trong DB (store) với row scrape [new] CSV — trước khi 
 Usage:
   cd Clinic-Oupharmacy-BE
 
-  # Tổng quan catalog DB
+  # Tổng quan catalog DB (+ multi variant/unit/category; ids nếu count < 10)
   python manage.py store_catalog audit --overview
+  python manage.py store_catalog audit --overview --overview-id-limit 10
 
   # So sánh theo mid (basicInfo.sku)
   python manage.py store_catalog audit --mid 00002393
@@ -131,6 +132,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--overview", action="store_true", help="Thống kê catalog DB store.")
+        parser.add_argument(
+            "--overview-id-limit",
+            type=int,
+            default=10,
+            help="Với nhóm đếm < limit, in thêm product id (và mid nếu có). Mặc định 10.",
+        )
         parser.add_argument("--mid", help="basicInfo.sku / Product.mid")
         parser.add_argument("--slug", help="basicInfo.slug / Product.slug")
         parser.add_argument(
@@ -146,7 +153,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         if options["overview"]:
-            self._print_overview()
+            self._print_overview(id_limit=max(1, int(options["overview_id_limit"] or 10)))
             self._print_refactor_schema()
             if not options["mid"] and not options["slug"]:
                 self.stdout.write(
@@ -165,11 +172,43 @@ class Command(BaseCommand):
                 payload_only=options["payload_only"],
             )
 
-    def _print_overview(self):
+    def _format_product_id_sample(self, product_ids: list[int], *, using: str, id_limit: int) -> str:
+        if not product_ids:
+            return ""
+        rows = (
+            Product.objects.using(using)
+            .filter(id__in=product_ids)
+            .order_by("id")
+            .values_list("id", "mid")
+        )
+        parts = []
+        for pid, mid in rows:
+            mid_s = str(mid or "").strip()
+            parts.append(f"{pid} ({mid_s})" if mid_s else str(pid))
+        return "; ".join(parts)
+
+    def _print_overview_multi_group(
+        self,
+        *,
+        label: str,
+        qs,
+        total_products: int,
+        id_limit: int,
+        using: str,
+    ) -> None:
+        count = qs.count()
+        self.stdout.write(f"  {label:<36}: {count} / {total_products}")
+        if 0 < count < id_limit:
+            ids = list(qs.order_by("id").values_list("id", flat=True)[:id_limit])
+            sample = self._format_product_id_sample(ids, using=using, id_limit=id_limit)
+            self.stdout.write(f"      ids: {sample}")
+
+    def _print_overview(self, *, id_limit: int = 10):
         using = "store"
         self.stdout.write(self.style.MIGRATE_HEADING("Store catalog overview (DB alias: store)"))
 
-        products = Product.objects.using(using).count()
+        product_qs = Product.objects.using(using)
+        products = product_qs.count()
         variants = ProductVariant.objects.using(using).count()
         units = ProductVariantUnit.objects.using(using).count()
         batches = MedicineBatch.objects.using(using).count()
@@ -188,9 +227,36 @@ class Command(BaseCommand):
         self.stdout.write(f"  Units price <= 0  : {zero_price_units}")
         self.stdout.write(f"  Variants no default unit : {no_default}")
 
+        self.stdout.write(self.style.MIGRATE_HEADING("\nMulti-variant / multi-unit / multi-category"))
+        annotated = product_qs.annotate(
+            variant_count=Count("variants", distinct=True),
+            unit_count=Count("variants__units", distinct=True),
+            category_count=Count("product_categories", distinct=True),
+        )
+        self._print_overview_multi_group(
+            label="Products (>1 VariantUnit)",
+            qs=annotated.filter(unit_count__gt=1),
+            total_products=products,
+            id_limit=id_limit,
+            using=using,
+        )
+        self._print_overview_multi_group(
+            label="Products (>1 Variant)",
+            qs=annotated.filter(variant_count__gt=1),
+            total_products=products,
+            id_limit=id_limit,
+            using=using,
+        )
+        self._print_overview_multi_group(
+            label="Products (>1 category M2M)",
+            qs=annotated.filter(category_count__gt=1),
+            total_products=products,
+            id_limit=id_limit,
+            using=using,
+        )
+
         sample = (
-            Product.objects.using(using)
-            .filter(mid__isnull=False)
+            product_qs.filter(mid__isnull=False)
             .exclude(mid="")
             .order_by("-updated_date")[:5]
         )

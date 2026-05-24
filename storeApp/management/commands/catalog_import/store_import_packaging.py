@@ -2,6 +2,12 @@ import json
 import re
 from typing import Optional
 
+from .store_import_pricing import (
+    is_consult_price_display,
+    is_positive_price,
+    mark_scrape_consult_unit,
+)
+
 
 def _parse_price_value(price_display: str) -> float:
     """'123.456đ' / '330.000đ / Hộp' / 'CONSULT' -> float VND (0 if unknown)."""
@@ -44,17 +50,24 @@ def _parse_package_options(raw: str, default_packing: str = "", default_price_di
                 if isinstance(item, dict):
                     pd = item.get("price", item.get("priceDisplay", default_price_display))
                     pv = item.get("priceValue", _parse_price_value(pd))
+                    consult = (
+                        is_consult_price_display(pd)
+                        or str(item.get("priceValue") or "").strip().upper() == "CONSULT"
+                    )
                     packing = (
                         item.get("specification", "")
                         or item.get("unit", "")
                         or item.get("unitDisplay", default_packing)
                     )
-                    result.append({
+                    entry = {
                         "packing": str(packing)[:100],
                         "unit_name": str(item.get("unit", item.get("unitDisplay", ""))).strip()[:50],
-                        "price_display": str(pd)[:50],
-                        "price_value": float(pv) if pv else 0.0,
-                    })
+                        "price_display": str(pd)[:50] if not consult else None,
+                        "price_value": 0.0 if consult else (float(pv) if pv else 0.0),
+                    }
+                    if consult:
+                        mark_scrape_consult_unit(entry)
+                    result.append(entry)
             return result
         except (json.JSONDecodeError, TypeError):
             pass
@@ -63,6 +76,18 @@ def _parse_package_options(raw: str, default_packing: str = "", default_price_di
     for part in raw.split("|"):
         part = part.strip()
         if not part:
+            continue
+        consult_m = re.match(r"^CONSULT\s*\((.+?)\)\s*$", part, flags=re.IGNORECASE)
+        if consult_m:
+            unit_name = (consult_m.group(1) or "").strip()[:50]
+            entry = {
+                "packing": default_packing,
+                "unit_name": unit_name or (default_packing.split()[0] if default_packing else "Unit"),
+                "price_display": None,
+                "price_value": 0.0,
+            }
+            mark_scrape_consult_unit(entry)
+            options.append(entry)
             continue
         m = re.match(r"(.+?)\s+([\d.,]+đ)\s*/\s*(.+?)(?:\s*\((.+?)\))?$", part)
         if m:
@@ -139,12 +164,21 @@ def _build_variant_payloads(package_options: list, default_packing: str, default
         group = grouped.setdefault(packing, {"packing": packing, "units": {}})
         unit_key = _normalize_unit_name(unit_name)
         existing = group["units"].get(unit_key)
-        if existing is None or price_value < existing["price_value"]:
-            group["units"][unit_key] = {
+        option_consult = option.get("scrape_was_consult") or is_consult_price_display(price_display)
+        replace = existing is None
+        if not replace and option_consult:
+            replace = not is_positive_price(existing.get("price_value"))
+        elif not replace:
+            replace = price_value < float(existing.get("price_value") or 0)
+        if replace:
+            entry = {
                 "unit_name": unit_name,
                 "price_display": price_display,
                 "price_value": price_value,
             }
+            if option_consult:
+                mark_scrape_consult_unit(entry)
+            group["units"][unit_key] = entry
 
     payloads = []
     for packing, group in grouped.items():

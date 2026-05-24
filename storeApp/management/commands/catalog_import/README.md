@@ -5,7 +5,7 @@ Logic import/audit catalog (DB alias `store`). CLI entry: `../store_catalog.py`.
 ```bash
 python manage.py store_catalog import-csv [path] [--dry-run] ...
 python manage.py store_catalog import-refactor [--apply] ...
-python manage.py store_catalog audit --overview
+python manage.py store_catalog audit --overview [--overview-id-limit 10]
 python manage.py backfill_product_categories [--dry-run]
 ```
 
