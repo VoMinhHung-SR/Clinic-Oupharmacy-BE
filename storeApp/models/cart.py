@@ -14,7 +14,15 @@ class Cart(BaseModel):
         (ABANDONED, "Abandoned"),
     ]
 
-    user_id = models.BigIntegerField(db_column="user_id", null=False, db_index=True)
+    user_id = models.BigIntegerField(db_column="user_id", null=True, blank=True, db_index=True)
+    guest_session_id = models.UUIDField(
+        db_column="guest_session_id",
+        null=True,
+        blank=True,
+        db_index=True,
+        default=None,
+        help_text="Anonymous cart session (UUID from X-Guest-Session header)",
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=ACTIVE, db_column="status", db_index=True)
     shipping_method = models.ForeignKey(
         "ShippingMethod",
@@ -59,14 +67,27 @@ class Cart(BaseModel):
         db_table = "store_cart"
         indexes = [
             models.Index(fields=["user_id", "status"]),
+            models.Index(fields=["guest_session_id", "status"]),
             models.Index(fields=["status", "updated_date"]),
         ]
         constraints = [
             models.UniqueConstraint(
                 fields=["user_id"],
-                condition=models.Q(status="ACTIVE"),
+                condition=models.Q(status="ACTIVE", user_id__isnull=False),
                 name="store_cart_one_active_per_user",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["guest_session_id"],
+                condition=models.Q(status="ACTIVE", guest_session_id__isnull=False),
+                name="store_cart_one_active_per_guest",
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(user_id__isnull=False, guest_session_id__isnull=True)
+                    | models.Q(user_id__isnull=True, guest_session_id__isnull=False)
+                ),
+                name="store_cart_user_xor_guest",
+            ),
         ]
 
 

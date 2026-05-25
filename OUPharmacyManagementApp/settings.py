@@ -42,6 +42,14 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 INTERNAL_IPS = os.getenv('INTERNAL_IPS', '127.0.0.1').split(',')
 CORS_ALLOW_ALL_ORIGINS = True
 
+# Guest cart sends X-Guest-Session; browser preflight requires explicit allow-list.
+from corsheaders.defaults import default_headers
+
+CORS_ALLOW_HEADERS = (
+    *default_headers,
+    "x-guest-session",
+)
+
 # Application definition
 csrf_origins = os.getenv('CSRF_TRUSTED_ORIGINS', '')
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins.split(',') if origin.strip()] if csrf_origins else []

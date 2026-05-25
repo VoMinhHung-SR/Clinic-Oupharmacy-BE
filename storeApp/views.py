@@ -308,8 +308,16 @@ def products_by_category_slug(request, category_slug):
         queryset = annotate_variant_unit_price(
             ProductVariant.objects.using(STORE_DB_ALIAS).filter(
                 active=True,
+                is_published=True,
+                product__active=True,
                 product__category_id__in=list(category_ids),
-            ).select_related('product', 'product__category', 'product__brand')
+            ).select_related('product', 'product__category', 'product__brand').prefetch_related(
+                Prefetch(
+                    "units",
+                    queryset=ProductVariantUnit.objects.using(STORE_DB_ALIAS).filter(is_published=True).order_by("unit_order", "id"),
+                    to_attr="prefetched_units",
+                )
+            )
         , db_alias=STORE_DB_ALIAS)
         
         # Get immediate subcategories (always needed for navigation)
@@ -371,7 +379,7 @@ def products_by_category_slug(request, category_slug):
         response.data['hasSubcategories'] = has_subcategories
         response.data['subcategories'] = immediate_subcategories
         return response
-    
+
     serializer = ProductVariantSerializer(queryset, many=True)
     return Response({
         'categorySlug': category_path_slug,

@@ -1,4 +1,5 @@
 import unicodedata
+from typing import Optional
 
 from cloudinary.models import CloudinaryField
 from django.core.validators import MinValueValidator
@@ -327,13 +328,14 @@ class Category(BaseModel):
         return path
 
     @classmethod
-    def get_or_create_from_array(cls, category_array, cache=None):
+    def get_or_create_from_array(cls, category_array, cache=None, using=None):
         if not category_array or not isinstance(category_array, list):
             return None
         if cache is None:
             cache = {}
 
         parent = None
+        qs = cls.objects.using(using) if using else cls.objects
         for cat_data in category_array:
             if not isinstance(cat_data, dict):
                 continue
@@ -347,7 +349,7 @@ class Category(BaseModel):
             if cache_key in cache:
                 parent = cache[cache_key]
             else:
-                category, _ = cls.objects.get_or_create(
+                category, _ = qs.get_or_create(
                     slug=slug,
                     parent=parent,
                     defaults={"name": name},
@@ -391,10 +393,75 @@ class Product(BaseModel):
     specifications = models.JSONField(default=dict, null=True, blank=True)
 
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="products",
+        help_text="Primary category (canonical URL); kept in sync with ProductCategory.is_primary",
+    )
+    categories = models.ManyToManyField(
+        Category,
+        through="ProductCategory",
+        related_name="categorized_products",
+        blank=True,
+        help_text="All category assignments (primary + additional); logic/backfill in follow-up tasks",
+    )
 
     def __str__(self):
         return self.name
+
+    def get_primary_product_category(self, using=None):
+        qs = ProductCategory.objects.using(using) if using else ProductCategory.objects
+        return qs.filter(product=self, is_primary=True).select_related("category").first()
+
+    def assign_category(
+        self,
+        category: Optional["Category"],
+        *,
+        using: Optional[str] = None,
+        set_primary_if_none: bool = True,
+    ) -> Optional["ProductCategory"]:
+        """
+        Merge one category assignment without removing existing M2M rows.
+
+        Import rule: keep existing primary; set primary only when product has none.
+        Syncs Product.category FK when a row becomes primary.
+        """
+        if not category:
+            return None
+
+        pc_qs = ProductCategory.objects.using(using) if using else ProductCategory.objects
+        product_qs = type(self).objects.using(using) if using else type(self).objects
+
+        existing = pc_qs.filter(product=self, category=category).first()
+        has_primary = pc_qs.filter(product=self, is_primary=True).exists()
+        make_primary = set_primary_if_none and not has_primary
+
+        if existing:
+            if make_primary and not existing.is_primary:
+                pc_qs.filter(product=self, is_primary=True).update(is_primary=False)
+                existing.is_primary = True
+                existing.save(using=using, update_fields=["is_primary"])
+                if self.category_id != category.id:
+                    product_qs.filter(pk=self.pk).update(category_id=category.id)
+                    self.category_id = category.id
+            return existing
+
+        if make_primary:
+            pc_qs.filter(product=self, is_primary=True).update(is_primary=False)
+
+        link = pc_qs.create(
+            product=self,
+            category=category,
+            is_primary=make_primary,
+            sort_order=0,
+        )
+        if make_primary and self.category_id != category.id:
+            product_qs.filter(pk=self.pk).update(category_id=category.id)
+            self.category_id = category.id
+        return link
 
     class Meta:
         db_table = "store_product"
@@ -405,6 +472,52 @@ class Product(BaseModel):
             models.Index(fields=["slug"]),
             models.Index(fields=["name"]),
         ]
+
+
+class ProductCategory(BaseModel):
+    
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="product_categories",
+        db_column="product_id",
+    )
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.CASCADE,
+        related_name="product_categories",
+        db_column="category_id",
+    )
+    is_primary = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Exactly one primary row per product when assigned",
+    )
+    sort_order = models.SmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "store_product_category"
+        verbose_name = "Product category"
+        verbose_name_plural = "Product categories"
+        ordering = ["product_id", "-is_primary", "sort_order", "category_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "category"],
+                name="store_product_category_unique_product_category",
+            ),
+            models.UniqueConstraint(
+                fields=["product"],
+                condition=models.Q(is_primary=True),
+                name="store_product_category_one_primary_per_product",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["category", "product"], name="st_pc_cat_prod_ix"),
+            models.Index(fields=["product", "is_primary"], name="st_pc_prod_pri_ix"),
+        ]
+
+    def __str__(self):
+        return f"{self.product_id} → {self.category_id}" + (" (primary)" if self.is_primary else "")
 
 
 class ProductVariant(BaseModel):
