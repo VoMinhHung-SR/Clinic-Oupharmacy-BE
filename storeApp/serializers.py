@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 
 from .models import (
     MedicineBatch,
@@ -218,12 +219,14 @@ class CartSerializer(ModelSerializer):
     shipping_method = ShippingMethodSerializer(read_only=True)
     order_voucher_code = serializers.SerializerMethodField()
     shipping_voucher_code = serializers.SerializerMethodField()
+    free_shipping_applied = serializers.SerializerMethodField()
 
     class Meta:
         model = Cart
         fields = [
             "id",
             "user_id",
+            "guest_session_id",
             "status",
             "items",
             "shipping_method",
@@ -235,6 +238,7 @@ class CartSerializer(ModelSerializer):
             "version",
             "order_voucher_code",
             "shipping_voucher_code",
+            "free_shipping_applied",
             "checkout_order",
             "created_date",
             "updated_date",
@@ -246,6 +250,13 @@ class CartSerializer(ModelSerializer):
 
     def get_shipping_voucher_code(self, obj):
         return obj.shipping_voucher.code if obj.shipping_voucher else None
+
+    def get_free_shipping_applied(self, obj):
+        from decimal import Decimal
+
+        from storeApp.services.store_constants import qualifies_for_free_shipping
+
+        return qualifies_for_free_shipping(Decimal(str(obj.subtotal or 0)))
 
 
 class MedicineBatchSerializer(ModelSerializer):
@@ -331,12 +342,16 @@ class ProductVariantSerializer(ModelSerializer):
     price_value = SerializerMethodField()
     compare_at_price = serializers.SerializerMethodField()
     discount_percent = serializers.SerializerMethodField()
+    default_unit_id = serializers.SerializerMethodField()
+    default_unit_name = serializers.SerializerMethodField()
+    unit_options = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductVariant
         fields = [
             'id', 'in_stock', 'image', 'image_url', 'images', "packing",
             'price_display', 'price_value', 'compare_at_price', 'discount_percent',
+            'default_unit_id', 'default_unit_name', 'unit_options',
             'product_ranking', 'is_published', 'is_hot',
             'registration_number', 'base_unit',
             'product', 'category', 'category_info', 'brand', 'active',
@@ -419,6 +434,37 @@ class ProductVariantSerializer(ModelSerializer):
             return 0
         return int(round((compare - price) / compare * 100))
 
+    def get_default_unit_id(self, obj):
+        unit = self._get_default_unit(obj)
+        return unit.id if unit else None
+
+    def get_default_unit_name(self, obj):
+        unit = self._get_default_unit(obj)
+        return unit.unit_name if unit else None
+
+    def get_unit_options(self, obj):
+        prefetched_units = getattr(obj, "prefetched_units", None)
+        if prefetched_units is not None:
+            units = prefetched_units
+        else:
+            units_manager = getattr(obj, "units", None)
+            if units_manager is None:
+                return []
+            units = units_manager.filter(is_published=True).order_by("unit_order", "id")
+
+        return [
+            {
+                "unit_id": unit.id,
+                "unit_name": unit.unit_name,
+                "quantity_in_base": unit.quantity_in_base,
+                "price_value": unit.price_value,
+                "price_display": unit.price_display,
+                "compare_at_price": unit.compare_at_price,
+                "is_default": bool(unit.is_default),
+            }
+            for unit in units
+        ]
+
 
 class CategoryLevel2Serializer(ModelSerializer):
     """Serializer cho category level 2 với thông tin total"""
@@ -461,12 +507,6 @@ class MinimalProductVariantSerializer(serializers.ModelSerializer):
         if category_slug:
             return f"{category_slug}/{medicine_slug}"
         return medicine_slug
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        if 'web_slug' in data:
-            data['web-slug'] = data.pop('web_slug')
-        return data
 
     def get_thumbnail(self, obj):
         if obj.image:
@@ -545,8 +585,37 @@ class CategoryLevel1Serializer(ModelSerializer):
         return CategoryLevel2Serializer(level2_categories, many=True).data
 
     def get_top_products(self, obj):
-        # We need to implement this or use a product ranking service in storeApp
-        return []
+        """
+        Top selling variants under this level-1 category (subtree), one variant per product.
+        Uses ProductVariant.product_ranking (and is_hot) for ordering.
+        """
+        slug = (obj.path_slug or "").strip()
+        if slug:
+            category_q = (
+                Q(product__category_id=obj.pk)
+                | Q(product__category__path_slug=slug)
+                | Q(product__category__path_slug__startswith=f"{slug}/")
+            )
+        else:
+            category_q = Q(product__category_id=obj.pk)
+
+        qs = (
+            ProductVariant.objects.filter(is_published=True)
+            .filter(category_q)
+            .select_related("product", "product__category")
+            .order_by("-product_ranking", "-is_hot", "-id")
+        )
+        picked = []
+        seen_products = set()
+        for variant in qs[:40]:
+            pid = variant.product_id
+            if pid in seen_products:
+                continue
+            seen_products.add(pid)
+            picked.append(variant)
+            if len(picked) >= 5:
+                break
+        return MinimalProductVariantSerializer(picked, many=True).data
 
 
 class CategoryLevel0Serializer(ModelSerializer):
@@ -562,22 +631,21 @@ class CategoryLevel0Serializer(ModelSerializer):
         if hasattr(obj, '_prefetched_objects_cache') and 'children' in obj._prefetched_objects_cache:
             level1_categories = list(obj._prefetched_objects_cache['children'])
         else:
-            level1_categories = list(Category.objects.using('default').filter(
+            level1_categories = list(Category.objects.filter(
                 parent=obj,
                 level=1,
                 active=True
             ).order_by('name'))
-        
         if level1_categories:
             level1_ids = [cat.id for cat in level1_categories]
-            level2_all = Category.objects.using('default').filter(
+            level2_all = Category.objects.filter(
                 parent_id__in=level1_ids,
                 level=2,
                 active=True
             ).order_by('parent_id', 'name')
-            
+
             from django.db.models import Count
-            level2_counts = Category.objects.using('default').filter(
+            level2_counts = Category.objects.filter(
                 level=2,
                 active=True,
                 parent_id__in=level1_ids

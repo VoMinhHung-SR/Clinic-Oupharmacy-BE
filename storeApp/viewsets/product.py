@@ -12,6 +12,7 @@ from django.db.models.functions import Coalesce
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from storeApp.models import ProductVariantUnit, Product
+from django.db.models import Prefetch
 
 
 def annotate_variant_unit_price(queryset, db_alias=None):
@@ -60,13 +61,20 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
     search_fields = ['product__name', 'packing', 'product__web_name']
     ordering_fields = ['price_value', 'created_date', 'in_stock', 'product_ranking']
     ordering = ['-created_date']
-    
+
     def get_queryset(self):
         store_db_alias = "store" if "store" in settings.DATABASES else "default"
         queryset = annotate_variant_unit_price(
             ProductVariant.objects.using(store_db_alias)
             .filter(active=True)
-            .select_related("product__category", "product__brand"),
+            .select_related("product__category", "product__brand")
+            .prefetch_related(
+                Prefetch(
+                    "units",
+                    queryset=ProductVariantUnit.objects.using(store_db_alias).filter(is_published=True).order_by("unit_order", "id"),
+                    to_attr="prefetched_units",
+                )
+            ),
             db_alias=store_db_alias,
         )
         

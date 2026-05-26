@@ -1,9 +1,12 @@
+from django.db import IntegrityError
+from django.db.utils import DatabaseError
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from storeApp.models import Cart, CartItem, PaymentMethod, ShippingMethod, Voucher
+from storeApp.permissions.cart_permissions import IsAuthenticatedOrGuestCart
 from storeApp.serializers import CartSerializer, OrderSerializer
 from storeApp.services.cart_cache import get_cart_cache_gateway
 from storeApp.services.cart_service import (
@@ -12,19 +15,88 @@ from storeApp.services.cart_service import (
     add_or_update_item,
     checkout_cart,
     get_or_create_active_cart,
+    merge_guest_cart_into_user,
     recalculate_cart,
     remove_item,
+    set_cart_shipping_method,
     update_item,
 )
+from storeApp.services.checkout_delivery import resolve_checkout_shipping_address
+from storeApp.services.guest_session import guest_session_id_from_request, new_guest_session_id
 from storeApp.services.voucher_engine import VoucherEngineError
 
 
 class CartViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedOrGuestCart]
     CURRENT_CART_CACHE_TTL_SECONDS = 60
 
     def _active_cart(self, request):
-        return get_or_create_active_cart(user_id=request.user.id, using="store")
+        user = getattr(request, "user", None)
+        if user is not None and user.is_authenticated:
+            return get_or_create_active_cart(user_id=user.id, using="store")
+        guest_id = getattr(request, "guest_session_id", None) or guest_session_id_from_request(request)
+        if not guest_id:
+            raise CartServiceError("X-Guest-Session header is required for guest cart")
+        return get_or_create_active_cart(guest_session_id=guest_id, using="store")
+
+    @action(methods=["post"], detail=False, url_path="guest-session", permission_classes=[AllowAny])
+    def guest_session(self, request):
+        """Issue a new guest session UUID (no auth). FE stores in sessionStorage."""
+        session_id = new_guest_session_id()
+        return Response({"guest_session_id": session_id}, status=status.HTTP_201_CREATED)
+
+    @action(methods=["post"], detail=False, url_path="merge-guest", permission_classes=[IsAuthenticated])
+    def merge_guest(self, request):
+        guest_id = guest_session_id_from_request(request)
+        if not guest_id:
+            return Response({"error": "X-Guest-Session header is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            cart = merge_guest_cart_into_user(
+                guest_session_id=guest_id,
+                user_id=request.user.id,
+                using="store",
+            )
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(CartSerializer(cart).data)
+
+    def _reload_cart_for_response(self, cart):
+        return (
+            Cart.objects.using("store")
+            .select_related("shipping_method", "order_voucher", "shipping_voucher")
+            .prefetch_related(
+                "items__product_variant__product__category",
+                "items__product_variant__units",
+                "items__product_variant_unit",
+            )
+            .get(pk=cart.pk)
+        )
+
+    def _finalize_cart_response(self, cart, *, check_version=False):
+        cart = self._reload_cart_for_response(cart)
+        cart = recalculate_cart(
+            cart=cart,
+            using="store",
+            expected_version=cart.version if check_version else None,
+            check_version=check_version,
+        )
+        return CartSerializer(cart).data
+
+    def _cart_service_error_response(self, exc):
+        if isinstance(exc, CartVersionConflictError):
+            return Response(
+                {
+                    "error": str(exc),
+                    "details": {
+                        "expected_version": exc.expected_version,
+                        "current_version": exc.current_version,
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if isinstance(exc, VoucherEngineError):
+            return Response({"error": "Validation failed", "details": exc.to_detail()}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     def _parse_expected_version(self, request):
         raw = request.data.get("expected_version")
@@ -39,18 +111,36 @@ class CartViewSet(viewsets.ViewSet):
 
     @action(methods=["get"], detail=False, url_path="current")
     def current(self, request):
-        cart = self._active_cart(request)
+        try:
+            cart = self._active_cart(request)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except (IntegrityError, DatabaseError) as exc:
+            return Response(
+                {"error": "Cart storage is unavailable. Check store DB migrations.", "details": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         cache_gateway = get_cart_cache_gateway()
         try:
             cached_summary = cache_gateway.get_cart_summary(cart_id=cart.id)
             if cached_summary is not None:
                 return Response(cached_summary)
         except Exception:
-            # Cache is an optimization; request must still succeed on cache failures.
             pass
 
-        cart = recalculate_cart(cart=cart, using="store", expected_version=cart.version)
-        response_data = CartSerializer(cart).data
+        try:
+            response_data = self._finalize_cart_response(cart, check_version=False)
+        except CartServiceError as exc:
+            return self._cart_service_error_response(exc)
+        except VoucherEngineError as exc:
+            return Response({"error": "Validation failed", "details": exc.to_detail()}, status=status.HTTP_400_BAD_REQUEST)
+        except (IntegrityError, DatabaseError) as exc:
+            return Response(
+                {"error": "Cart storage is unavailable. Check store DB migrations.", "details": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         try:
             cache_gateway.set_cart_summary(
                 cart_id=cart.id,
@@ -159,10 +249,13 @@ class CartViewSet(viewsets.ViewSet):
             shipping_method = ShippingMethod.objects.get(id=shipping_method_id, active=True)
         except ShippingMethod.DoesNotExist:
             return Response({"error": "ShippingMethod not found"}, status=status.HTTP_400_BAD_REQUEST)
-        cart.shipping_method = shipping_method
-        cart.save(update_fields=["shipping_method"])
         try:
-            cart = recalculate_cart(cart=cart, using="store", expected_version=expected_version)
+            cart = set_cart_shipping_method(
+                cart_id=cart.id,
+                shipping_method=shipping_method,
+                expected_version=expected_version,
+                using="store",
+            )
         except CartVersionConflictError as exc:
             return Response(
                 {
@@ -261,7 +354,8 @@ class CartViewSet(viewsets.ViewSet):
         except CartServiceError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         payment_method_id = request.data.get("payment_method_id")
-        shipping_address = request.data.get("shipping_address")
+        shipping_address_raw = request.data.get("shipping_address")
+        delivery_raw = request.data.get("delivery")
         notes = request.data.get("notes")
         raw_line_ids = request.data.get("cart_item_ids")
         checkout_item_ids = None
@@ -276,8 +370,13 @@ class CartViewSet(viewsets.ViewSet):
                 return Response({"error": "cart_item_ids must be a list of integers"}, status=status.HTTP_400_BAD_REQUEST)
         if not payment_method_id:
             return Response({"error": "payment_method_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-        if not shipping_address:
-            return Response({"error": "shipping_address is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        shipping_address, delivery_errors = resolve_checkout_shipping_address(
+            shipping_address=shipping_address_raw,
+            delivery=delivery_raw,
+        )
+        if delivery_errors is not None:
+            return Response({"error": "Validation failed", "details": delivery_errors}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             payment_method = PaymentMethod.objects.get(id=payment_method_id, active=True)

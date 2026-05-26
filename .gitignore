@@ -31,3 +31,9 @@ artifacts/*.dump
 scripts/db/backups/*.sql
 scripts/db/backups/*.sql.gz
 scripts/db/backups/*.dump
+
+# Manual test runtime outputs
+tests/manual/artifacts/
+tests/manual/**/*.log
+tests/manual/**/*.out
+tests/manual/**/*.tmp

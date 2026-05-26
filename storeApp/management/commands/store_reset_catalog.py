@@ -101,7 +101,7 @@ def clear_store_import_data(stdout, scope="catalog"):
 class Command(BaseCommand):
     help = (
         "Xóa dữ liệu catalog/import trên DB store (có thứ tự) hoặc flush toàn DB store; "
-        "tuỳ chọn chạy store_import_csv sau."
+        "tuỳ chọn chạy store_catalog import-csv sau."
     )
 
     def add_arguments(self, parser):
@@ -134,22 +134,22 @@ class Command(BaseCommand):
         parser.add_argument(
             "--import-csv",
             action="store_true",
-            help="Sau khi clear, gọi store_import_csv với thư mục --import-path.",
+            help="Sau khi clear, gọi store_catalog import-csv với thư mục --import-path.",
         )
         parser.add_argument(
             "--import-path",
             default="storeApp/test/data/new/",
-            help="Tham số path cho store_import_csv (default: storeApp/test/data/new/).",
+            help="Tham số path cho store_catalog import-csv (default: storeApp/test/data/new/).",
         )
         parser.add_argument(
             "--update-existing",
             action="store_true",
-            help="Truyền --update-existing cho store_import_csv.",
+            help="Truyền --update-existing cho store_catalog import-csv.",
         )
         parser.add_argument(
             "--no-batches",
             action="store_true",
-            help="Truyền --no-batches cho store_import_csv.",
+            help="Truyền --no-batches cho store_catalog import-csv.",
         )
         parser.add_argument(
             "--dry-run",
@@ -190,12 +190,13 @@ class Command(BaseCommand):
                 )
 
         if options["import_csv"]:
-            self.stdout.write("Chạy store_import_csv...")
-            call_command(
-                "store_import_csv",
+            self.stdout.write("Chạy store_catalog import-csv...")
+            from storeApp.management.commands.catalog_import.run import run_import_csv
+
+            run_import_csv(
                 options["import_path"],
                 update_existing=options["update_existing"],
                 no_batches=options["no_batches"],
                 dry_run=options["dry_run"],
             )
-            self.stdout.write(self.style.SUCCESS("store_import_csv hoàn tất."))
+            self.stdout.write(self.style.SUCCESS("store_catalog import-csv hoàn tất."))
