@@ -378,12 +378,19 @@ class ProductVariantSerializer(ModelSerializer):
     
     def get_category_info(self, obj):
         if hasattr(obj, 'get_category_info'):
-            return obj.get_category_info()
-        return {
-            'category': [],
-            'categoryPath': '',
-            'categorySlug': ''
-        }
+            info = obj.get_category_info()
+        else:
+            info = {
+                'category': [],
+                'categoryPath': '',
+                'categorySlug': '',
+                'primary_category_slug': '',
+                'category_slugs': [],
+            }
+        listed = self.context.get("listed_under_slug")
+        if listed is not None:
+            info = {**info, "listed_under_slug": listed}
+        return info
 
     def _get_default_unit(self, obj):
         prefetched_units = getattr(obj, "prefetched_units", None)

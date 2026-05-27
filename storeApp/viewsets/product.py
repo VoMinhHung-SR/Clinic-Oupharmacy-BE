@@ -11,7 +11,7 @@ from django.db.models import OuterRef, Subquery, DecimalField, Value
 from django.db.models.functions import Coalesce
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from storeApp.models import ProductVariantUnit, Product
+from storeApp.models import ProductVariantUnit, Product, ProductCategory
 from django.db.models import Prefetch
 
 
@@ -70,10 +70,14 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
             .select_related("product__category", "product__brand")
             .prefetch_related(
                 Prefetch(
+                    "product__product_categories",
+                    queryset=ProductCategory.objects.using(store_db_alias).select_related("category"),
+                ),
+                Prefetch(
                     "units",
                     queryset=ProductVariantUnit.objects.using(store_db_alias).filter(is_published=True).order_by("unit_order", "id"),
                     to_attr="prefetched_units",
-                )
+                ),
             ),
             db_alias=store_db_alias,
         )
