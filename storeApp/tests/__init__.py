@@ -15,7 +15,10 @@ from storeApp.tests.test_cart_versioning import (
     CartCurrentCacheReadThroughTests,
     CartVersioningFlowTests,
 )
-from storeApp.tests.test_category_m2m_api import ProductsByCategoryM2MAPITests
+from storeApp.tests.test_category_m2m_api import (
+    OrderVoucherMultiCategoryTests,
+    ProductsByCategoryM2MAPITests,
+)
 from storeApp.tests.test_checkout_delivery_resolve import CheckoutDeliveryResolveTests
 from storeApp.tests.test_import_catalog import (
     StoreImportCategoryMergeTests,
@@ -36,6 +39,7 @@ __all__ = [
     "FreeShippingThresholdTests",
     "GuestCartCheckoutTests",
     "OrderVoucherCreateTests",
+    "OrderVoucherMultiCategoryTests",
     "ProductsByCategoryM2MAPITests",
     "SearchApiTests",
     "SearchKeywordApiTests",

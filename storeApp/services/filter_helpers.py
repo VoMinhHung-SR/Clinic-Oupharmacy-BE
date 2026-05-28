@@ -10,6 +10,11 @@ from django.db.models import Count
 from django.db.models import DecimalField, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
 from storeApp.models import Brand, Category, ProductVariant, ProductVariantUnit
+from storeApp.services.product_category_helpers import (
+    category_tree_ids,
+    count_variants_in_category_ids,
+    product_in_categories_exists,
+)
 from storeApp.services.filter_constants import (
     FILTER_VARIANT_MAP,
     CATEGORY_TYPE_MAPPING,
@@ -162,25 +167,15 @@ class FilterHelpers:
     
     @staticmethod
     def get_category_queryset(category):
-        """Get ProductVariant queryset for category (including subcategories)"""
-        category_path_slug = category.path_slug or category.slug
-        
-        # Get all category IDs (including subcategories)
-        category_ids = [category.id]
-        subcategories = Category.objects.using(FilterHelpers.STORE_DB_ALIAS).filter(
-            active=True,
-            path_slug__istartswith=f"{category_path_slug}/"
-        ).values_list('id', flat=True)
-        category_ids.extend(list(subcategories))
-        
-        # Get ProductVariants in these categories
+        """Get ProductVariant queryset for category (including subcategories) via M2M."""
+        category_ids = category_tree_ids(category, using=FilterHelpers.STORE_DB_ALIAS)
         queryset = (
             ProductVariant.objects.using(FilterHelpers.STORE_DB_ALIAS)
             .filter(
                 active=True,
                 is_published=True,
-                product__category_id__in=category_ids,
             )
+            .filter(product_in_categories_exists(category_ids, using=FilterHelpers.STORE_DB_ALIAS))
             .select_related("product", "product__category", "product__brand")
         )
         return FilterHelpers.annotate_variant_price(queryset)
@@ -332,25 +327,12 @@ class FilterHelpers:
                     all_category_ids.add(descendant_id)
                     break
         
-        all_category_ids = list(all_category_ids)
-        
-        # Single query for all product counts
-        product_counts = ProductVariant.objects.using(FilterHelpers.STORE_DB_ALIAS).filter(
-            active=True,
-            is_published=True,
-            product__category_id__in=all_category_ids
-        ).values('product__category_id').annotate(count=Count('id'))
-        
-        # Build count map
-        count_map = {item['product__category_id']: item['count'] for item in product_counts}
-        
-        # For each immediate subcategory, sum counts including nested
+        # For each immediate subcategory, count variants via M2M (distinct per subtree)
         result = []
         for subcat in immediate_subcategories:
-            # Sum counts for this subcategory and all its children
-            total_count = sum(
-                count_map.get(cat_id, 0)
-                for cat_id in subcategory_with_children.get(subcat.id, [subcat.id])
+            tree_ids = subcategory_with_children.get(subcat.id, [subcat.id])
+            total_count = count_variants_in_category_ids(
+                tree_ids, using=FilterHelpers.STORE_DB_ALIAS
             )
             
             result.append({

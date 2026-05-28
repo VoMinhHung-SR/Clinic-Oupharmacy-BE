@@ -298,7 +298,10 @@ def _build_context(*, cart, using="store", item_ids=None):
     non-empty and every id must belong to this cart (otherwise CartServiceError).
     When None, all lines are included (default checkout behavior).
     """
-    qs = cart.items.using(using).select_related("product_variant__product__category", "product_variant_unit")
+    qs = cart.items.using(using).select_related(
+        "product_variant__product__category",
+        "product_variant_unit",
+    ).prefetch_related("product_variant__product__product_categories__category")
     if item_ids is not None:
         unique_ids = []
         seen_ids = set()
@@ -326,11 +329,12 @@ def _build_context(*, cart, using="store", item_ids=None):
     for item in items:
         unit_price = _to_decimal(item.unit_price_snapshot or item.product_variant_unit.price_value)
         subtotal += unit_price * item.quantity
-        if item.product_variant.product and item.product_variant.product.mid:
-            product_mids.add(str(item.product_variant.product.mid))
-        category = getattr(item.product_variant.product, "category", None)
-        if category and category.slug:
-            category_slugs.add(str(category.slug))
+        product = item.product_variant.product
+        if product and product.mid:
+            product_mids.add(str(product.mid))
+        from storeApp.services.product_category_helpers import collect_category_slugs_for_product
+
+        category_slugs.update(collect_category_slugs_for_product(product))
 
     if cart.shipping_method and cart.shipping_method.price is not None:
         shipping_fee_base = Decimal(str(cart.shipping_method.price))

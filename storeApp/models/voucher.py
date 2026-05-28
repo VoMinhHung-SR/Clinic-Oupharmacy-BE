@@ -62,16 +62,20 @@ class Voucher(BaseModel):
 
         product_mids = set()
         category_slugs = set()
-        items_qs = order.items.select_related("product_variant__product__category").all()
+        from storeApp.services.product_category_helpers import collect_category_slugs_for_product
+
+        items_qs = (
+            order.items.select_related("product_variant__product__category")
+            .prefetch_related("product_variant__product__product_categories__category")
+            .all()
+        )
         for item in items_qs:
             product = getattr(getattr(item, "product_variant", None), "product", None)
             if not product:
                 continue
             if product.mid:
                 product_mids.add(product.mid)
-            category = getattr(product, "category", None)
-            if category and category.slug:
-                category_slugs.add(category.slug)
+            category_slugs.update(collect_category_slugs_for_product(product))
         return product_mids, category_slugs
 
     def is_valid(self):

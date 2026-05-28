@@ -4,12 +4,18 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
 from django.db import models
-from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, Value, When
+from django.db.models import Case, Count, Exists, F, IntegerField, OuterRef, Q, Value, When
 from django.db.models import Prefetch
 from django.db.models.functions import Lower
 from django.utils import timezone
 from storeApp.models import ProductVariant, ProductVariantUnit, Category, Product, ProductCategory
-from storeApp.serializers import ProductVariantSerializer
+from storeApp.serializers import ProductVariantPickerSerializer, ProductVariantSerializer
+from storeApp.services.store_path_resolver import resolve_store_path
+from storeApp.services.variant_listing import (
+    annotate_variant_count,
+    count_distinct_products,
+    one_variant_per_product,
+)
 from storeApp.filters import ProductFilter
 from storeApp.viewsets.product import ProductPagination, annotate_variant_unit_price
 from django_filters.rest_framework import DjangoFilterBackend
@@ -233,10 +239,39 @@ def search_products(request):
         queryset = queryset.order_by("-relevance_score", "-product_ranking", "-in_stock", "id")
 
     facets = _build_facets(queryset)
-    total = queryset.count()
+
+    if sort == "price_asc":
+        dedupe_order = [
+            F("product_id").asc(),
+            F("price_value").asc(),
+            F("id").asc(),
+        ]
+    elif sort == "price_desc":
+        dedupe_order = [
+            F("product_id").asc(),
+            F("price_value").desc(),
+            F("id").asc(),
+        ]
+    elif sort == "popular":
+        dedupe_order = [
+            F("product_id").asc(),
+            F("product_ranking").desc(),
+            F("id").asc(),
+        ]
+    else:
+        dedupe_order = [
+            F("product_id").asc(),
+            F("relevance_score").desc(),
+            F("product_ranking").desc(),
+            F("price_value").asc(),
+            F("id").asc(),
+        ]
+
+    deduped = annotate_variant_count(one_variant_per_product(queryset, partition_order=dedupe_order))
+    total = count_distinct_products(queryset)
     start = (page - 1) * page_size
     end = start + page_size
-    items = list(queryset[start:end])
+    items = list(deduped[start:end])
     serializer = ProductVariantSerializer(items, many=True)
 
     took_ms = int((timezone.now() - started_at).total_seconds() * 1000)
@@ -285,21 +320,32 @@ def products_by_category_slug(request, category_slug):
             ).first()
             
             if category:
-                product_variant = (
+                url_path = (category.path_slug or category.slug or "").strip()
+                prefix = f"{url_path}/" if url_path else None
+                m2m_match = models.Q(category_id=category.id)
+                if prefix:
+                    m2m_match |= models.Q(category__path_slug__istartswith=prefix)
+
+                variant_qs = (
                     ProductVariant.objects.using(STORE_DB_ALIAS)
                     .filter(active=True, product=product)
                     .filter(
                         Exists(
-                            ProductCategory.objects.using(STORE_DB_ALIAS).filter(
-                                product_id=OuterRef("product_id"),
-                                category_id=category.id,
-                            )
+                            ProductCategory.objects.using(STORE_DB_ALIAS)
+                            .filter(product_id=OuterRef("product_id"))
+                            .filter(m2m_match)
                         )
                     )
                     .select_related("product", "product__category")
                     .prefetch_related(_prefetch_variant_product_categories())
-                    .first()
                 )
+                variant_id_param = request.query_params.get("variant_id") or request.query_params.get("v")
+                if variant_id_param:
+                    try:
+                        variant_qs = variant_qs.filter(id=int(variant_id_param))
+                    except (TypeError, ValueError):
+                        pass
+                product_variant = variant_qs.order_by("-product_ranking", "id").first()
 
                 if product_variant:
                     listed_slug = category.path_slug or category.slug
@@ -307,7 +353,29 @@ def products_by_category_slug(request, category_slug):
                         product_variant,
                         context={"listed_under_slug": listed_slug},
                     )
-                    return Response(serializer.data)
+                    payload = serializer.data
+                    sibling_qs = (
+                        ProductVariant.objects.using(STORE_DB_ALIAS)
+                        .filter(
+                            active=True,
+                            is_published=True,
+                            product_id=product_variant.product_id,
+                        )
+                        .prefetch_related(
+                            Prefetch(
+                                "units",
+                                queryset=ProductVariantUnit.objects.using(STORE_DB_ALIAS)
+                                .filter(is_published=True)
+                                .order_by("unit_order", "id"),
+                                to_attr="prefetched_units",
+                            ),
+                        )
+                        .order_by("packing", "id")
+                    )
+                    payload["variants"] = ProductVariantPickerSerializer(
+                        sibling_qs, many=True
+                    ).data
+                    return Response(payload)
                 else:
                     return Response(
                         {'detail': f'Không tìm thấy sản phẩm với category: {cat_path_slug} và medicine: {medicine_slug}'},
@@ -420,6 +488,16 @@ def products_by_category_slug(request, category_slug):
         queryset = queryset.order_by(*(sanitized_ordering or ['-created_date', '-id']))
     else:
         queryset = queryset.order_by('-created_date', '-id')
+
+    dedupe_order = [
+        F("product_id").asc(),
+        F("product_ranking").desc(),
+        F("created_date").desc(),
+        F("id").asc(),
+    ]
+    queryset = annotate_variant_count(
+        one_variant_per_product(queryset, partition_order=dedupe_order)
+    )
     
     paginator = ProductPagination()
     page = paginator.paginate_queryset(queryset, request)
@@ -442,6 +520,16 @@ def products_by_category_slug(request, category_slug):
         'products': serializer.data,
         'overLimit': False
     })
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def resolve_store_path_view(request, path_slug):
+    """Resolve nested store path → category listing or product detail."""
+    resolved = resolve_store_path(path_slug, using=STORE_DB_ALIAS)
+    if resolved.get("page") == "not_found":
+        return Response(resolved, status=status.HTTP_404_NOT_FOUND)
+    return Response(resolved)
 
 
 @api_view(['POST'])

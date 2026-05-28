@@ -144,6 +144,7 @@ class SearchApiTests(APITestCase):
             category=category,
             brand=self.brand,
         )
+        product.assign_category(category, using="store")
         variant = ProductVariant.objects.create(
             product=product,
             packing="Hộp",
@@ -189,12 +190,35 @@ class SearchApiTests(APITestCase):
         self.assertIn("meta", response.data)
         self.assertEqual(response.data["meta"]["page"], 1)
         self.assertEqual(response.data["meta"]["page_size"], 2)
-        self.assertEqual(response.data["meta"]["total"], 3)
+        self.assertEqual(response.data["meta"]["total"], 2)
         self.assertEqual(len(response.data["items"]), 2)
         first_item = response.data["items"][0]
         self.assertIn("unit_options", first_item)
         self.assertIn("default_unit_id", first_item)
         self.assertIn("default_unit_name", first_item)
+
+    def test_search_dedupes_variants_to_one_card_per_product(self):
+        response = self.client.get("/api/store/search/?q=cảm cúm")
+        self.assertEqual(response.status_code, 200)
+        product_ids = {item["product"]["id"] for item in response.data["items"]}
+        self.assertEqual(len(product_ids), len(response.data["items"]))
+
+    def test_resolve_path_category_and_product(self):
+        cat = self.category
+        cat.save(using="store")
+        cat_path = cat.path_slug or cat.slug
+        product = Product.objects.using("store").get(slug="thuoc-cam-cum-a")
+
+        cat_res = self.client.get(f"/api/store/resolve-path/{cat_path}/")
+        self.assertEqual(cat_res.status_code, 200)
+        self.assertEqual(cat_res.data["page"], "category")
+
+        detail_res = self.client.get(
+            f"/api/store/resolve-path/{cat_path}/thuoc-cam-cum-a/"
+        )
+        self.assertEqual(detail_res.status_code, 200)
+        self.assertEqual(detail_res.data["page"], "product")
+        self.assertEqual(detail_res.data["product_slug"], "thuoc-cam-cum-a")
 
     def test_search_applies_filters_and_reports_applied_filters(self):
         response = self.client.get(

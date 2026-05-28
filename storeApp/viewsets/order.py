@@ -105,9 +105,10 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         
         # Validate ProductVariant exists and active
         try:
-            product_variant = ProductVariant.objects.select_related('product__category').get(
-                id=product_variant_id,
-                active=True,
+            product_variant = (
+                ProductVariant.objects.select_related("product__category")
+                .prefetch_related("product__product_categories__category")
+                .get(id=product_variant_id, active=True)
             )
         except ProductVariant.DoesNotExist:
             return {'item_index': idx, 'product_variant': product_variant_id, 'error': 'ProductVariant not found or inactive'}
@@ -341,15 +342,15 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
 
         shipping_fee_base = apply_free_shipping_base(order_subtotal, shipping_fee_base)
 
+        from storeApp.services.product_category_helpers import collect_category_slugs_for_product
+
         product_mids = set()
         category_slugs = set()
         for item_data in normalized_items:
             product = item_data['product_variant'].product
             if product and product.mid:
                 product_mids.add(str(product.mid))
-            category = getattr(product, 'category', None)
-            if category and category.slug:
-                category_slugs.add(str(category.slug))
+            category_slugs.update(collect_category_slugs_for_product(product))
 
         # Create order and items in transaction
         try:

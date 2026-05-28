@@ -1,40 +1,36 @@
-from django.db.models import Case, When, Value, FloatField, Q, F
+from django.db.models import Case, FloatField, F, Value, When
+
 from storeApp.models import ProductVariant
+from storeApp.services.product_category_helpers import category_tree_ids, product_in_categories_exists
 
 
 def get_top5_medicine_units_for_category(category):
     """
-    Get Top 5 ProductVariant for a level1 category
-    Apply ranking_score heuristic
+    Get Top 5 ProductVariant for a level1 category subtree (ProductCategory M2M).
+    Apply ranking_score heuristic.
     """
+    category_ids = category_tree_ids(category)
 
     qs = ProductVariant.objects.filter(
-        Q(product__category=category) | Q(product__category__parent=category),
         is_published=True,
         in_stock__gt=0,
-    )
+    ).filter(product_in_categories_exists(category_ids))
 
-    # ------------------------
-    # Ranking score components
-    # ------------------------
     qs = qs.annotate(
         sold_score=Case(
             When(product_ranking__gte=100, then=Value(100.0)),
             default=F("product_ranking"),
             output_field=FloatField(),
         ),
-
         hot_score=Case(
             When(is_hot=True, then=Value(100)),
             default=Value(0),
             output_field=FloatField(),
         ),
-
         discount_score=Case(
             default=Value(0),
             output_field=FloatField(),
         ),
-
         stock_score=Case(
             When(in_stock__gt=10, then=Value(100)),
             When(in_stock__gt=0, then=Value(50)),
@@ -43,9 +39,6 @@ def get_top5_medicine_units_for_category(category):
         ),
     )
 
-    # ------------------------
-    # Final ranking score
-    # ------------------------
     qs = qs.annotate(
         ranking_score=(
             F("sold_score") * 0.5
@@ -57,6 +50,5 @@ def get_top5_medicine_units_for_category(category):
 
     return (
         qs.select_related("product")
-          .order_by("-ranking_score", "-product_ranking")
-          [:5]
+        .order_by("-ranking_score", "-product_ranking")[:5]
     )

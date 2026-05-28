@@ -332,6 +332,59 @@ class ProductSimpleSerializer(ModelSerializer):
             "brand"
         ]
 
+class ProductVariantPickerSerializer(ModelSerializer):
+    """Compact variant row for product detail packaging selector."""
+
+    price_value = serializers.SerializerMethodField()
+    price_display = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductVariant
+        fields = [
+            "id",
+            "packing",
+            "in_stock",
+            "price_value",
+            "price_display",
+            "image_url",
+            "is_published",
+        ]
+
+    def _default_unit(self, obj):
+        prefetched_units = getattr(obj, "prefetched_units", None)
+        if prefetched_units is not None:
+            for unit in prefetched_units:
+                if unit.is_default:
+                    return unit
+            return prefetched_units[0] if prefetched_units else None
+        units_manager = getattr(obj, "units", None)
+        if units_manager is None:
+            return None
+        return units_manager.filter(is_default=True, is_published=True).first() or units_manager.filter(
+            is_published=True
+        ).order_by("unit_order", "id").first()
+
+    def get_price_value(self, obj):
+        unit = self._default_unit(obj)
+        if unit is not None and unit.price_value is not None:
+            return unit.price_value
+        return 0
+
+    def get_price_display(self, obj):
+        unit = self._default_unit(obj)
+        if unit is not None and unit.price_display:
+            return unit.price_display
+        return None
+
+    def get_image_url(self, obj):
+        if obj.image:
+            from mainApp import cloud_context
+
+            return f"{cloud_context}{obj.image}"
+        return None
+
+
 class ProductVariantSerializer(ModelSerializer):
     product = ProductSimpleSerializer(read_only=True)
     category = CategorySerializer(read_only=True)
@@ -345,6 +398,9 @@ class ProductVariantSerializer(ModelSerializer):
     default_unit_id = serializers.SerializerMethodField()
     default_unit_name = serializers.SerializerMethodField()
     unit_options = serializers.SerializerMethodField()
+    web_slug = serializers.SerializerMethodField()
+    product_entity_id = serializers.IntegerField(source="product.id", read_only=True)
+    variant_count = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductVariant
@@ -354,10 +410,21 @@ class ProductVariantSerializer(ModelSerializer):
             'default_unit_id', 'default_unit_name', 'unit_options',
             'product_ranking', 'is_published', 'is_hot',
             'registration_number', 'base_unit',
-            'product', 'category', 'category_info', 'brand', 'active',
+            'product', 'category', 'category_info', 'brand', 'web_slug', 'active',
+            'product_entity_id', 'variant_count',
             'created_date', 'updated_date'
         ]
-        read_only_fields = ['image_url', 'brand', 'category_info']
+        read_only_fields = ['image_url', 'brand', 'category_info', 'web_slug', 'product_entity_id', 'variant_count']
+
+    def get_variant_count(self, obj):
+        if hasattr(obj, "variant_count"):
+            return int(obj.variant_count or 1)
+        if hasattr(obj, "product") and obj.product_id:
+            return (
+                obj.product.variants.filter(active=True, is_published=True).count()
+                or 1
+            )
+        return 1
     
     def get_brand(self, obj):
         if hasattr(obj, 'product') and obj.product and obj.product.brand:
@@ -391,6 +458,20 @@ class ProductVariantSerializer(ModelSerializer):
         if listed is not None:
             info = {**info, "listed_under_slug": listed}
         return info
+
+    def get_web_slug(self, obj):
+        if not hasattr(obj, "get_category_info") or not obj.product:
+            return ""
+        info = obj.get_category_info()
+        category_slug = (
+            info.get("primary_category_slug")
+            or info.get("categorySlug")
+            or ""
+        ).strip()
+        medicine_slug = (obj.product.slug or "").strip()
+        if category_slug and medicine_slug:
+            return f"{category_slug}/{medicine_slug}"
+        return medicine_slug
 
     def _get_default_unit(self, obj):
         prefetched_units = getattr(obj, "prefetched_units", None)
@@ -509,9 +590,16 @@ class MinimalProductVariantSerializer(serializers.ModelSerializer):
         return obj.product.web_name or obj.product.name
 
     def get_web_slug(self, obj):
-        category_slug = obj.product.category.path_slug if obj.product and obj.product.category else ""
-        medicine_slug = obj.product.slug
-        if category_slug:
+        if not hasattr(obj, "get_category_info") or not obj.product:
+            return ""
+        info = obj.get_category_info()
+        category_slug = (
+            info.get("primary_category_slug")
+            or info.get("categorySlug")
+            or ""
+        ).strip()
+        medicine_slug = (obj.product.slug or "").strip()
+        if category_slug and medicine_slug:
             return f"{category_slug}/{medicine_slug}"
         return medicine_slug
 
@@ -596,20 +684,17 @@ class CategoryLevel1Serializer(ModelSerializer):
         Top selling variants under this level-1 category (subtree), one variant per product.
         Uses ProductVariant.product_ranking (and is_hot) for ordering.
         """
-        slug = (obj.path_slug or "").strip()
-        if slug:
-            category_q = (
-                Q(product__category_id=obj.pk)
-                | Q(product__category__path_slug=slug)
-                | Q(product__category__path_slug__startswith=f"{slug}/")
-            )
-        else:
-            category_q = Q(product__category_id=obj.pk)
+        from storeApp.services.product_category_helpers import (
+            category_tree_ids,
+            product_in_categories_exists,
+        )
 
+        category_ids = category_tree_ids(obj)
         qs = (
             ProductVariant.objects.filter(is_published=True)
-            .filter(category_q)
+            .filter(product_in_categories_exists(category_ids))
             .select_related("product", "product__category")
+            .prefetch_related("product__product_categories__category")
             .order_by("-product_ranking", "-is_hot", "-id")
         )
         picked = []

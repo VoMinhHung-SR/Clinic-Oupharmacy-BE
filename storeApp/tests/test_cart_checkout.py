@@ -6,6 +6,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+from django.test import SimpleTestCase
 from rest_framework.test import APITestCase
 
 from storeApp.models import (

@@ -1,10 +1,11 @@
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When
+from django.db.models import Case, Count, F, IntegerField, Prefetch, Q, Value, When
 from django.db.models.functions import Lower
 from rest_framework import status, viewsets
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from storeApp.models import Category, ProductVariant, ProductVariantUnit, SearchKeyword
+from storeApp.services.variant_listing import one_variant_per_product
 
 DEFAULT_KEYWORD_LIMIT = 5
 DEFAULT_CATEGORY_LIMIT = 5
@@ -105,8 +106,17 @@ class SearchSuggestViewSet(viewsets.ViewSet):
                 ),
             )
             .filter(match_score__gt=0)
-            .order_by("-match_score", "-product_ranking", "-in_stock", "id")[:DEFAULT_PRODUCT_LIMIT]
         )
+        dedupe_order = [
+            F("product_id").asc(),
+            F("match_score").desc(),
+            F("product_ranking").desc(),
+            F("in_stock").desc(),
+            F("id").asc(),
+        ]
+        variants_qs = one_variant_per_product(variants_qs, partition_order=dedupe_order).order_by(
+            "-match_score", "-product_ranking", "-in_stock", "id"
+        )[:DEFAULT_PRODUCT_LIMIT]
 
         top_products = []
         for variant in variants_qs:
