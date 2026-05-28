@@ -443,9 +443,9 @@ def products_by_category_slug(request, category_slug):
         immediate_subcategories = FilterHelpers.get_immediate_subcategories(category)
         has_subcategories = bool(immediate_subcategories)
         
-        # Check if category is too large - return subcategories only
-        product_count = queryset.count()
-        
+        # Category-wide total (distinct products) for over-limit + productCount metadata
+        product_count = count_distinct_products(queryset)
+
         if product_count > LARGE_CATEGORY_THRESHOLD:
             # Return subcategories only (no products) when over threshold
             return Response({
@@ -498,7 +498,9 @@ def products_by_category_slug(request, category_slug):
     queryset = annotate_variant_count(
         one_variant_per_product(queryset, partition_order=dedupe_order)
     )
-    
+    # After dedupe: one row per product (matches DRF pagination `count`)
+    listing_product_count = queryset.count()
+
     paginator = ProductPagination()
     page = paginator.paginate_queryset(queryset, request)
     list_ctx = {"listed_under_slug": category_path_slug}
@@ -508,13 +510,18 @@ def products_by_category_slug(request, category_slug):
         # Add subcategories to paginated response
         response.data['hasSubcategories'] = has_subcategories
         response.data['subcategories'] = immediate_subcategories
+        response.data['categorySlug'] = category_path_slug
+        response.data['categoryName'] = category.path or category.name
+        # Same semantics as `count` — avoid FE reading a separate variant total
+        response.data['productCount'] = response.data['count']
+        response.data['overLimit'] = False
         return response
 
     serializer = ProductVariantSerializer(queryset, many=True, context=list_ctx)
     return Response({
         'categorySlug': category_path_slug,
         'categoryName': category.path or category.name,
-        'productCount': product_count,
+        'productCount': listing_product_count,
         'hasSubcategories': has_subcategories,
         'subcategories': immediate_subcategories,  # Always include subcategories
         'products': serializer.data,

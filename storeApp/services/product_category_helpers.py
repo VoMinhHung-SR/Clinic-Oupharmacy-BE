@@ -87,3 +87,16 @@ def count_variants_in_category_ids(category_ids, *, using=None) -> int:
         .distinct()
         .count()
     )
+
+
+def count_distinct_products_in_category_ids(category_ids, *, using=None) -> int:
+    """Distinct active products in category tree (M2M), for UI productCount."""
+    db = store_db_alias(using)
+    return (
+        ProductVariant.objects.using(db)
+        .filter(active=True, is_published=True, product__active=True)
+        .filter(product_in_categories_exists(category_ids, using=db))
+        .values("product_id")
+        .distinct()
+        .count()
+    )

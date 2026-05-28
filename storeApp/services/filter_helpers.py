@@ -12,7 +12,7 @@ from django.db.models.functions import Coalesce
 from storeApp.models import Brand, Category, ProductVariant, ProductVariantUnit
 from storeApp.services.product_category_helpers import (
     category_tree_ids,
-    count_variants_in_category_ids,
+    count_distinct_products_in_category_ids,
     product_in_categories_exists,
 )
 from storeApp.services.filter_constants import (
@@ -331,7 +331,7 @@ class FilterHelpers:
         result = []
         for subcat in immediate_subcategories:
             tree_ids = subcategory_with_children.get(subcat.id, [subcat.id])
-            total_count = count_variants_in_category_ids(
+            total_count = count_distinct_products_in_category_ids(
                 tree_ids, using=FilterHelpers.STORE_DB_ALIAS
             )
             
