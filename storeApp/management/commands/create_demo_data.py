@@ -200,4 +200,5 @@ class Command(BaseCommand):
         self.stdout.write(f'  - Payment Methods: {PaymentMethod.objects.count()} total')
         self.stdout.write(f'  - Medicine Batches: {MedicineBatch.objects.count()} total (created {batches_created} new)')
         self.stdout.write(f'  - Notifications: {Notification.objects.count()} total')
+        self.stdout.write(self.style.NOTICE('  Tip: run `python manage.py store_import_vouchers` to seed vouchers separately.'))
 

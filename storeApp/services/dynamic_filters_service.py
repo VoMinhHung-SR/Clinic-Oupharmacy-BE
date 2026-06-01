@@ -12,6 +12,7 @@ from storeApp.services.filter_constants import (
 from storeApp.services.filter_helpers import FilterHelpers
 from storeApp.services.filter_extractors import FilterExtractors
 from storeApp.services.filter_builders import FilterBuilders
+from storeApp.services.variant_listing import count_distinct_products
 
 
 class DynamicFiltersService:
@@ -54,7 +55,7 @@ class DynamicFiltersService:
         
         # Get queryset
         queryset = FilterHelpers.get_category_queryset(category)
-        product_count = queryset.count()
+        product_count = count_distinct_products(queryset)
         
         # Get subcategories (always needed for navigation)
         subcategories = FilterHelpers.get_immediate_subcategories(category)

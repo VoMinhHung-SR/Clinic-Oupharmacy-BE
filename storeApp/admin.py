@@ -1,5 +1,18 @@
 from django.contrib import admin
-from .models import Brand, ShippingMethod, PaymentMethod, Order, OrderItem, MedicineBatch, Notification, SearchKeyword, Product, ProductVariant, Category
+from .models import (
+    Brand,
+    ShippingMethod,
+    PaymentMethod,
+    Order,
+    OrderItem,
+    MedicineBatch,
+    Notification,
+    SearchKeyword,
+    Product,
+    ProductCategory,
+    ProductVariant,
+    Category,
+)
 from mainApp.admin import admin_site
 
 
@@ -53,11 +66,19 @@ class OrderAdmin(admin.ModelAdmin):
         }),
     )
 
+class ProductCategoryInline(admin.TabularInline):
+    model = ProductCategory
+    extra = 0
+    fields = ["category", "is_primary", "sort_order"]
+    autocomplete_fields = ["category"]
+
+
 class ProductAdmin(admin.ModelAdmin):
     list_display = ['name', 'category', 'brand', 'active', 'created_date']
     list_filter = ['active', 'created_date']
     search_fields = ['name', 'category__name', 'brand__name']
     list_editable = ['active']
+    inlines = [ProductCategoryInline]
 
 class ProductVariantAdmin(admin.ModelAdmin):
     """Giá bán nằm trên ProductVariantUnit; hiển thị giá đơn vị mặc định (hoặc đơn vị đầu tiên)."""

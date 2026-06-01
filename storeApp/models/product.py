@@ -549,14 +549,45 @@ class ProductVariant(BaseModel):
         return f"{self.product.name} - {self.packing}"
 
     def get_category_info(self):
-        cat = self.product.category
-        if not cat:
-            return {"category": [], "categoryPath": "", "categorySlug": ""}
-        return {
-            "category": cat.get_category_array(),
-            "categoryPath": cat.path or "",
-            "categorySlug": cat.path_slug or "",
+        """
+        Breadcrumb + slugs from primary FK (backward compatible).
+        Multi-category: category_slugs + primary_category_slug from ProductCategory M2M.
+        """
+        product = self.product
+        cat = product.category
+        base = {
+            "category": cat.get_category_array() if cat else [],
+            "categoryPath": (cat.path or "") if cat else "",
+            "categorySlug": (cat.path_slug or "") if cat else "",
+            "primary_category_slug": "",
+            "category_slugs": [],
         }
+        slugs: list[str] = []
+        primary_slug = ""
+        if "product_categories" in getattr(product, "_prefetched_objects_cache", {}):
+            links = list(product.product_categories.all())
+        else:
+            links = list(
+                product.product_categories.select_related("category").order_by(
+                    "-is_primary", "sort_order", "category_id"
+                )
+            )
+        for pc in links:
+            c = pc.category
+            path = (c.path_slug or c.slug or "").strip()
+            if path and path not in slugs:
+                slugs.append(path)
+            if pc.is_primary and path:
+                primary_slug = path
+        if not slugs and cat:
+            p = (cat.path_slug or cat.slug or "").strip()
+            if p:
+                slugs.append(p)
+        if not primary_slug and cat:
+            primary_slug = (cat.path_slug or cat.slug or "").strip()
+        base["primary_category_slug"] = primary_slug
+        base["category_slugs"] = slugs
+        return base
 
     class Meta:
         db_table = "store_product_variant"

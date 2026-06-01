@@ -4,7 +4,7 @@ So sánh 1 Product trong DB (store) với row scrape [new] CSV — trước khi 
 Usage:
   cd Clinic-Oupharmacy-BE
 
-  # Tổng quan catalog DB (+ multi variant/unit/category; ids nếu count < 10)
+  # Tổng quan catalog DB (+ multi variant/unit/category; primary FK vs M2M)
   python manage.py store_catalog audit --overview
   python manage.py store_catalog audit --overview --overview-id-limit 10
 
@@ -27,9 +27,11 @@ from typing import Any, Optional
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import Count, Q
+from django.db.models import Count, F, OuterRef, Q, Subquery
 
 from storeApp.models import MedicineBatch, Product, ProductCategory, ProductVariant, ProductVariantUnit
+
+from .store_import_categories import parse_category_array_from_row
 
 # Schema tham chiếu refactor (core: base_unit, price, quantity_in_base) — keys only, no sample data.
 REFACTOR_PAYLOAD_SCHEMA = {
@@ -125,6 +127,59 @@ def _find_csv_row_by_mid(scrape_root: str, mid: str) -> Optional[tuple[str, dict
 def _trunc(val, n=80) -> str:
     s = str(val or "").replace("\n", " ")
     return s if len(s) <= n else s[: n - 3] + "..."
+
+
+def _csv_leaf_path_slug(row: dict) -> Optional[str]:
+    """Leaf path from scrape `category.category` JSON (no DB writes)."""
+    category_array = parse_category_array_from_row(row)
+    if not category_array:
+        return None
+    slugs = []
+    for item in category_array:
+        if not isinstance(item, dict):
+            continue
+        slug = str(item.get("slug") or "").strip()
+        if slug:
+            slugs.append(slug)
+    return "/".join(slugs) if slugs else None
+
+
+def _product_m2m_path_slugs(product: Product, *, using: str) -> list[str]:
+    slugs: list[str] = []
+    for pc in (
+        ProductCategory.objects.using(using)
+        .filter(product=product)
+        .select_related("category")
+        .order_by("-is_primary", "sort_order", "category_id")
+    ):
+        if pc.category_id and pc.category:
+            path = (pc.category.path_slug or pc.category.slug or "").strip()
+            if path:
+                slugs.append(path)
+    return slugs
+
+
+def _primary_path_slug(product: Product, *, using: str) -> tuple[Optional[str], Optional[str]]:
+    """(FK primary path_slug, M2M is_primary path_slug)."""
+    fk_slug = None
+    if product.category_id and product.category:
+        fk_slug = (product.category.path_slug or product.category.slug or "").strip() or None
+    m2m_slug = None
+    primary_pc = product.get_primary_product_category(using=using)
+    if primary_pc and primary_pc.category_id:
+        m2m_slug = (
+            primary_pc.category.path_slug or primary_pc.category.slug or ""
+        ).strip() or None
+    return fk_slug, m2m_slug
+
+
+def _primary_fk_matches_m2m(product: Product, *, using: str) -> bool:
+    fk_slug, m2m_slug = _primary_path_slug(product, using=using)
+    if fk_slug is None and m2m_slug is None:
+        return True
+    if fk_slug is None or m2m_slug is None:
+        return False
+    return fk_slug == m2m_slug
 
 
 class Command(BaseCommand):
@@ -255,6 +310,39 @@ class Command(BaseCommand):
             using=using,
         )
 
+        primary_m2m_slug = Subquery(
+            ProductCategory.objects.using(using)
+            .filter(product_id=OuterRef("pk"), is_primary=True)
+            .values("category__path_slug")[:1]
+        )
+        fk_mismatch_qs = (
+            Product.objects.using(using)
+            .filter(category_id__isnull=False)
+            .annotate(m2m_primary_slug=primary_m2m_slug)
+            .filter(m2m_primary_slug__isnull=False)
+            .exclude(category__path_slug=F("m2m_primary_slug"))
+        )
+        self._print_overview_multi_group(
+            label="Primary FK path_slug ≠ M2M primary",
+            qs=fk_mismatch_qs,
+            total_products=products,
+            id_limit=id_limit,
+            using=using,
+        )
+
+        no_primary_m2m_qs = (
+            Product.objects.using(using)
+            .filter(category_id__isnull=False)
+            .exclude(product_categories__is_primary=True)
+        )
+        self._print_overview_multi_group(
+            label="Has category FK, no M2M primary row",
+            qs=no_primary_m2m_qs,
+            total_products=products,
+            id_limit=id_limit,
+            using=using,
+        )
+
         sample = (
             product_qs.filter(mid__isnull=False)
             .exclude(mid="")
@@ -362,16 +450,16 @@ class Command(BaseCommand):
         self.stdout.write(
             f"  category  : {product.category.path_slug if product.category_id else '-'} (primary FK)"
         )
-        m2m_slugs = [
-            pc.category.path_slug
-            for pc in ProductCategory.objects.using(using)
-            .filter(product=product)
-            .select_related("category")
-            .order_by("-is_primary", "sort_order")
-            if pc.category_id
-        ]
+        m2m_slugs = _product_m2m_path_slugs(product, using=using)
         if m2m_slugs:
-            self.stdout.write(f"  categories: {', '.join(m2m_slugs)}")
+            self.stdout.write(f"  categories (M2M): {', '.join(m2m_slugs)}")
+        fk_slug, m2m_primary_slug = _primary_path_slug(product, using=using)
+        if not _primary_fk_matches_m2m(product, using=using):
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  ⚠ primary mismatch: FK={fk_slug!r}  M2M is_primary={m2m_primary_slug!r}"
+                )
+            )
 
         variants = list(
             ProductVariant.objects.using(using)
@@ -421,6 +509,11 @@ class Command(BaseCommand):
         sale_units = _parse_json_field(row.get("pricing.saleUnits"), default=[])
         self.stdout.write(self.style.MIGRATE_HEADING("\nField checklist (DB vs scrape [new])"))
 
+        csv_leaf_slug = _csv_leaf_path_slug(row)
+        csv_leaf_in_m2m = (
+            bool(csv_leaf_slug)
+            and csv_leaf_slug in set(m2m_slugs)
+        )
         checks = [
             ("basicInfo.name", product.name, row.get("basicInfo.name")),
             ("basicInfo.slug", product.slug, row.get("basicInfo.slug")),
@@ -429,10 +522,31 @@ class Command(BaseCommand):
             ("content.ingredients", _has_text(product.ingredients), _has_text(row.get("content.ingredients"))),
             ("pricing.saleUnits", self._db_has_units(variants), len(sale_units) > 0),
             ("pricing.saleUnits count", self._db_unit_count(variants), len(sale_units)),
+            (
+                "category leaf in M2M",
+                csv_leaf_in_m2m,
+                bool(csv_leaf_slug),
+            ),
+            (
+                "primary FK = M2M primary",
+                _primary_fk_matches_m2m(product, using=using),
+                bool(product.category_id or m2m_primary_slug),
+            ),
         ]
+        if csv_leaf_slug:
+            self.stdout.write(f"\n  CSV category leaf path: {csv_leaf_slug}")
+            if not csv_leaf_in_m2m:
+                self.stdout.write(
+                    self.style.WARNING(
+                        "  ⚠ CSV leaf path chưa có trong ProductCategory "
+                        "(re-import merge hoặc path khác file scrape)"
+                    )
+                )
         for label, db_val, csv_val in checks:
             ok = "✓" if _values_align(db_val, csv_val, label) else "✗"
             self.stdout.write(f"  {ok} {label:28} DB={db_val!r}  CSV={csv_val!r}")
+        if m2m_slugs:
+            self.stdout.write(f"  · M2M paths ({len(m2m_slugs)}): {', '.join(m2m_slugs)}")
 
         if sale_units:
             self.stdout.write("\n  saleUnits (CSV):")

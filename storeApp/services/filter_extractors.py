@@ -49,52 +49,53 @@ class FilterExtractors:
         variants['brands'] = sorted(brands_list)
         variants['countries'] = sorted(list(variants['countries']))
         
-        # Pre-extract text-based filters in single pass with iterator for memory efficiency
-        target_audience_counts = defaultdict(int)
-        flavor_counts = defaultdict(int)
-        indication_counts = defaultdict(int)
-        skin_type_counts = defaultdict(int)
-        medicine_type_counts = defaultdict(int)
-        ingredient_counts = defaultdict(int)
+        # Distinct product_id per facet value (variant rows share product_id).
+        target_audience_counts = defaultdict(set)
+        flavor_counts = defaultdict(set)
+        indication_counts = defaultdict(set)
+        skin_type_counts = defaultdict(set)
+        medicine_type_counts = defaultdict(set)
+        ingredient_counts = defaultdict(set)
         
         # Use iterator to avoid loading all objects into memory
         queryset_with_product = queryset.select_related('product').iterator(chunk_size=100)
         
-        for unit in queryset_with_product:
+        for variant in queryset_with_product:
+            product_id = variant.product_id
             # Extract targetAudience
-            target_audiences = FilterExtractors.extract_target_audience(unit)
+            target_audiences = FilterExtractors.extract_target_audience(variant)
             for audience in target_audiences:
-                target_audience_counts[audience] += 1
+                target_audience_counts[audience].add(product_id)
                 variants['targetAudiences'].add(audience)
             
             # Extract flavor
-            flavors = FilterExtractors.extract_flavor(unit)
+            flavors = FilterExtractors.extract_flavor(variant)
             for flavor in flavors:
-                flavor_counts[flavor] += 1
+                flavor_counts[flavor].add(product_id)
                 variants['flavors'].add(flavor)
             
             # Extract indication
-            indications = FilterExtractors.extract_indication(unit)
+            indications = FilterExtractors.extract_indication(variant)
             for indication in indications:
-                indication_counts[indication] += 1
+                indication_counts[indication].add(product_id)
                 variants['indications'].add(indication)
             
             # Extract skinType (for cosmetics)
-            skin_types = FilterExtractors.extract_skin_type(unit)
+            skin_types = FilterExtractors.extract_skin_type(variant)
             for skin_type in skin_types:
-                skin_type_counts[skin_type] += 1
+                skin_type_counts[skin_type].add(product_id)
                 variants['skinTypes'].add(skin_type)
             
             # Extract medicineType (for medicine)
-            medicine_types = FilterExtractors.extract_medicine_type(unit)
+            medicine_types = FilterExtractors.extract_medicine_type(variant)
             for medicine_type in medicine_types:
-                medicine_type_counts[medicine_type] += 1
+                medicine_type_counts[medicine_type].add(product_id)
                 variants['medicineTypes'].add(medicine_type)
             
             # Extract ingredients (for medicine)
-            ingredients = FilterExtractors.extract_ingredients(unit)
+            ingredients = FilterExtractors.extract_ingredients(variant)
             for ingredient in ingredients:
-                ingredient_counts[ingredient] += 1
+                ingredient_counts[ingredient].add(product_id)
                 variants['ingredients'].add(ingredient)
         
         variants['targetAudiences'] = sorted(list(variants['targetAudiences']))
@@ -104,13 +105,25 @@ class FilterExtractors:
         variants['medicineTypes'] = sorted(list(variants['medicineTypes']))
         variants['ingredients'] = sorted(list(variants['ingredients']))
         
-        # Store counts for later use in filter building
-        variants['_target_audience_counts'] = dict(target_audience_counts)
-        variants['_flavor_counts'] = dict(flavor_counts)
-        variants['_indication_counts'] = dict(indication_counts)
-        variants['_skin_type_counts'] = dict(skin_type_counts)
-        variants['_medicine_type_counts'] = dict(medicine_type_counts)
-        variants['_ingredient_counts'] = dict(ingredient_counts)
+        # Store distinct-product counts for later use in filter building
+        variants['_target_audience_counts'] = {
+            key: len(product_ids) for key, product_ids in target_audience_counts.items()
+        }
+        variants['_flavor_counts'] = {
+            key: len(product_ids) for key, product_ids in flavor_counts.items()
+        }
+        variants['_indication_counts'] = {
+            key: len(product_ids) for key, product_ids in indication_counts.items()
+        }
+        variants['_skin_type_counts'] = {
+            key: len(product_ids) for key, product_ids in skin_type_counts.items()
+        }
+        variants['_medicine_type_counts'] = {
+            key: len(product_ids) for key, product_ids in medicine_type_counts.items()
+        }
+        variants['_ingredient_counts'] = {
+            key: len(product_ids) for key, product_ids in ingredient_counts.items()
+        }
         
         # Calculate price stats (single query)
         price_stats = queryset.exclude(price_value=0).aggregate(

@@ -29,7 +29,7 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 | `mid` | Unique SKU — khóa upsert import |
 | `name`, `slug` | Unique |
 | `category` | FK **primary** (canonical URL; sync với M2M sau) |
-| `categories` | M2M `through=ProductCategory` — import merge qua `Product.assign_category()`; API/list chưa |
+| `categories` | M2M `through=ProductCategory` — import `assign_category()`; list/detail/search filter theo M2M |
 | `content.*` (7) | Detail only; HTML sanitized (scraper) hoặc plain text cũ; FE DOMPurify |
 | `ingredients` | Comma-list `"Name: amount, …"` — FE parse riêng |
 
@@ -41,7 +41,7 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 
 ### ProductVariant / PVU / Batch
 
-- **Variant:** `sku` (≈ `mid`), `packing`, `packing_meta`, `in_stock` (cache batch, base unit), `get_category_info()` → primary category.
+- **Variant:** `sku` (≈ `mid`), `packing`, `packing_meta`, `in_stock` (cache batch, base unit). `get_category_info()` → primary breadcrumb; serializer thêm `category_slugs[]`, `primary_category_slug`, `listed_under_slug` (list context).
 - **PVU:** `unit_name`, `quantity_in_base`, `price_value`, `is_default` (1/variant), unique `(variant, unit_name)`.
 - **MedicineBatch:** `remaining_quantity` = nguồn stock thật; `in_stock` = cache.
 
@@ -101,7 +101,7 @@ Voucher ──< VoucherRedemption >── Order
 1. **Giá/tồn:** snapshot cart/order theo PVU; stock check = `qty × quantity_in_base` vs batch sum.
 2. **Đổi unit trong cart:** conflict unique line; bump `version`; re-snapshot price.
 3. **Voucher:** không trộn scope order vs shipping.
-4. **Category:** list/filter/voucher vẫn dùng `Product.category` (FK); import đã merge M2M (`assign_category`).
+4. **Category:** list/detail/search/voucher dùng **ProductCategory M2M**; FK `Product.category` = primary (canonical SEO, sync sau import). List card: **1 row / product** (`variant_listing.one_variant_per_product`).
 5. **Guest:** không tạo User khi checkout; `Order.user_id = null`.
 
 ## Catalog contract (tóm tắt)
@@ -111,14 +111,22 @@ Voucher ──< VoucherRedemption >── Order
 | Product | `mid`, `slug`, `category` (primary), `content.*` |
 | Variant | `packing`, `in_stock`, `is_published` |
 | PVU | `unit_name`, `quantity_in_base`, `price_value`, `is_default` |
-| FE card | `unit_options[]`, `product_variant_unit_id`, `category_info.categorySlug` |
+| FE card | `product_entity_id`, `variant_count?`, `unit_options[]`, `web_slug`, `category_info` + `listed_under_slug` |
+| API list `count` | Distinct **products** (sau dedupe), không đếm từng variant |
+| FE routing | `GET /api/store/resolve-path/{path}/` → category \| product \| not_found |
 
-**Product card:** ảnh, tên, giá default unit, `unit_options`, link `/{categorySlug}/{slug}`, add = variant id + PVU id.
+**Product card:** 1 card / 1 Product; href canonical (`web_slug` hoặc primary path); chọn quy cách trên PDP (`?v=`). Add cart = variant id + PVU id.
 
-**Multi-category (import):** cùng `mid` nhiều leaf → thêm row `ProductCategory`; FK `category` = primary; giữ primary cũ khi import path mới.
+**Multi-category:** cùng `mid` → thêm `ProductCategory` (không tạo product mới); primary FK giữ khi đã có. URL `/{context_path}/{slug}` hợp lệ nếu path ∈ M2M; canonical = primary `path_slug`.
+
+**Counts:** category `productCount` / pagination `count` = distinct products (`count_distinct_products`). Sidebar facet counts: `[Done] category-facet-distinct-product-count.plan.md` (`Count('product_id', distinct=True)`).
+
+**Audit:** `store_catalog audit --overview` — M2M groups + primary FK vs M2M; `--mid` checklist `category leaf in M2M`, `primary FK = M2M primary`.
 
 ## Docs liên quan
 
 - `storeApp/guidelines/cart-first-checkout.md`
 - `storeApp/guidelines/dynamic-filters.md`, `search-faceted-api.md`
-- `PersonalProject/plans/[UnDone] product-multi-category-m2m.plan.md`
+- `storeApp/services/variant_listing.py`, `store_path_resolver.py`
+- `oupharmacy-store/docs/ROUTING.md`
+- `PersonalProject/plans/[Done] product-multi-category-m2m.plan.md`

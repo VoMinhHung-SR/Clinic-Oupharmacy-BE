@@ -4,12 +4,18 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
 from django.db import models
-from django.db.models import Case, Count, IntegerField, Q, Value, When
+from django.db.models import Case, Count, Exists, F, IntegerField, OuterRef, Q, Value, When
 from django.db.models import Prefetch
 from django.db.models.functions import Lower
 from django.utils import timezone
-from storeApp.models import ProductVariant, ProductVariantUnit, Category, Product
-from storeApp.serializers import ProductVariantSerializer
+from storeApp.models import ProductVariant, ProductVariantUnit, Category, Product, ProductCategory
+from storeApp.serializers import ProductVariantPickerSerializer, ProductVariantSerializer
+from storeApp.services.store_path_resolver import resolve_store_path
+from storeApp.services.variant_listing import (
+    annotate_variant_count,
+    count_distinct_products,
+    one_variant_per_product,
+)
 from storeApp.filters import ProductFilter
 from storeApp.viewsets.product import ProductPagination, annotate_variant_unit_price
 from django_filters.rest_framework import DjangoFilterBackend
@@ -20,6 +26,15 @@ from storeApp.models import Notification
 from storeApp.serializers import ContactSupportRequestSerializer
 
 STORE_DB_ALIAS = 'store' if 'store' in settings.DATABASES else 'default'
+
+
+def _prefetch_variant_product_categories():
+    return Prefetch(
+        "product__product_categories",
+        queryset=ProductCategory.objects.using(STORE_DB_ALIAS).select_related("category"),
+    )
+
+
 PRICE_RANGE_BUCKETS = [
     ("under_100k", None, 100000),
     ("100k_300k", 100000, 300000),
@@ -89,9 +104,14 @@ def _build_scalar_facets(queryset):
 
 def _build_facets(queryset):
     category_facets = (
-        queryset.values("product__category_id", "product__category__name", "product__category__slug")
-        .annotate(count=Count("id"))
-        .order_by("-count", "product__category__name")
+        queryset.values(
+            "product__categories__id",
+            "product__categories__name",
+            "product__categories__path_slug",
+            "product__categories__slug",
+        )
+        .annotate(count=Count("id", distinct=True))
+        .order_by("-count", "product__categories__name")
     )
     brand_facets = (
         queryset.values("product__brand_id", "product__brand__name")
@@ -104,13 +124,14 @@ def _build_facets(queryset):
     return {
         "category": [
             {
-                "id": item["product__category_id"],
-                "name": item["product__category__name"],
-                "slug": item["product__category__slug"],
+                "id": item["product__categories__id"],
+                "name": item["product__categories__name"],
+                "slug": item["product__categories__path_slug"]
+                or item["product__categories__slug"],
                 "count": item["count"],
             }
             for item in category_facets
-            if item["product__category_id"] is not None
+            if item["product__categories__id"] is not None
         ],
         "brand": [
             {
@@ -145,11 +166,12 @@ def search_products(request):
         .select_related("product", "product__category", "product__brand"),
         db_alias=STORE_DB_ALIAS,
     ).prefetch_related(
+        _prefetch_variant_product_categories(),
         Prefetch(
             "units",
             queryset=ProductVariantUnit.objects.using(STORE_DB_ALIAS).filter(is_published=True).order_by("unit_order", "id"),
             to_attr="prefetched_units",
-        )
+        ),
     )
 
     query_normalized = " ".join(raw_query.split())
@@ -182,7 +204,14 @@ def search_products(request):
         queryset = queryset.annotate(relevance_score=Value(0, output_field=IntegerField()))
 
     if category:
-        queryset = queryset.filter(product__category_id=category)
+        queryset = queryset.filter(
+            Exists(
+                ProductCategory.objects.using(STORE_DB_ALIAS).filter(
+                    product_id=OuterRef("product_id"),
+                    category_id=category,
+                )
+            )
+        )
     if brand:
         queryset = queryset.filter(product__brand_id=brand)
     if in_stock is True:
@@ -210,10 +239,39 @@ def search_products(request):
         queryset = queryset.order_by("-relevance_score", "-product_ranking", "-in_stock", "id")
 
     facets = _build_facets(queryset)
-    total = queryset.count()
+
+    if sort == "price_asc":
+        dedupe_order = [
+            F("product_id").asc(),
+            F("price_value").asc(),
+            F("id").asc(),
+        ]
+    elif sort == "price_desc":
+        dedupe_order = [
+            F("product_id").asc(),
+            F("price_value").desc(),
+            F("id").asc(),
+        ]
+    elif sort == "popular":
+        dedupe_order = [
+            F("product_id").asc(),
+            F("product_ranking").desc(),
+            F("id").asc(),
+        ]
+    else:
+        dedupe_order = [
+            F("product_id").asc(),
+            F("relevance_score").desc(),
+            F("product_ranking").desc(),
+            F("price_value").asc(),
+            F("id").asc(),
+        ]
+
+    deduped = annotate_variant_count(one_variant_per_product(queryset, partition_order=dedupe_order))
+    total = count_distinct_products(queryset)
     start = (page - 1) * page_size
     end = start + page_size
-    items = list(queryset[start:end])
+    items = list(deduped[start:end])
     serializer = ProductVariantSerializer(items, many=True)
 
     took_ms = int((timezone.now() - started_at).total_seconds() * 1000)
@@ -262,15 +320,62 @@ def products_by_category_slug(request, category_slug):
             ).first()
             
             if category:
-                product_variant = ProductVariant.objects.using(STORE_DB_ALIAS).filter(
-                    active=True,
-                    product__category=category,
-                    product=product
-                ).select_related('product', 'product__category').first()
-                
+                url_path = (category.path_slug or category.slug or "").strip()
+                prefix = f"{url_path}/" if url_path else None
+                m2m_match = models.Q(category_id=category.id)
+                if prefix:
+                    m2m_match |= models.Q(category__path_slug__istartswith=prefix)
+
+                variant_qs = (
+                    ProductVariant.objects.using(STORE_DB_ALIAS)
+                    .filter(active=True, product=product)
+                    .filter(
+                        Exists(
+                            ProductCategory.objects.using(STORE_DB_ALIAS)
+                            .filter(product_id=OuterRef("product_id"))
+                            .filter(m2m_match)
+                        )
+                    )
+                    .select_related("product", "product__category")
+                    .prefetch_related(_prefetch_variant_product_categories())
+                )
+                variant_id_param = request.query_params.get("variant_id") or request.query_params.get("v")
+                if variant_id_param:
+                    try:
+                        variant_qs = variant_qs.filter(id=int(variant_id_param))
+                    except (TypeError, ValueError):
+                        pass
+                product_variant = variant_qs.order_by("-product_ranking", "id").first()
+
                 if product_variant:
-                    serializer = ProductVariantSerializer(product_variant)
-                    return Response(serializer.data)
+                    listed_slug = category.path_slug or category.slug
+                    serializer = ProductVariantSerializer(
+                        product_variant,
+                        context={"listed_under_slug": listed_slug},
+                    )
+                    payload = serializer.data
+                    sibling_qs = (
+                        ProductVariant.objects.using(STORE_DB_ALIAS)
+                        .filter(
+                            active=True,
+                            is_published=True,
+                            product_id=product_variant.product_id,
+                        )
+                        .prefetch_related(
+                            Prefetch(
+                                "units",
+                                queryset=ProductVariantUnit.objects.using(STORE_DB_ALIAS)
+                                .filter(is_published=True)
+                                .order_by("unit_order", "id"),
+                                to_attr="prefetched_units",
+                            ),
+                        )
+                        .order_by("packing", "id")
+                    )
+                    payload["variants"] = ProductVariantPickerSerializer(
+                        sibling_qs, many=True
+                    ).data
+                    return Response(payload)
                 else:
                     return Response(
                         {'detail': f'Không tìm thấy sản phẩm với category: {cat_path_slug} và medicine: {medicine_slug}'},
@@ -304,29 +409,43 @@ def products_by_category_slug(request, category_slug):
             path_slug__istartswith=f"{category_path_slug}/"
         ).values_list('id', flat=True)
         category_ids.update(subcategory_ids)
-        
+
+        in_category_tree = Exists(
+            ProductCategory.objects.using(STORE_DB_ALIAS).filter(
+                product_id=OuterRef("product_id"),
+                category_id__in=list(category_ids),
+            )
+        )
+
         queryset = annotate_variant_unit_price(
-            ProductVariant.objects.using(STORE_DB_ALIAS).filter(
+            ProductVariant.objects.using(STORE_DB_ALIAS)
+            .filter(
                 active=True,
                 is_published=True,
                 product__active=True,
-                product__category_id__in=list(category_ids),
-            ).select_related('product', 'product__category', 'product__brand').prefetch_related(
+            )
+            .filter(in_category_tree)
+            .select_related("product", "product__category", "product__brand")
+            .prefetch_related(
+                _prefetch_variant_product_categories(),
                 Prefetch(
                     "units",
-                    queryset=ProductVariantUnit.objects.using(STORE_DB_ALIAS).filter(is_published=True).order_by("unit_order", "id"),
+                    queryset=ProductVariantUnit.objects.using(STORE_DB_ALIAS)
+                    .filter(is_published=True)
+                    .order_by("unit_order", "id"),
                     to_attr="prefetched_units",
-                )
-            )
-        , db_alias=STORE_DB_ALIAS)
+                ),
+            ),
+            db_alias=STORE_DB_ALIAS,
+        )
         
         # Get immediate subcategories (always needed for navigation)
         immediate_subcategories = FilterHelpers.get_immediate_subcategories(category)
         has_subcategories = bool(immediate_subcategories)
         
-        # Check if category is too large - return subcategories only
-        product_count = queryset.count()
-        
+        # Category-wide total (distinct products) for over-limit + productCount metadata
+        product_count = count_distinct_products(queryset)
+
         if product_count > LARGE_CATEGORY_THRESHOLD:
             # Return subcategories only (no products) when over threshold
             return Response({
@@ -369,27 +488,55 @@ def products_by_category_slug(request, category_slug):
         queryset = queryset.order_by(*(sanitized_ordering or ['-created_date', '-id']))
     else:
         queryset = queryset.order_by('-created_date', '-id')
-    
+
+    dedupe_order = [
+        F("product_id").asc(),
+        F("product_ranking").desc(),
+        F("created_date").desc(),
+        F("id").asc(),
+    ]
+    queryset = annotate_variant_count(
+        one_variant_per_product(queryset, partition_order=dedupe_order)
+    )
+    # After dedupe: one row per product (matches DRF pagination `count`)
+    listing_product_count = queryset.count()
+
     paginator = ProductPagination()
     page = paginator.paginate_queryset(queryset, request)
+    list_ctx = {"listed_under_slug": category_path_slug}
     if page is not None:
-        serializer = ProductVariantSerializer(page, many=True)
+        serializer = ProductVariantSerializer(page, many=True, context=list_ctx)
         response = paginator.get_paginated_response(serializer.data)
         # Add subcategories to paginated response
         response.data['hasSubcategories'] = has_subcategories
         response.data['subcategories'] = immediate_subcategories
+        response.data['categorySlug'] = category_path_slug
+        response.data['categoryName'] = category.path or category.name
+        # Same semantics as `count` — avoid FE reading a separate variant total
+        response.data['productCount'] = response.data['count']
+        response.data['overLimit'] = False
         return response
 
-    serializer = ProductVariantSerializer(queryset, many=True)
+    serializer = ProductVariantSerializer(queryset, many=True, context=list_ctx)
     return Response({
         'categorySlug': category_path_slug,
         'categoryName': category.path or category.name,
-        'productCount': product_count,
+        'productCount': listing_product_count,
         'hasSubcategories': has_subcategories,
         'subcategories': immediate_subcategories,  # Always include subcategories
         'products': serializer.data,
         'overLimit': False
     })
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def resolve_store_path_view(request, path_slug):
+    """Resolve nested store path → category listing or product detail."""
+    resolved = resolve_store_path(path_slug, using=STORE_DB_ALIAS)
+    if resolved.get("page") == "not_found":
+        return Response(resolved, status=status.HTTP_404_NOT_FOUND)
+    return Response(resolved)
 
 
 @api_view(['POST'])
