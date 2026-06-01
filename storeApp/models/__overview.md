@@ -119,7 +119,7 @@ Voucher ──< VoucherRedemption >── Order
 
 **Multi-category:** cùng `mid` → thêm `ProductCategory` (không tạo product mới); primary FK giữ khi đã có. URL `/{context_path}/{slug}` hợp lệ nếu path ∈ M2M; canonical = primary `path_slug`.
 
-**Counts:** category `productCount` / pagination `count` = distinct products (`count_distinct_products`). Sidebar facet: plan `[UnDone] category-facet-distinct-product-count.plan.md`.
+**Counts:** category `productCount` / pagination `count` = distinct products (`count_distinct_products`). Sidebar facet counts: `[Done] category-facet-distinct-product-count.plan.md` (`Count('product_id', distinct=True)`).
 
 **Audit:** `store_catalog audit --overview` — M2M groups + primary FK vs M2M; `--mid` checklist `category leaf in M2M`, `primary FK = M2M primary`.
 

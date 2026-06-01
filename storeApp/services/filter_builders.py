@@ -107,7 +107,7 @@ class FilterBuilders:
         # Single aggregated query by brand_id, then fold into country buckets in Python.
         brand_id_counts = queryset.exclude(
             Q(product__brand_id__isnull=True) | Q(product__brand_id=0)
-        ).values('product__brand_id').annotate(count=Count('id'))
+        ).values('product__brand_id').annotate(count=Count('product_id', distinct=True))
         country_count_map = defaultdict(int)
         for item in brand_id_counts:
             brand_id = item['product__brand_id']
@@ -136,7 +136,7 @@ class FilterBuilders:
         # Get brand_ids and count products per brand_id for ALL brands
         brand_id_counts = queryset.exclude(
             Q(product__brand_id__isnull=True) | Q(product__brand_id=0)
-        ).values('product__brand_id').annotate(count=Count('id'))
+        ).values('product__brand_id').annotate(count=Count('product_id', distinct=True))
         
         # Build brand_count_map
         brand_count_map = {}
@@ -327,7 +327,7 @@ class FilterBuilders:
         
         # Count by price range
         range_counts = annotated_queryset.values('price_range').annotate(
-            count=Count('id')
+            count=Count('product_id', distinct=True)
         ).filter(price_range__isnull=False)
         
         # Build result dict
@@ -355,5 +355,10 @@ class FilterBuilders:
         max_price = range_config['max']
         
         if max_price is None:
-            return queryset.filter(price_value__gte=min_price).count()
-        return queryset.filter(price_value__gte=min_price, price_value__lt=max_price).count()
+            return queryset.filter(price_value__gte=min_price).values('product_id').distinct().count()
+        return (
+            queryset.filter(price_value__gte=min_price, price_value__lt=max_price)
+            .values('product_id')
+            .distinct()
+            .count()
+        )
