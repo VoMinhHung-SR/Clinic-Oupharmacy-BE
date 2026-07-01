@@ -3,6 +3,7 @@ from mainApp.models import  Prescribing, PrescriptionDetail
 from mainApp.paginator import ExaminationPaginator
 from mainApp.serializers import PrescribingSerializer
 from mainApp.serializers import PrescriptionDetailSerializer
+from mainApp.services.prescriber_medicine_prefs import get_prescriber_medicine_prefs
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
@@ -36,3 +37,16 @@ class PrescribingViewSet(viewsets.ViewSet, generics.ListAPIView, generics.Retrie
         return Response(data=PrescriptionDetailSerializer(prescription_detail, many=True,
                                                           context={'request': request}).data,
                         status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=False, url_path='medicine-prefs')
+    def medicine_prefs(self, request):
+        user = request.user
+        if not user or not getattr(user, 'is_authenticated', False):
+            return Response(
+                data={"errMgs": "Authentication required"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        return Response(
+            data=get_prescriber_medicine_prefs(user.id),
+            status=status.HTTP_200_OK,
+        )
