@@ -149,6 +149,69 @@ class ProductsByCategoryM2MAPITests(APITestCase):
         ids = [row["id"] for row in r.json().get("items", [])]
         self.assertIn(self.variant.id, ids)
 
+    def test_search_filters_by_parent_category_includes_leaf_product(self):
+        """Prescribing filter: level1 parent must include products on level2 leaf."""
+        root = self.leaf_a.parent
+        self.assertIsNotNone(root)
+        r = self.client.get(
+            "/api/store/search/",
+            {"q": "Api M2M", "category": str(root.id)},
+        )
+        self.assertEqual(r.status_code, 200)
+        ids = [row["id"] for row in r.json().get("items", [])]
+        self.assertIn(self.variant.id, ids)
+
+    def test_products_list_filters_by_parent_category_and_keyword(self):
+        root = self.leaf_a.parent
+        r = self.client.get(
+            "/api/store/products/",
+            {"kw": "Api M2M", "category": str(root.id), "page_size": 20},
+        )
+        self.assertEqual(r.status_code, 200)
+        ids = [row["id"] for row in r.json().get("results", [])]
+        self.assertIn(self.variant.id, ids)
+
+    def test_search_includes_product_with_fk_category_only(self):
+        """Products not backfilled to M2M still match via Product.category FK."""
+        root, _ = Category.objects.using("store").get_or_create(
+            slug="api-m2m-fk-root", parent=None, defaults={"name": "FK Root"}
+        )
+        root = Category.objects.using("store").get(pk=root.pk)
+        leaf, _ = Category.objects.using("store").get_or_create(
+            slug="api-m2m-fk-leaf", parent=root, defaults={"name": "FK Leaf"}
+        )
+        leaf = Category.objects.using("store").get(pk=leaf.pk)
+
+        product = Product.objects.using("store").create(
+            name="FK Only Paracetamol Demo",
+            web_name="Para FK Test",
+            slug="fk-only-paracetamol-demo",
+            category=leaf,
+        )
+        variant = ProductVariant.objects.using("store").create(
+            product=product,
+            packing="Vỉ",
+            is_published=True,
+            in_stock=5,
+            product_ranking=1,
+        )
+        ProductVariantUnit.objects.using("store").create(
+            variant=variant,
+            unit_name="Vỉ",
+            quantity_in_base=1,
+            price_value=20000,
+            is_default=True,
+            is_published=True,
+        )
+
+        r = self.client.get(
+            "/api/store/search/",
+            {"q": "Para", "category": str(root.id)},
+        )
+        self.assertEqual(r.status_code, 200)
+        ids = [row["id"] for row in r.json().get("items", [])]
+        self.assertIn(variant.id, ids)
+
 
 class OrderVoucherMultiCategoryTests(APITestCase):
     """Voucher applicable_categories matches any M2M slug, not only primary."""

@@ -4,9 +4,10 @@ Resolve a store URL path to category listing or product detail (single source of
 from __future__ import annotations
 
 from django.db import models
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Q
 
-from storeApp.models import Category, Product, ProductCategory, ProductVariant
+from storeApp.models import Category, Product, ProductVariant
+from storeApp.services.product_category_helpers import category_tree_ids, product_in_categories_q
 
 
 def resolve_store_path(path_slug: str, *, using: str = "store") -> dict:
@@ -42,22 +43,11 @@ def resolve_store_path(path_slug: str, *, using: str = "store") -> dict:
                 .first()
             )
             if category:
-                url_path = (category.path_slug or category.slug or "").strip()
-                prefix = f"{url_path}/" if url_path else None
-                m2m_match = Q(category_id=category.id)
-                if prefix:
-                    m2m_match |= Q(category__path_slug__istartswith=prefix)
-
+                category_ids = category_tree_ids(category, using=using)
                 variant = (
                     ProductVariant.objects.using(using)
                     .filter(active=True, is_published=True, product=product)
-                    .filter(
-                        Exists(
-                            ProductCategory.objects.using(using)
-                            .filter(product_id=OuterRef("product_id"))
-                            .filter(m2m_match)
-                        )
-                    )
+                    .filter(product_in_categories_q(category_ids, using=using))
                     .order_by("-product_ranking", "id")
                     .first()
                 )

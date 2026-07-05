@@ -136,7 +136,7 @@ class SearchApiTests(APITestCase):
             ranking=60,
         )
 
-    def _create_variant(self, name, web_name, slug, category, price_value, in_stock, ranking):
+    def _create_variant(self, name, web_name, slug, category, price_value, in_stock, ranking, sku=None):
         product = Product.objects.create(
             name=name,
             web_name=web_name,
@@ -148,6 +148,7 @@ class SearchApiTests(APITestCase):
         variant = ProductVariant.objects.create(
             product=product,
             packing="Hộp",
+            sku=sku,
             is_published=True,
             in_stock=in_stock,
             product_ranking=ranking,
@@ -247,4 +248,67 @@ class SearchApiTests(APITestCase):
         self.assertEqual(price_counts["over_500k"], 1)
         self.assertEqual(stock_counts[True], 3)
         self.assertEqual(stock_counts[False], 1)
+
+    def test_search_matches_variant_sku(self):
+        self._create_variant(
+            name="Thuốc SKU test",
+            web_name="SKU Test Product",
+            slug="thuoc-sku-test",
+            category=self.category,
+            price_value=50000,
+            in_stock=10,
+            ranking=50,
+            sku="8934601234567",
+        )
+        response = self.client.get("/api/store/search/?q=8934601234567")
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(response.data["meta"]["total"], 1)
+        skus = {item.get("sku") for item in response.data["items"]}
+        self.assertIn("8934601234567", skus)
+
+    def test_search_matches_product_ingredients(self):
+        product = Product.objects.create(
+            name="Thuốc hoạt chất",
+            web_name="Active Ingredient Drug",
+            slug="thuoc-hoat-chat",
+            category=self.category,
+            brand=self.brand,
+            ingredients="Paracetamol: 500mg",
+        )
+        product.assign_category(self.category, using="store")
+        variant = ProductVariant.objects.create(
+            product=product,
+            packing="Hộp",
+            is_published=True,
+            in_stock=5,
+            product_ranking=40,
+        )
+        ProductVariantUnit.objects.create(
+            variant=variant,
+            unit_name="Hộp",
+            quantity_in_base=1,
+            price_value=30000,
+            is_default=True,
+            is_published=True,
+        )
+        response = self.client.get("/api/store/search/?q=paracetamol")
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(response.data["meta"]["total"], 1)
+        names = {item["product"]["name"] for item in response.data["items"]}
+        self.assertIn("Thuốc hoạt chất", names)
+
+    def test_product_list_filter_by_product_id(self):
+        product = Product.objects.get(slug="thuoc-cam-cum-a")
+        self._create_extra_variant_for_existing_product(
+            slug="thuoc-cam-cum-a",
+            packing="Hộp 12 vỉ",
+            price_value=150000,
+            in_stock=2,
+            ranking=55,
+        )
+        response = self.client.get(f"/api/store/products/?product={product.id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(response.data["count"], 2)
+        product_ids = {item["product"]["id"] for item in response.data["results"]}
+        self.assertEqual(product_ids, {product.id})
 

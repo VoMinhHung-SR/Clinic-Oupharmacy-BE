@@ -53,15 +53,19 @@ def _aggregate_history(user_id: int):
     return counts, latest, frequent_ids, recent_ids, all_ids
 
 
-def _hydrate_variants(variant_ids: list[int]) -> dict[int, dict]:
+def _hydrate_variants(variant_ids: list[int], *, in_stock_only: bool = False) -> dict[int, dict]:
     if not variant_ids:
         return {}
 
     from django.db.models import Prefetch
 
+    base_filter = {"id__in": variant_ids, "active": True, "is_published": True}
+    qs = ProductVariant.objects.using(STORE_DB_ALIAS).filter(**base_filter)
+    if in_stock_only:
+        qs = qs.filter(in_stock__gt=0)
+
     qs = annotate_variant_unit_price(
-        ProductVariant.objects.using(STORE_DB_ALIAS)
-        .filter(id__in=variant_ids, active=True, is_published=True)
+        qs
         .select_related("product__category", "product__brand")
         .prefetch_related(
             Prefetch(

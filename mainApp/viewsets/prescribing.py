@@ -3,6 +3,8 @@ from mainApp.models import  Prescribing, PrescriptionDetail
 from mainApp.paginator import ExaminationPaginator
 from mainApp.serializers import PrescribingSerializer
 from mainApp.serializers import PrescriptionDetailSerializer
+from mainApp.models import Diagnosis
+from mainApp.services.diagnosis_medicine_suggestions import get_diagnosis_medicine_suggestions
 from mainApp.services.prescriber_medicine_prefs import get_prescriber_medicine_prefs
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -50,3 +52,34 @@ class PrescribingViewSet(viewsets.ViewSet, generics.ListAPIView, generics.Retrie
             data=get_prescriber_medicine_prefs(user.id),
             status=status.HTTP_200_OK,
         )
+
+    @action(methods=['get'], detail=False, url_path='medicine-suggestions')
+    def medicine_suggestions(self, request):
+        user = request.user
+        if not user or not getattr(user, 'is_authenticated', False):
+            return Response(
+                data={"errMgs": "Authentication required"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        diagnosis_id = request.query_params.get('diagnosis_id')
+        if not diagnosis_id:
+            return Response(
+                data={"errMgs": "diagnosis_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            diagnosis_id_int = int(diagnosis_id)
+        except (TypeError, ValueError):
+            return Response(
+                data={"errMgs": "diagnosis_id must be an integer"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            data = get_diagnosis_medicine_suggestions(diagnosis_id_int, user.id)
+        except Diagnosis.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        return Response(data=data, status=status.HTTP_200_OK)

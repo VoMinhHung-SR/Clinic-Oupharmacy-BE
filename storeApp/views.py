@@ -10,7 +10,12 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 from storeApp.models import ProductVariant, ProductVariantUnit, Category, Product, ProductCategory
 from storeApp.serializers import ProductVariantPickerSerializer, ProductVariantSerializer
-from storeApp.services.store_path_resolver import resolve_store_path
+from storeApp.services.product_category_helpers import (
+    filter_variants_by_category_id,
+    category_tree_ids,
+    product_in_categories_q,
+    variant_keyword_q,
+)
 from storeApp.services.variant_listing import (
     annotate_variant_count,
     count_distinct_products,
@@ -22,6 +27,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from storeApp.services.filter_helpers import FilterHelpers
 from storeApp.services.filter_constants import LARGE_CATEGORY_THRESHOLD
+from storeApp.services.store_path_resolver import resolve_store_path
 from storeApp.models import Notification
 from storeApp.serializers import ContactSupportRequestSerializer
 
@@ -182,15 +188,24 @@ def search_products(request):
             web_name_lookup=Lower("product__web_name"),
             category_name_lookup=Lower("product__category__name"),
             brand_name_lookup=Lower("product__brand__name"),
+            sku_lookup=Lower("sku"),
+            mid_lookup=Lower("product__mid"),
+            ingredients_lookup=Lower("product__ingredients"),
             relevance_score=Case(
+                When(sku_lookup=query_lookup, then=Value(110)),
+                When(mid_lookup=query_lookup, then=Value(108)),
                 When(product_name_lookup=query_lookup, then=Value(100)),
                 When(web_name_lookup=query_lookup, then=Value(95)),
+                When(sku_lookup__startswith=query_lookup, then=Value(88)),
                 When(product_name_lookup__startswith=query_lookup, then=Value(80)),
                 When(web_name_lookup__startswith=query_lookup, then=Value(75)),
                 When(product_name_lookup__contains=query_lookup, then=Value(60)),
                 When(web_name_lookup__contains=query_lookup, then=Value(55)),
+                When(sku_lookup__contains=query_lookup, then=Value(50)),
+                When(mid_lookup__contains=query_lookup, then=Value(48)),
                 When(category_name_lookup__contains=query_lookup, then=Value(35)),
                 When(brand_name_lookup__contains=query_lookup, then=Value(30)),
+                When(ingredients_lookup__contains=query_lookup, then=Value(20)),
                 default=Value(0),
                 output_field=IntegerField(),
             ),
@@ -199,19 +214,16 @@ def search_products(request):
             | Q(web_name_lookup__contains=query_lookup)
             | Q(category_name_lookup__contains=query_lookup)
             | Q(brand_name_lookup__contains=query_lookup)
-        )
+            | Q(sku_lookup__contains=query_lookup)
+            | Q(mid_lookup__contains=query_lookup)
+            | Q(ingredients_lookup__contains=query_lookup)
+            | Q(product__product_categories__category__name__icontains=query_normalized)
+        ).distinct()
     else:
         queryset = queryset.annotate(relevance_score=Value(0, output_field=IntegerField()))
 
     if category:
-        queryset = queryset.filter(
-            Exists(
-                ProductCategory.objects.using(STORE_DB_ALIAS).filter(
-                    product_id=OuterRef("product_id"),
-                    category_id=category,
-                )
-            )
-        )
+        queryset = filter_variants_by_category_id(queryset, category, using=STORE_DB_ALIAS)
     if brand:
         queryset = queryset.filter(product__brand_id=brand)
     if in_stock is True:
@@ -320,22 +332,11 @@ def products_by_category_slug(request, category_slug):
             ).first()
             
             if category:
-                url_path = (category.path_slug or category.slug or "").strip()
-                prefix = f"{url_path}/" if url_path else None
-                m2m_match = models.Q(category_id=category.id)
-                if prefix:
-                    m2m_match |= models.Q(category__path_slug__istartswith=prefix)
-
+                category_ids = category_tree_ids(category, using=STORE_DB_ALIAS)
                 variant_qs = (
                     ProductVariant.objects.using(STORE_DB_ALIAS)
                     .filter(active=True, product=product)
-                    .filter(
-                        Exists(
-                            ProductCategory.objects.using(STORE_DB_ALIAS)
-                            .filter(product_id=OuterRef("product_id"))
-                            .filter(m2m_match)
-                        )
-                    )
+                    .filter(product_in_categories_q(category_ids, using=STORE_DB_ALIAS))
                     .select_related("product", "product__category")
                     .prefetch_related(_prefetch_variant_product_categories())
                 )
@@ -401,30 +402,13 @@ def products_by_category_slug(request, category_slug):
         
         category_path_slug = category.path_slug or category.slug
         
-        # Get all subcategory IDs (including nested) for product filtering
-        # Use set for efficient duplicate handling
-        category_ids = {category.id}
-        subcategory_ids = Category.objects.using(STORE_DB_ALIAS).filter(
+        base_qs = ProductVariant.objects.using(STORE_DB_ALIAS).filter(
             active=True,
-            path_slug__istartswith=f"{category_path_slug}/"
-        ).values_list('id', flat=True)
-        category_ids.update(subcategory_ids)
-
-        in_category_tree = Exists(
-            ProductCategory.objects.using(STORE_DB_ALIAS).filter(
-                product_id=OuterRef("product_id"),
-                category_id__in=list(category_ids),
-            )
+            is_published=True,
+            product__active=True,
         )
-
         queryset = annotate_variant_unit_price(
-            ProductVariant.objects.using(STORE_DB_ALIAS)
-            .filter(
-                active=True,
-                is_published=True,
-                product__active=True,
-            )
-            .filter(in_category_tree)
+            filter_variants_by_category_id(base_qs, category.id, using=STORE_DB_ALIAS)
             .select_related("product", "product__category", "product__brand")
             .prefetch_related(
                 _prefetch_variant_product_categories(),
