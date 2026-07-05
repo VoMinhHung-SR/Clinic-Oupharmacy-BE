@@ -13,7 +13,7 @@ from storeApp.models import Brand, Category, ProductVariant, ProductVariantUnit
 from storeApp.services.product_category_helpers import (
     category_tree_ids,
     count_distinct_products_in_category_ids,
-    product_in_categories_exists,
+    product_in_categories_q,
 )
 from storeApp.services.filter_constants import (
     FILTER_VARIANT_MAP,
@@ -167,16 +167,18 @@ class FilterHelpers:
     
     @staticmethod
     def get_category_queryset(category):
-        """Get ProductVariant queryset for category (including subcategories) via M2M."""
+        """Get ProductVariant queryset for category (including subcategories) via M2M + FK fallback."""
         category_ids = category_tree_ids(category, using=FilterHelpers.STORE_DB_ALIAS)
         queryset = (
             ProductVariant.objects.using(FilterHelpers.STORE_DB_ALIAS)
             .filter(
                 active=True,
                 is_published=True,
+                product__active=True,
             )
-            .filter(product_in_categories_exists(category_ids, using=FilterHelpers.STORE_DB_ALIAS))
+            .filter(product_in_categories_q(category_ids, using=FilterHelpers.STORE_DB_ALIAS))
             .select_related("product", "product__category", "product__brand")
+            .distinct()
         )
         return FilterHelpers.annotate_variant_price(queryset)
     

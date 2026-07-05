@@ -228,6 +228,7 @@ INGREDIENT_KEYWORDS = [
 # Category type mapping - Map root slug patterns to category types
 CATEGORY_TYPE_MAPPING = {
     'thuoc': 'medicine',
+    'duoc-my-pham': 'cosmetics',
     'duoc-mi-pham': 'cosmetics',
     'cosmetics': 'cosmetics',
     'thuc-pham-chuc-nang': 'supplements',
