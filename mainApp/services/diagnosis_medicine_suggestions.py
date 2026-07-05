@@ -1,6 +1,7 @@
 """
-Diagnosis-aware medicine suggestions for prescribing workspace (Phase 2 P0).
-Doctor-scope only; passive mining from Diagnosis → Prescribing → PrescriptionDetail.
+Diagnosis-aware medicine suggestions for prescribing workspace (Phase 2).
+P0: doctor-scope; P1: clinic-wide fallback when doctor suggestions are sparse.
+Passive mining from Diagnosis → Prescribing → PrescriptionDetail.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from mainApp.services.prescriber_medicine_prefs import _hydrate_variants
 LOOKBACK_DIAGNOSES = 200
 SIMILARITY_THRESHOLD = 0.35
 TOP_SUGGESTIONS = 8
+MIN_SUGGESTIONS_FOR_CLINIC_FALLBACK = 3
 MIN_TOKEN_LEN = 2
 DIAGNOSED_WEIGHT = 0.7
 SIGN_WEIGHT = 0.3
@@ -83,21 +85,28 @@ def combined_diagnosis_similarity(
     return (diagnosed_sim * DIAGNOSED_WEIGHT) + (sign_sim * SIGN_WEIGHT)
 
 
-def _matched_doctor_diagnoses(current: Diagnosis, doctor_id: int) -> list[tuple[Diagnosis, float]]:
-    candidates = (
-        Diagnosis.objects.filter(active=True, user_id=doctor_id)
-        .exclude(id=current.id)
-        .order_by("-created_date")[:LOOKBACK_DIAGNOSES]
-    )
+def _has_prescribing_lines(diagnosis_id: int) -> bool:
+    return PrescriptionDetail.objects.filter(
+        active=True,
+        product_variant_id__isnull=False,
+        prescribing__active=True,
+        prescribing__diagnosis_id=diagnosis_id,
+    ).exists()
+
+
+def _matched_diagnoses(
+    current: Diagnosis,
+    *,
+    doctor_id: int | None = None,
+) -> list[tuple[Diagnosis, float]]:
+    candidates = Diagnosis.objects.filter(active=True).exclude(id=current.id)
+    if doctor_id is not None:
+        candidates = candidates.filter(user_id=doctor_id)
+    candidates = candidates.order_by("-created_date")[:LOOKBACK_DIAGNOSES]
 
     matched: list[tuple[Diagnosis, float]] = []
     for candidate in candidates:
-        if not PrescriptionDetail.objects.filter(
-            active=True,
-            product_variant_id__isnull=False,
-            prescribing__active=True,
-            prescribing__diagnosis_id=candidate.id,
-        ).exists():
+        if not _has_prescribing_lines(candidate.id):
             continue
         sim = combined_diagnosis_similarity(
             current.sign,
@@ -108,6 +117,14 @@ def _matched_doctor_diagnoses(current: Diagnosis, doctor_id: int) -> list[tuple[
         if sim >= SIMILARITY_THRESHOLD:
             matched.append((candidate, sim))
     return matched
+
+
+def _matched_doctor_diagnoses(current: Diagnosis, doctor_id: int) -> list[tuple[Diagnosis, float]]:
+    return _matched_diagnoses(current, doctor_id=doctor_id)
+
+
+def _matched_clinic_diagnoses(current: Diagnosis) -> list[tuple[Diagnosis, float]]:
+    return _matched_diagnoses(current)
 
 
 def _aggregate_variants(
@@ -171,13 +188,24 @@ def _aggregate_variants(
     return ranked[:TOP_SUGGESTIONS]
 
 
-def _build_suggestion_entry(variant_id: int, stats: dict, variant_map: dict[int, dict], doctor_id: int):
+def _build_suggestion_entry(
+    variant_id: int,
+    stats: dict,
+    variant_map: dict[int, dict],
+    doctor_id: int,
+    *,
+    source: str = "doctor_history",
+):
     variant = variant_map.get(variant_id)
     if not variant:
         return None
 
     doctor_line = stats.get("doctor_line")
-    prefill_allowed = doctor_line is not None and doctor_line.prescribing.user_id == doctor_id
+    prefill_allowed = (
+        source == "doctor_history"
+        and doctor_line is not None
+        and doctor_line.prescribing.user_id == doctor_id
+    )
 
     return {
         "product_variant_id": variant_id,
@@ -190,9 +218,19 @@ def _build_suggestion_entry(variant_id: int, stats: dict, variant_map: dict[int,
         "last_prescribed_at": stats["last_prescribed_at"].isoformat()
         if stats["last_prescribed_at"]
         else None,
-        "source": "doctor_history",
+        "source": source,
         "variant": variant,
     }
+
+
+def _resolve_scope(doctor_matched: int, suggestions: list[dict]) -> str:
+    has_doctor = any(item["source"] == "doctor_history" for item in suggestions)
+    has_clinic = any(item["source"] == "clinic_history" for item in suggestions)
+    if has_doctor and has_clinic:
+        return "mixed"
+    if has_clinic:
+        return "clinic"
+    return "doctor"
 
 
 def get_diagnosis_medicine_suggestions(diagnosis_id: int, doctor_id: int) -> dict:
@@ -200,21 +238,69 @@ def get_diagnosis_medicine_suggestions(diagnosis_id: int, doctor_id: int) -> dic
         return {
             "diagnosis": None,
             "suggestions": [],
-            "meta": {"scope": "doctor", "matched_diagnoses": 0},
+            "meta": {
+                "scope": "doctor",
+                "matched_diagnoses": 0,
+                "clinic_matched_diagnoses": 0,
+                "clinic_fallback_used": False,
+            },
         }
 
     diagnosis = Diagnosis.objects.get(id=diagnosis_id, active=True)
-    matched = _matched_doctor_diagnoses(diagnosis, doctor_id)
-    ranked = _aggregate_variants(matched, doctor_id)
+    doctor_matched = _matched_doctor_diagnoses(diagnosis, doctor_id)
+    doctor_ranked = _aggregate_variants(doctor_matched, doctor_id)
 
-    variant_ids = [vid for vid, _ in ranked]
+    clinic_matched: list[tuple[Diagnosis, float]] = []
+    clinic_ranked: list[tuple[int, dict]] = []
+    if len(doctor_ranked) < MIN_SUGGESTIONS_FOR_CLINIC_FALLBACK:
+        clinic_matched = _matched_clinic_diagnoses(diagnosis)
+        clinic_ranked = _aggregate_variants(clinic_matched, doctor_id)
+
+    variant_ids: list[int] = []
+    seen_variant_ids: set[int] = set()
+    for vid, _ in doctor_ranked:
+        if vid not in seen_variant_ids:
+            variant_ids.append(vid)
+            seen_variant_ids.add(vid)
+        if len(variant_ids) >= TOP_SUGGESTIONS:
+            break
+
+    if len(variant_ids) < TOP_SUGGESTIONS:
+        for vid, _ in clinic_ranked:
+            if vid in seen_variant_ids:
+                continue
+            variant_ids.append(vid)
+            seen_variant_ids.add(vid)
+            if len(variant_ids) >= TOP_SUGGESTIONS:
+                break
+
     variant_map = _hydrate_variants(variant_ids, in_stock_only=True)
 
-    suggestions = []
-    for vid, stats in ranked:
-        entry = _build_suggestion_entry(vid, stats, variant_map, doctor_id)
+    suggestions: list[dict] = []
+    for vid, stats in doctor_ranked:
+        entry = _build_suggestion_entry(
+            vid, stats, variant_map, doctor_id, source="doctor_history"
+        )
         if entry:
             suggestions.append(entry)
+        if len(suggestions) >= TOP_SUGGESTIONS:
+            break
+
+    if len(suggestions) < MIN_SUGGESTIONS_FOR_CLINIC_FALLBACK:
+        existing_variant_ids = {item["product_variant_id"] for item in suggestions}
+        for vid, stats in clinic_ranked:
+            if vid in existing_variant_ids:
+                continue
+            entry = _build_suggestion_entry(
+                vid, stats, variant_map, doctor_id, source="clinic_history"
+            )
+            if entry:
+                suggestions.append(entry)
+                existing_variant_ids.add(vid)
+            if len(suggestions) >= TOP_SUGGESTIONS:
+                break
+
+    clinic_fallback_used = any(item["source"] == "clinic_history" for item in suggestions)
 
     return {
         "diagnosis": {
@@ -225,7 +311,9 @@ def get_diagnosis_medicine_suggestions(diagnosis_id: int, doctor_id: int) -> dic
         },
         "suggestions": suggestions,
         "meta": {
-            "scope": "doctor",
-            "matched_diagnoses": len(matched),
+            "scope": _resolve_scope(len(doctor_matched), suggestions),
+            "matched_diagnoses": len(doctor_matched),
+            "clinic_matched_diagnoses": len(clinic_matched),
+            "clinic_fallback_used": clinic_fallback_used,
         },
     }
