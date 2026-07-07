@@ -34,7 +34,12 @@
 python manage.py runserver
 python manage.py migrate
 python manage.py test
+
+# storeApp regression (SQLite dual-DB — same as CI)
+python manage.py test storeApp.tests -v 2 --settings=OUPharmacyManagementApp.settings_test
 ```
+
+**CI:** PR → `dev` chạy `.github/workflows/test-storeapp.yml` (Python 3.10, `settings_test`).
 
 Docker / DB: tuỳ `docker-compose`; **không** `docker-compose down -v` khi chưa backup (rule volume).
 
