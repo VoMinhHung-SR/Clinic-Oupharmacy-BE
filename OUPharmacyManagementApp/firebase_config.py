@@ -42,6 +42,8 @@ def initialize_firebase():
 # Get Firestore instance
 def get_firestore():
     """Get the Firestore database instance"""
+    if os.environ.get("FIREBASE_SKIP_INIT"):
+        return None
     try:
         initialize_firebase()
         return firestore.client()
@@ -52,6 +54,8 @@ def get_firestore():
 # Get Auth instance
 def get_auth():
     """Get the Firebase Auth instance"""
+    if os.environ.get("FIREBASE_SKIP_INIT"):
+        return None
     try:
         initialize_firebase()
         return auth
