@@ -145,6 +145,112 @@ class DiagnosisMedicineSuggestionsServiceTests(TestCase):
         with self.assertRaises(Diagnosis.DoesNotExist):
             get_diagnosis_medicine_suggestions(999999, self.doctor.id)
 
+    def test_clinic_fallback_when_doctor_history_sparse(self):
+        new_doctor = User.objects.create_user(
+            email="doctor-new@example.com",
+            password="Pass1234!",
+        )
+        other_doctor = User.objects.create_user(
+            email="doctor-other@example.com",
+            password="Pass1234!",
+        )
+        other_examination = Examination.objects.create(
+            description="Khám other",
+            patient=self.patient,
+            user=other_doctor,
+        )
+        other_diagnosis = Diagnosis.objects.create(
+            sign="sốt ho khan",
+            diagnosed="Viêm họng cấp",
+            examination=other_examination,
+            user=other_doctor,
+            patient=self.patient,
+        )
+        other_prescribing = Prescribing.objects.create(
+            diagnosis=other_diagnosis,
+            user=other_doctor,
+        )
+        PrescriptionDetail.objects.create(
+            prescribing=other_prescribing,
+            quantity=1,
+            uses="2 viên x 2 lần/ngày",
+            product_variant_id=self.variant.id,
+            product_variant_unit_id=self.unit.id,
+        )
+
+        new_examination = Examination.objects.create(
+            description="Khám new doctor",
+            patient=self.patient,
+            user=new_doctor,
+        )
+        current = Diagnosis.objects.create(
+            sign="ho khan nhẹ",
+            diagnosed="Viêm họng",
+            examination=new_examination,
+            user=new_doctor,
+            patient=self.patient,
+        )
+        data = get_diagnosis_medicine_suggestions(current.id, new_doctor.id)
+        self.assertEqual(data["meta"]["matched_diagnoses"], 0)
+        self.assertGreaterEqual(data["meta"]["clinic_matched_diagnoses"], 1)
+        self.assertTrue(data["meta"]["clinic_fallback_used"])
+        self.assertEqual(len(data["suggestions"]), 1)
+        entry = data["suggestions"][0]
+        self.assertEqual(entry["source"], "clinic_history")
+        self.assertFalse(entry["prefill_allowed"])
+        self.assertIsNone(entry["uses"])
+        self.assertIsNone(entry["quantity"])
+
+    def test_clinic_line_in_aggregate_prefill_allowed_false(self):
+        new_doctor = User.objects.create_user(
+            email="doctor-clinic-prefill@example.com",
+            password="Pass1234!",
+        )
+        other_doctor = User.objects.create_user(
+            email="doctor-clinic-source@example.com",
+            password="Pass1234!",
+        )
+        other_examination = Examination.objects.create(
+            description="Khám clinic prefill",
+            patient=self.patient,
+            user=other_doctor,
+        )
+        other_diagnosis = Diagnosis.objects.create(
+            sign="sốt ho",
+            diagnosed="Viêm họng cấp",
+            examination=other_examination,
+            user=other_doctor,
+            patient=self.patient,
+        )
+        other_prescribing = Prescribing.objects.create(
+            diagnosis=other_diagnosis,
+            user=other_doctor,
+        )
+        PrescriptionDetail.objects.create(
+            prescribing=other_prescribing,
+            quantity=3,
+            uses="1 viên x 4 lần/ngày",
+            product_variant_id=self.variant.id,
+            product_variant_unit_id=self.unit.id,
+        )
+
+        new_examination = Examination.objects.create(
+            description="Khám clinic prefill current",
+            patient=self.patient,
+            user=new_doctor,
+        )
+        current = Diagnosis.objects.create(
+            sign="ho",
+            diagnosed="Viêm họng",
+            examination=new_examination,
+            user=new_doctor,
+            patient=self.patient,
+        )
+        data = get_diagnosis_medicine_suggestions(current.id, new_doctor.id)
+        clinic_entries = [e for e in data["suggestions"] if e["source"] == "clinic_history"]
+        self.assertEqual(len(clinic_entries), 1)
+        self.assertFalse(clinic_entries[0]["prefill_allowed"])
+
 
 class DiagnosisMedicineSuggestionsApiTests(TestCase):
     databases = {"default", "store"}

@@ -1,4 +1,5 @@
 from decimal import Decimal
+import logging
 
 from rest_framework import viewsets, generics
 from rest_framework.exceptions import ValidationError
@@ -9,7 +10,10 @@ from rest_framework import status
 from mainApp.models import PrescriptionDetail
 from mainApp.serializers import PrescriptionDetailCRUDSerializer
 from storeApp.services.stock import get_available_stock, deduct_stock
-from storeApp.models import Product, ProductVariant, ProductVariantUnit
+from storeApp.models import ProductVariant, ProductVariantUnit
+
+
+logger = logging.getLogger(__name__)
 
 
 class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
@@ -43,6 +47,7 @@ class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
             if product_variant_unit_id:
                 pvu = (
                     ProductVariantUnit.objects.using("store")
+                    .select_related("variant__product")
                     .filter(id=product_variant_unit_id, is_published=True)
                     .first()
                 )
@@ -54,7 +59,12 @@ class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
                 variant = pvu.variant
 
             if not variant and product_variant_id:
-                variant = ProductVariant.objects.using("store").filter(id=product_variant_id, active=True).first()
+                variant = (
+                    ProductVariant.objects.using("store")
+                    .select_related("product")
+                    .filter(id=product_variant_id, active=True)
+                    .first()
+                )
                 if not variant:
                     return Response(
                         {"message": "product_variant_id is not found (or inactive) on store."},
@@ -88,14 +98,21 @@ class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
+            product = getattr(variant, "product", None)
+            item_name = None
+            if product:
+                item_name = product.web_name or product.name
+            if not item_name:
+                item_name = variant.packing or f"Variant #{variant.id}"
+
             deduct_stock(variant.id, required_base_quantity)
             serializer.save(
                 product_id=variant.product_id,
                 product_variant_id=variant.id,
                 product_variant_unit_id=(pvu.id if pvu else None),
-                item_name_snapshot=(variant.product.web_name or variant.product.name),
+                item_name_snapshot=item_name,
                 unit_name_snapshot=(pvu.unit_name if pvu else (variant.packing or "")),
-                unit_price_snapshot=(Decimal(str(pvu.price_value)) if pvu else Decimal("0")),
+                unit_price_snapshot=(Decimal(str(pvu.price_value)) if pvu and pvu.price_value is not None else Decimal("0")),
                 quantity_in_base_snapshot=int(quantity_in_base),
             )
 
@@ -113,7 +130,8 @@ class PrescriptionDetailViewSet(viewsets.ViewSet, generics.RetrieveAPIView,
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        except Exception as e:
+        except Exception:
+            logger.exception("POST /prescription-details/ failed")
             return Response(
                 {"message": "Server Error. Please try again."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
