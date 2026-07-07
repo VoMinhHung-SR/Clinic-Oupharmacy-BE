@@ -156,7 +156,10 @@ class OrderVoucherCreateTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
-        self.assertIn("order_voucher_code must be ORDER_DISCOUNT voucher", response.data["error"])
+        self.assertEqual(
+            response.data["details"]["order_voucher_code"][0],
+            "order_voucher_code must be ORDER_DISCOUNT voucher",
+        )
 
     def test_create_order_enforces_per_user_limit(self):
         order_voucher = self._create_voucher(

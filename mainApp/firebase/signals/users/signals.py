@@ -8,11 +8,14 @@ from django.conf import settings
 from OUPharmacyManagementApp.firebase_config import get_firestore
 
 User = get_user_model()
-db = get_firestore()
 
 @receiver(post_save, sender=User)
 def sync_user_to_firebase(sender, instance, created, **kwargs):
     """Sync user to Firebase when created or updated"""
+    db = get_firestore()
+    if db is None:
+        return
+
     avatar_url = None
     if instance.avatar:
         if hasattr(instance.avatar, 'url'):
@@ -48,6 +51,10 @@ def sync_user_to_firebase(sender, instance, created, **kwargs):
 @receiver(post_delete, sender=User)
 def delete_user_from_firebase(sender, instance, **kwargs):
     """Delete user from Firebase when deleted in Django"""
+    db = get_firestore()
+    if db is None:
+        return
+
     try:
         # Use a dynamic collection name based on the environment (optional)
         collection_name = 'dev_users' if os.getenv('ENVIRONMENT') == 'dev' else 'production_users'
