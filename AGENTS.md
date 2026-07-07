@@ -35,11 +35,19 @@ python manage.py runserver
 python manage.py migrate
 python manage.py test
 
-# storeApp regression (SQLite dual-DB — same as CI)
+# Regression — SQLite dual-DB (khớp GitHub Actions)
 python manage.py test storeApp.tests -v 2 --settings=OUPharmacyManagementApp.settings_test
+python manage.py test mainApp.tests -v 2 --settings=OUPharmacyManagementApp.settings_test
 ```
 
-**CI:** PR → `dev` chạy `.github/workflows/test-storeapp.yml` (Python 3.10, `settings_test`).
+**CI (PR → `dev` / `main`):**
+
+| Workflow | Suite |
+|----------|--------|
+| `.github/workflows/test-storeapp.yml` | `storeApp.tests` — cart, checkout, search, category M2M |
+| `.github/workflows/test-mainapp.yml` | `mainApp.tests` — diagnosis suggestions, password reset |
+
+Plan: `PersonalProject/plans/[UnDone] clinic-be-ci-tests.plan.md`
 
 Docker / DB: tuỳ `docker-compose`; **không** `docker-compose down -v` khi chưa backup (rule volume).
 
