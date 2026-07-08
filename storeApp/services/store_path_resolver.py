@@ -18,6 +18,7 @@ def resolve_store_path(path_slug: str, *, using: str = "store") -> dict:
         product_slug: str | None
         product_id: int | None
         default_variant_id: int | None
+        category_id: int | None (when page is category/product with category context)
     """
     normalized = (path_slug or "").strip().strip("/")
     if not normalized:
@@ -59,6 +60,7 @@ def resolve_store_path(path_slug: str, *, using: str = "store") -> dict:
                         "product_slug": medicine_slug,
                         "product_id": product.id,
                         "default_variant_id": variant.id,
+                        "category_id": category.id,
                     }
 
     category = (
@@ -74,6 +76,7 @@ def resolve_store_path(path_slug: str, *, using: str = "store") -> dict:
             "product_slug": None,
             "product_id": None,
             "default_variant_id": None,
+            "category_id": category.id,
         }
 
     return {"page": "not_found"}

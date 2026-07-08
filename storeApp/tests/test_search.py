@@ -213,6 +213,12 @@ class SearchApiTests(APITestCase):
         cat_res = self.client.get(f"/api/store/resolve-path/{cat_path}/")
         self.assertEqual(cat_res.status_code, 200)
         self.assertEqual(cat_res.data["page"], "category")
+        self.assertEqual(cat_res.data["category_id"], cat.id)
+        self.assertIn("category_name", cat_res.data)
+        self.assertIn("product_count", cat_res.data)
+        self.assertIn("subcategories", cat_res.data)
+        self.assertIn("over_limit", cat_res.data)
+        self.assertGreaterEqual(cat_res.data["product_count"], 1)
 
         detail_res = self.client.get(
             f"/api/store/resolve-path/{cat_path}/thuoc-cam-cum-a/"
@@ -220,6 +226,7 @@ class SearchApiTests(APITestCase):
         self.assertEqual(detail_res.status_code, 200)
         self.assertEqual(detail_res.data["page"], "product")
         self.assertEqual(detail_res.data["product_slug"], "thuoc-cam-cum-a")
+        self.assertEqual(detail_res.data["category_id"], cat.id)
 
     def test_search_applies_filters_and_reports_applied_filters(self):
         response = self.client.get(
