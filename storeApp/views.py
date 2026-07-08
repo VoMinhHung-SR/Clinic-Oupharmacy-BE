@@ -516,10 +516,44 @@ def products_by_category_slug(request, category_slug):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def resolve_store_path_view(request, path_slug):
-    """Resolve nested store path → category listing or product detail."""
+    """
+    Resolve nested store path → category listing or product detail.
+
+    Category pages also return listing meta (id, name, subcategories, over_limit)
+    so storefront can browse via GET /search/?category= without a second listing GET.
+    """
     resolved = resolve_store_path(path_slug, using=STORE_DB_ALIAS)
     if resolved.get("page") == "not_found":
         return Response(resolved, status=status.HTTP_404_NOT_FOUND)
+
+    if resolved.get("page") == "category":
+        category_path = (resolved.get("category_path") or "").strip()
+        category = (
+            Category.objects.using(STORE_DB_ALIAS)
+            .filter(active=True)
+            .filter(models.Q(path_slug__iexact=category_path) | models.Q(slug__iexact=category_path))
+            .first()
+        )
+        if category:
+            base_qs = ProductVariant.objects.using(STORE_DB_ALIAS).filter(
+                active=True,
+                is_published=True,
+                product__active=True,
+            )
+            queryset = filter_variants_by_category_id(base_qs, category.id, using=STORE_DB_ALIAS)
+            product_count = count_distinct_products(queryset)
+            immediate_subcategories = FilterHelpers.get_immediate_subcategories(category)
+            resolved.update(
+                {
+                    "category_id": category.id,
+                    "category_name": category.path or category.name,
+                    "product_count": product_count,
+                    "has_subcategories": bool(immediate_subcategories),
+                    "subcategories": immediate_subcategories,
+                    "over_limit": product_count > LARGE_CATEGORY_THRESHOLD,
+                }
+            )
+
     return Response(resolved)
 
 

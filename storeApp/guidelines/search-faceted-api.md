@@ -27,11 +27,18 @@ Tài liệu này mô tả bộ API search hiện tại cho storefront, gồm ana
 
 ### `GET /api/store/search/?q=<keyword>&page=1&page_size=12&...`
 
-- API trang kết quả search chính.
+- API trang kết quả search chính **và** category browse (search-first).
+- Category browse: `q=` (rỗng) + `category=<id>`.
 - Trả:
-  - `items`: danh sách product variants
+  - `items`: danh sách product variants (1 card / product)
   - `facets`: `category`, `brand`, `price_ranges`, `in_stock`
   - `meta`: `total`, `page`, `page_size`, `has_more`, `took_ms`, `applied_filters`
+
+### `GET /api/store/resolve-path/<path>/` (category meta)
+
+Category resolution cũng trả listing meta để FE bỏ GET listing + dynamic-filters:
+
+- `category_id`, `category_name`, `product_count`, `has_subcategories`, `subcategories`, `over_limit`
 
 ## 2) Query params cho `/api/store/search/`
 
