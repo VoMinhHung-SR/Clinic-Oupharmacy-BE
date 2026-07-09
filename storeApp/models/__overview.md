@@ -126,7 +126,7 @@ Voucher ──< VoucherRedemption >── Order
 ## Docs liên quan
 
 - `storeApp/guidelines/cart-first-checkout.md`
-- `storeApp/guidelines/dynamic-filters.md`, `search-faceted-api.md`
+- `storeApp/guidelines/search-faceted-api.md`, `search-facets-migration-2026-07-10.md`
 - `storeApp/services/variant_listing.py`, `store_path_resolver.py`
 - `oupharmacy-store/docs/ROUTING.md`
 - `PersonalProject/plans/[Done] product-multi-category-m2m.plan.md`
