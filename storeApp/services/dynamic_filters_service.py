@@ -7,7 +7,9 @@ from django.core.cache import cache
 from storeApp.services.filter_constants import (
     CACHE_TIMEOUT,
     CACHE_PREFIX,
-    LARGE_CATEGORY_THRESHOLD
+    LARGE_CATEGORY_THRESHOLD,
+    CATEGORY_TYPE_FILTER_CONFIGS,
+    DEFAULT_FILTER_CONFIG,
 )
 from storeApp.services.filter_helpers import FilterHelpers
 from storeApp.services.filter_extractors import FilterExtractors
@@ -20,6 +22,24 @@ class DynamicFiltersService:
     Service layer for dynamic filters
     Main orchestration class that coordinates helpers, extractors, and builders
     """
+    CACHE_VERSION_KEY = f"{CACHE_PREFIX}:version"
+
+    @staticmethod
+    def _cache_version():
+        return cache.get(DynamicFiltersService.CACHE_VERSION_KEY) or 1
+
+    @staticmethod
+    def _cache_key(category_slug: str) -> str:
+        return f"{CACHE_PREFIX}:v{DynamicFiltersService._cache_version()}:{category_slug}"
+
+    @staticmethod
+    def _enabled_filters_for_category(category):
+        category_type = FilterHelpers.get_category_type_from_category(category)
+        category_config = CATEGORY_TYPE_FILTER_CONFIGS.get(
+            category_type,
+            DEFAULT_FILTER_CONFIG,
+        )
+        return category_config.get("enabled_filters", [])
     
     @staticmethod
     def get_category_filters(category_slug: str, use_cache: bool = True, 
@@ -37,7 +57,7 @@ class DynamicFiltersService:
             dict: Filters response with categorySlug, categoryName, productCount, variants (optional), filters
             None: If category not found
         """
-        cache_key = f'{CACHE_PREFIX}:{category_slug}'
+        cache_key = DynamicFiltersService._cache_key(category_slug)
         
         # Try to get from cache (cache always stores full data)
         if use_cache:
@@ -78,8 +98,14 @@ class DynamicFiltersService:
         else:
             # Normal flow: extract filters and variants for categories <= 1000 products
             # Extract variants with pre-computed brand data
+            enabled_filters = DynamicFiltersService._enabled_filters_for_category(category)
             brand_ids_list, brands_dict = FilterHelpers.get_brand_data(queryset)
-            variants = FilterExtractors.extract_variants(queryset, brand_ids_list, brands_dict)
+            variants = FilterExtractors.extract_variants(
+                queryset,
+                brand_ids_list,
+                brands_dict,
+                enabled_filters=enabled_filters,
+            )
             
             # Pre-compute price range counts if price ranges exist
             if variants.get('priceRanges'):
@@ -142,7 +168,14 @@ class DynamicFiltersService:
     
     @staticmethod
     def invalidate_cache(category_slug: str = None):
-        """Invalidate cache for dynamic filters"""
+        """Invalidate cache for dynamic filters (one category or all)."""
         if category_slug:
-            cache_key = f'{CACHE_PREFIX}:{category_slug}'
-            cache.delete(cache_key)
+            cache.delete(DynamicFiltersService._cache_key(category_slug))
+            return
+        DynamicFiltersService.invalidate_all_cache()
+
+    @staticmethod
+    def invalidate_all_cache():
+        """Bump cache version so all facet snapshots are refreshed."""
+        version = DynamicFiltersService._cache_version()
+        cache.set(DynamicFiltersService.CACHE_VERSION_KEY, version + 1, timeout=None)

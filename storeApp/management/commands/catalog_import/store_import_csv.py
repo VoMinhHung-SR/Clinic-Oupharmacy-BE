@@ -171,6 +171,12 @@ class Command(BaseCommand):
 
         self._print_summary(total_stats, dry_run, no_batches)
 
+        if not dry_run:
+            from storeApp.services.dynamic_filters_service import DynamicFiltersService
+
+            DynamicFiltersService.invalidate_all_cache()
+            self.stdout.write("♻️  Dynamic filter cache invalidated.")
+
     @staticmethod
     def _empty_stats() -> dict:
         return {
