@@ -59,3 +59,13 @@ Docker / DB: tuỳ `docker-compose`; **không** `docker-compose down -v` khi ch�
 
 - Plan feat: `Clinic-Oupharmacy-BE/.cursor/plans/` — tên file `**[UnDone]` / `[Done]`** (xem `PersonalProject/.cursor/rules/planning-project-plans-folder.mdc`).
 
+## Store search & facets (storeApp)
+
+| Doc | Nội dung |
+|-----|----------|
+| `storeApp/guidelines/search-faceted-api.md` | SoT API `/search/`, query params, facet semantics |
+| `storeApp/guidelines/search-facets-migration-2026-07-10.md` | Breaking: xóa `/dynamic-filters/`, rebuild checklist |
+| `storeApp/services/search_facets_service.py` | Facet SQL + versioned cache |
+
+Sau đổi `views.py` / `urls.py` store: `docker compose build backend && docker compose up -d backend`.
+

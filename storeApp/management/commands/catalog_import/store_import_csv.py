@@ -172,10 +172,10 @@ class Command(BaseCommand):
         self._print_summary(total_stats, dry_run, no_batches)
 
         if not dry_run:
-            from storeApp.services.dynamic_filters_service import DynamicFiltersService
+            from storeApp.services.search_facets_service import SearchFacetsService
 
-            DynamicFiltersService.invalidate_all_cache()
-            self.stdout.write("♻️  Dynamic filter cache invalidated.")
+            SearchFacetsService.invalidate_all_cache()
+            self.stdout.write("♻️  Search facet cache invalidated.")
 
     @staticmethod
     def _empty_stats() -> dict:

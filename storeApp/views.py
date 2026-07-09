@@ -25,8 +25,9 @@ from storeApp.filters import ProductFilter
 from storeApp.viewsets.product import ProductPagination, annotate_variant_unit_price
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
+from storeApp.services.catalog_constants import LARGE_CATEGORY_THRESHOLD
 from storeApp.services.filter_helpers import FilterHelpers
-from storeApp.services.filter_constants import LARGE_CATEGORY_THRESHOLD
+from storeApp.services.search_facets_service import SearchFacetsService
 from storeApp.services.store_path_resolver import resolve_store_path
 from storeApp.models import Notification
 from storeApp.serializers import ContactSupportRequestSerializer
@@ -79,80 +80,6 @@ def _apply_price_range_filter(queryset, price_range):
     return queryset
 
 
-def _build_scalar_facets(queryset):
-    price_q = {
-        "under_100k": Q(price_value__lt=100000),
-        "100k_300k": Q(price_value__gte=100000, price_value__lt=300000),
-        "300k_500k": Q(price_value__gte=300000, price_value__lt=500000),
-        "over_500k": Q(price_value__gte=500000),
-    }
-    aggregated = queryset.aggregate(
-        under_100k=Count("id", filter=price_q["under_100k"]),
-        range_100k_300k=Count("id", filter=price_q["100k_300k"]),
-        range_300k_500k=Count("id", filter=price_q["300k_500k"]),
-        over_500k=Count("id", filter=price_q["over_500k"]),
-        in_stock_count=Count("id", filter=Q(in_stock__gt=0)),
-        out_of_stock_count=Count("id", filter=Q(in_stock__lte=0)),
-    )
-    return {
-        "price_ranges": [
-            {"key": "under_100k", "count": aggregated["under_100k"]},
-            {"key": "100k_300k", "count": aggregated["range_100k_300k"]},
-            {"key": "300k_500k", "count": aggregated["range_300k_500k"]},
-            {"key": "over_500k", "count": aggregated["over_500k"]},
-        ],
-        "in_stock": [
-            {"key": True, "count": aggregated["in_stock_count"]},
-            {"key": False, "count": aggregated["out_of_stock_count"]},
-        ],
-    }
-
-
-def _build_facets(queryset):
-    category_facets = (
-        queryset.values(
-            "product__categories__id",
-            "product__categories__name",
-            "product__categories__path_slug",
-            "product__categories__slug",
-        )
-        .annotate(count=Count("id", distinct=True))
-        .order_by("-count", "product__categories__name")
-    )
-    brand_facets = (
-        queryset.values("product__brand_id", "product__brand__name")
-        .annotate(count=Count("id"))
-        .order_by("-count", "product__brand__name")
-    )
-
-    scalar_facets = _build_scalar_facets(queryset)
-
-    return {
-        "category": [
-            {
-                "id": item["product__categories__id"],
-                "name": item["product__categories__name"],
-                "slug": item["product__categories__path_slug"]
-                or item["product__categories__slug"],
-                "count": item["count"],
-            }
-            for item in category_facets
-            if item["product__categories__id"] is not None
-        ],
-        "brand": [
-            {
-                "id": item["product__brand_id"],
-                "name": item["product__brand__name"],
-                "count": item["count"],
-            }
-            for item in brand_facets
-            if item["product__brand_id"] is not None
-        ],
-        "price_ranges": scalar_facets["price_ranges"],
-        "in_stock": scalar_facets["in_stock"],
-    }
-
-
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def search_products(request):
@@ -165,19 +92,18 @@ def search_products(request):
     price_range = request.query_params.get("price_range")
     in_stock = _parse_bool(request.query_params.get("in_stock"))
     sort = request.query_params.get("sort", "relevance")
+    include_facets = _parse_bool(request.query_params.get("include_facets"))
+    if include_facets is None:
+        include_facets = True
+    use_facet_cache = _parse_bool(request.query_params.get("use_facet_cache"))
+    if use_facet_cache is None:
+        use_facet_cache = True
 
     queryset = annotate_variant_unit_price(
         ProductVariant.objects.using(STORE_DB_ALIAS)
         .filter(active=True, is_published=True, product__active=True)
         .select_related("product", "product__category", "product__brand"),
         db_alias=STORE_DB_ALIAS,
-    ).prefetch_related(
-        _prefetch_variant_product_categories(),
-        Prefetch(
-            "units",
-            queryset=ProductVariantUnit.objects.using(STORE_DB_ALIAS).filter(is_published=True).order_by("unit_order", "id"),
-            to_attr="prefetched_units",
-        ),
     )
 
     query_normalized = " ".join(raw_query.split())
@@ -241,6 +167,22 @@ def search_products(request):
         "sort": sort,
     }
 
+    facet_params = SearchFacetsService.facet_params_from_request(
+        query_normalized=query_normalized,
+        category=category,
+        brand=brand,
+        price_range=price_range,
+        in_stock=in_stock,
+    )
+    if include_facets:
+        facets = SearchFacetsService.get_facets(
+            queryset,
+            facet_params,
+            use_cache=use_facet_cache,
+        )
+    else:
+        facets = {}
+
     if sort == "price_asc":
         queryset = queryset.order_by("price_value", "-in_stock", "id")
     elif sort == "price_desc":
@@ -250,7 +192,16 @@ def search_products(request):
     else:
         queryset = queryset.order_by("-relevance_score", "-product_ranking", "-in_stock", "id")
 
-    facets = _build_facets(queryset)
+    queryset = queryset.prefetch_related(
+        _prefetch_variant_product_categories(),
+        Prefetch(
+            "units",
+            queryset=ProductVariantUnit.objects.using(STORE_DB_ALIAS)
+            .filter(is_published=True)
+            .order_by("unit_order", "id"),
+            to_attr="prefetched_units",
+        ),
+    )
 
     if sort == "price_asc":
         dedupe_order = [
