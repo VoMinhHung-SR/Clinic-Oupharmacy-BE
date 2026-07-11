@@ -272,7 +272,7 @@ class GuestCartCheckoutTests(APITestCase):
         }
 
     def test_guest_cart_current_without_header_is_forbidden(self):
-        anon = self.client_class()()
+        anon = self.client_class()
         response = anon.get("/api/store/carts/current/")
         self.assertIn(response.status_code, (401, 403))
 

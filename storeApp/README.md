@@ -145,13 +145,13 @@ STORE_DATABASE_URL_PG=postgresql://user:password@localhost:5432/store_db
 3. **Queries**: Luôn chỉ định database khi query cross-database bằng `.using('database_name')`.
 4. **MedicineUnit.brand_id**: Field này lưu ID của Brand trong store database, không có FK constraint.
 
-## Dynamic Filters guideline
+## Search & facets (SoT)
 
-- `storeApp/guidelines/dynamic-filters.md`
+- **Guideline:** [`storeApp/guidelines/search-faceted-api.md`](guidelines/search-faceted-api.md)
+- **Migration 2026-07-10:** [`storeApp/guidelines/search-facets-migration-2026-07-10.md`](guidelines/search-facets-migration-2026-07-10.md) — xóa `dynamic-filters`, gộp facets vào `/search/`
+- **Service:** `storeApp/services/search_facets_service.py`
 
-## Search guideline
-
-- `storeApp/guidelines/search-faceted-api.md`
+Legacy `dynamic-filters` API **đã xóa** — không còn `guidelines/dynamic-filters.md`.
 
 ## Đồng bộ DB store: local → container (data-only + reset sequence)
 

@@ -1,5 +1,8 @@
 # Store Search APIs (v1)
 
+> **Breaking 2026-07-10:** `GET /api/store/dynamic-filters/` đã xóa. Facets chỉ qua `/search/`.  
+> Xem [`search-facets-migration-2026-07-10.md`](search-facets-migration-2026-07-10.md).
+
 Tài liệu này mô tả bộ API search hiện tại cho storefront, gồm analytics keyword, suggest dropdown, và search kết quả đầy đủ có facets.
 
 ## 1) API map
@@ -27,11 +30,18 @@ Tài liệu này mô tả bộ API search hiện tại cho storefront, gồm ana
 
 ### `GET /api/store/search/?q=<keyword>&page=1&page_size=12&...`
 
-- API trang kết quả search chính.
+- API trang kết quả search chính **và** category browse (search-first).
+- Category browse: `q=` (rỗng) + `category=<id>`.
 - Trả:
-  - `items`: danh sách product variants
+  - `items`: danh sách product variants (1 card / product)
   - `facets`: `category`, `brand`, `price_ranges`, `in_stock`
   - `meta`: `total`, `page`, `page_size`, `has_more`, `took_ms`, `applied_filters`
+
+### `GET /api/store/resolve-path/<path>/` (category meta)
+
+Category resolution trả listing meta cho search-first browse:
+
+- `category_id`, `category_name`, `product_count`, `has_subcategories`, `subcategories`, `over_limit`
 
 ## 2) Query params cho `/api/store/search/`
 
@@ -43,8 +53,20 @@ Tài liệu này mô tả bộ API search hiện tại cho storefront, gồm ana
 - `price_range`: `under_100k` | `100k_300k` | `300k_500k` | `over_500k`
 - `in_stock`: `true` | `false`
 - `sort`: `relevance` | `price_asc` | `price_desc` | `popular`
+- `include_facets`: `true` | `false` (default `true`; set `false` for suggest-only item fetch)
+- `use_facet_cache`: `true` | `false` (default `true`; versioned cache via `SearchFacetsService`)
 
-## 3) Ranking (v1)
+## 3) Facet service (P2+)
+
+- SoT: `storeApp/services/search_facets_service.py`
+- Brand counts use **distinct `product_id`** (not variant rows).
+- Category facet buckets skipped when `category=` filter is set (browse sidebar only needs brand/price/stock).
+- Cache key: filter state (`q`, `category`, `brand`, `price_range`, `in_stock`) — not page/sort.
+- Bust all facet snapshots: `SearchFacetsService.invalidate_all_cache()` (hooked on `store_catalog import-csv`).
+
+Legacy `GET /api/store/dynamic-filters/` **removed** — use `/search/` facets only.
+
+## 4) Ranking (v1)
 
 `sort=relevance` dùng thứ tự:
 
@@ -53,15 +75,9 @@ Tài liệu này mô tả bộ API search hiện tại cho storefront, gồm ana
 3. `in_stock`
 4. `id` (đảm bảo stable ordering)
 
-## 4) Facets notes
-
-- Facets được tính trên tập kết quả sau khi áp dụng query + filters hiện tại.
-- `price_ranges` và `in_stock` dùng aggregate count theo bucket.
-- `category` và `brand` trả key + count để FE render filter list.
-
 ## 5) FE integration flow
 
-1. User đang gõ ở search box -> gọi `GET /search/suggest`.
+1. User đang gõ ở search box -> gọi `GET /search/suggest` hoặc `GET /search?include_facets=false` (header dropdown).
 2. User submit search / vào trang kết quả -> gọi `GET /search`.
 3. User click facet/sort/pagination -> gọi lại `GET /search` với params mới.
 4. Sau khi user submit keyword -> gọi `POST /search-terms` để ghi nhận analytics.
@@ -111,4 +127,3 @@ Tài liệu này mô tả bộ API search hiện tại cho storefront, gồm ana
 ## 8) Related guidelines
 
 - Cart-first checkout flow: `storeApp/guidelines/cart-first-checkout.md`
-- Dynamic filters: `storeApp/guidelines/dynamic-filters.md`

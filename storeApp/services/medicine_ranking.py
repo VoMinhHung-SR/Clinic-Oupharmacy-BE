@@ -1,7 +1,7 @@
 from django.db.models import Case, FloatField, F, Value, When
 
 from storeApp.models import ProductVariant
-from storeApp.services.product_category_helpers import category_tree_ids, product_in_categories_exists
+from storeApp.services.product_category_helpers import category_tree_ids, product_in_categories_q
 
 
 def get_top5_medicine_units_for_category(category):
@@ -14,7 +14,7 @@ def get_top5_medicine_units_for_category(category):
     qs = ProductVariant.objects.filter(
         is_published=True,
         in_stock__gt=0,
-    ).filter(product_in_categories_exists(category_ids))
+    ).filter(product_in_categories_q(category_ids))
 
     qs = qs.annotate(
         sold_score=Case(

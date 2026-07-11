@@ -10,7 +10,12 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 from storeApp.models import ProductVariant, ProductVariantUnit, Category, Product, ProductCategory
 from storeApp.serializers import ProductVariantPickerSerializer, ProductVariantSerializer
-from storeApp.services.store_path_resolver import resolve_store_path
+from storeApp.services.product_category_helpers import (
+    filter_variants_by_category_id,
+    category_tree_ids,
+    product_in_categories_q,
+    variant_keyword_q,
+)
 from storeApp.services.variant_listing import (
     annotate_variant_count,
     count_distinct_products,
@@ -20,8 +25,10 @@ from storeApp.filters import ProductFilter
 from storeApp.viewsets.product import ProductPagination, annotate_variant_unit_price
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
+from storeApp.services.catalog_constants import LARGE_CATEGORY_THRESHOLD
 from storeApp.services.filter_helpers import FilterHelpers
-from storeApp.services.filter_constants import LARGE_CATEGORY_THRESHOLD
+from storeApp.services.search_facets_service import SearchFacetsService
+from storeApp.services.store_path_resolver import resolve_store_path
 from storeApp.models import Notification
 from storeApp.serializers import ContactSupportRequestSerializer
 
@@ -73,80 +80,6 @@ def _apply_price_range_filter(queryset, price_range):
     return queryset
 
 
-def _build_scalar_facets(queryset):
-    price_q = {
-        "under_100k": Q(price_value__lt=100000),
-        "100k_300k": Q(price_value__gte=100000, price_value__lt=300000),
-        "300k_500k": Q(price_value__gte=300000, price_value__lt=500000),
-        "over_500k": Q(price_value__gte=500000),
-    }
-    aggregated = queryset.aggregate(
-        under_100k=Count("id", filter=price_q["under_100k"]),
-        range_100k_300k=Count("id", filter=price_q["100k_300k"]),
-        range_300k_500k=Count("id", filter=price_q["300k_500k"]),
-        over_500k=Count("id", filter=price_q["over_500k"]),
-        in_stock_count=Count("id", filter=Q(in_stock__gt=0)),
-        out_of_stock_count=Count("id", filter=Q(in_stock__lte=0)),
-    )
-    return {
-        "price_ranges": [
-            {"key": "under_100k", "count": aggregated["under_100k"]},
-            {"key": "100k_300k", "count": aggregated["range_100k_300k"]},
-            {"key": "300k_500k", "count": aggregated["range_300k_500k"]},
-            {"key": "over_500k", "count": aggregated["over_500k"]},
-        ],
-        "in_stock": [
-            {"key": True, "count": aggregated["in_stock_count"]},
-            {"key": False, "count": aggregated["out_of_stock_count"]},
-        ],
-    }
-
-
-def _build_facets(queryset):
-    category_facets = (
-        queryset.values(
-            "product__categories__id",
-            "product__categories__name",
-            "product__categories__path_slug",
-            "product__categories__slug",
-        )
-        .annotate(count=Count("id", distinct=True))
-        .order_by("-count", "product__categories__name")
-    )
-    brand_facets = (
-        queryset.values("product__brand_id", "product__brand__name")
-        .annotate(count=Count("id"))
-        .order_by("-count", "product__brand__name")
-    )
-
-    scalar_facets = _build_scalar_facets(queryset)
-
-    return {
-        "category": [
-            {
-                "id": item["product__categories__id"],
-                "name": item["product__categories__name"],
-                "slug": item["product__categories__path_slug"]
-                or item["product__categories__slug"],
-                "count": item["count"],
-            }
-            for item in category_facets
-            if item["product__categories__id"] is not None
-        ],
-        "brand": [
-            {
-                "id": item["product__brand_id"],
-                "name": item["product__brand__name"],
-                "count": item["count"],
-            }
-            for item in brand_facets
-            if item["product__brand_id"] is not None
-        ],
-        "price_ranges": scalar_facets["price_ranges"],
-        "in_stock": scalar_facets["in_stock"],
-    }
-
-
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def search_products(request):
@@ -159,19 +92,18 @@ def search_products(request):
     price_range = request.query_params.get("price_range")
     in_stock = _parse_bool(request.query_params.get("in_stock"))
     sort = request.query_params.get("sort", "relevance")
+    include_facets = _parse_bool(request.query_params.get("include_facets"))
+    if include_facets is None:
+        include_facets = True
+    use_facet_cache = _parse_bool(request.query_params.get("use_facet_cache"))
+    if use_facet_cache is None:
+        use_facet_cache = True
 
     queryset = annotate_variant_unit_price(
         ProductVariant.objects.using(STORE_DB_ALIAS)
         .filter(active=True, is_published=True, product__active=True)
         .select_related("product", "product__category", "product__brand"),
         db_alias=STORE_DB_ALIAS,
-    ).prefetch_related(
-        _prefetch_variant_product_categories(),
-        Prefetch(
-            "units",
-            queryset=ProductVariantUnit.objects.using(STORE_DB_ALIAS).filter(is_published=True).order_by("unit_order", "id"),
-            to_attr="prefetched_units",
-        ),
     )
 
     query_normalized = " ".join(raw_query.split())
@@ -182,15 +114,24 @@ def search_products(request):
             web_name_lookup=Lower("product__web_name"),
             category_name_lookup=Lower("product__category__name"),
             brand_name_lookup=Lower("product__brand__name"),
+            sku_lookup=Lower("sku"),
+            mid_lookup=Lower("product__mid"),
+            ingredients_lookup=Lower("product__ingredients"),
             relevance_score=Case(
+                When(sku_lookup=query_lookup, then=Value(110)),
+                When(mid_lookup=query_lookup, then=Value(108)),
                 When(product_name_lookup=query_lookup, then=Value(100)),
                 When(web_name_lookup=query_lookup, then=Value(95)),
+                When(sku_lookup__startswith=query_lookup, then=Value(88)),
                 When(product_name_lookup__startswith=query_lookup, then=Value(80)),
                 When(web_name_lookup__startswith=query_lookup, then=Value(75)),
                 When(product_name_lookup__contains=query_lookup, then=Value(60)),
                 When(web_name_lookup__contains=query_lookup, then=Value(55)),
+                When(sku_lookup__contains=query_lookup, then=Value(50)),
+                When(mid_lookup__contains=query_lookup, then=Value(48)),
                 When(category_name_lookup__contains=query_lookup, then=Value(35)),
                 When(brand_name_lookup__contains=query_lookup, then=Value(30)),
+                When(ingredients_lookup__contains=query_lookup, then=Value(20)),
                 default=Value(0),
                 output_field=IntegerField(),
             ),
@@ -199,19 +140,16 @@ def search_products(request):
             | Q(web_name_lookup__contains=query_lookup)
             | Q(category_name_lookup__contains=query_lookup)
             | Q(brand_name_lookup__contains=query_lookup)
-        )
+            | Q(sku_lookup__contains=query_lookup)
+            | Q(mid_lookup__contains=query_lookup)
+            | Q(ingredients_lookup__contains=query_lookup)
+            | Q(product__product_categories__category__name__icontains=query_normalized)
+        ).distinct()
     else:
         queryset = queryset.annotate(relevance_score=Value(0, output_field=IntegerField()))
 
     if category:
-        queryset = queryset.filter(
-            Exists(
-                ProductCategory.objects.using(STORE_DB_ALIAS).filter(
-                    product_id=OuterRef("product_id"),
-                    category_id=category,
-                )
-            )
-        )
+        queryset = filter_variants_by_category_id(queryset, category, using=STORE_DB_ALIAS)
     if brand:
         queryset = queryset.filter(product__brand_id=brand)
     if in_stock is True:
@@ -229,6 +167,22 @@ def search_products(request):
         "sort": sort,
     }
 
+    facet_params = SearchFacetsService.facet_params_from_request(
+        query_normalized=query_normalized,
+        category=category,
+        brand=brand,
+        price_range=price_range,
+        in_stock=in_stock,
+    )
+    if include_facets:
+        facets = SearchFacetsService.get_facets(
+            queryset,
+            facet_params,
+            use_cache=use_facet_cache,
+        )
+    else:
+        facets = {}
+
     if sort == "price_asc":
         queryset = queryset.order_by("price_value", "-in_stock", "id")
     elif sort == "price_desc":
@@ -238,7 +192,16 @@ def search_products(request):
     else:
         queryset = queryset.order_by("-relevance_score", "-product_ranking", "-in_stock", "id")
 
-    facets = _build_facets(queryset)
+    queryset = queryset.prefetch_related(
+        _prefetch_variant_product_categories(),
+        Prefetch(
+            "units",
+            queryset=ProductVariantUnit.objects.using(STORE_DB_ALIAS)
+            .filter(is_published=True)
+            .order_by("unit_order", "id"),
+            to_attr="prefetched_units",
+        ),
+    )
 
     if sort == "price_asc":
         dedupe_order = [
@@ -320,22 +283,11 @@ def products_by_category_slug(request, category_slug):
             ).first()
             
             if category:
-                url_path = (category.path_slug or category.slug or "").strip()
-                prefix = f"{url_path}/" if url_path else None
-                m2m_match = models.Q(category_id=category.id)
-                if prefix:
-                    m2m_match |= models.Q(category__path_slug__istartswith=prefix)
-
+                category_ids = category_tree_ids(category, using=STORE_DB_ALIAS)
                 variant_qs = (
                     ProductVariant.objects.using(STORE_DB_ALIAS)
                     .filter(active=True, product=product)
-                    .filter(
-                        Exists(
-                            ProductCategory.objects.using(STORE_DB_ALIAS)
-                            .filter(product_id=OuterRef("product_id"))
-                            .filter(m2m_match)
-                        )
-                    )
+                    .filter(product_in_categories_q(category_ids, using=STORE_DB_ALIAS))
                     .select_related("product", "product__category")
                     .prefetch_related(_prefetch_variant_product_categories())
                 )
@@ -401,30 +353,13 @@ def products_by_category_slug(request, category_slug):
         
         category_path_slug = category.path_slug or category.slug
         
-        # Get all subcategory IDs (including nested) for product filtering
-        # Use set for efficient duplicate handling
-        category_ids = {category.id}
-        subcategory_ids = Category.objects.using(STORE_DB_ALIAS).filter(
+        base_qs = ProductVariant.objects.using(STORE_DB_ALIAS).filter(
             active=True,
-            path_slug__istartswith=f"{category_path_slug}/"
-        ).values_list('id', flat=True)
-        category_ids.update(subcategory_ids)
-
-        in_category_tree = Exists(
-            ProductCategory.objects.using(STORE_DB_ALIAS).filter(
-                product_id=OuterRef("product_id"),
-                category_id__in=list(category_ids),
-            )
+            is_published=True,
+            product__active=True,
         )
-
         queryset = annotate_variant_unit_price(
-            ProductVariant.objects.using(STORE_DB_ALIAS)
-            .filter(
-                active=True,
-                is_published=True,
-                product__active=True,
-            )
-            .filter(in_category_tree)
+            filter_variants_by_category_id(base_qs, category.id, using=STORE_DB_ALIAS)
             .select_related("product", "product__category", "product__brand")
             .prefetch_related(
                 _prefetch_variant_product_categories(),
@@ -532,10 +467,44 @@ def products_by_category_slug(request, category_slug):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def resolve_store_path_view(request, path_slug):
-    """Resolve nested store path → category listing or product detail."""
+    """
+    Resolve nested store path → category listing or product detail.
+
+    Category pages also return listing meta (id, name, subcategories, over_limit)
+    so storefront can browse via GET /search/?category= without a second listing GET.
+    """
     resolved = resolve_store_path(path_slug, using=STORE_DB_ALIAS)
     if resolved.get("page") == "not_found":
         return Response(resolved, status=status.HTTP_404_NOT_FOUND)
+
+    if resolved.get("page") == "category":
+        category_path = (resolved.get("category_path") or "").strip()
+        category = (
+            Category.objects.using(STORE_DB_ALIAS)
+            .filter(active=True)
+            .filter(models.Q(path_slug__iexact=category_path) | models.Q(slug__iexact=category_path))
+            .first()
+        )
+        if category:
+            base_qs = ProductVariant.objects.using(STORE_DB_ALIAS).filter(
+                active=True,
+                is_published=True,
+                product__active=True,
+            )
+            queryset = filter_variants_by_category_id(base_qs, category.id, using=STORE_DB_ALIAS)
+            product_count = count_distinct_products(queryset)
+            immediate_subcategories = FilterHelpers.get_immediate_subcategories(category)
+            resolved.update(
+                {
+                    "category_id": category.id,
+                    "category_name": category.path or category.name,
+                    "product_count": product_count,
+                    "has_subcategories": bool(immediate_subcategories),
+                    "subcategories": immediate_subcategories,
+                    "over_limit": product_count > LARGE_CATEGORY_THRESHOLD,
+                }
+            )
+
     return Response(resolved)
 
 

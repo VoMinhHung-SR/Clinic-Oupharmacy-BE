@@ -405,7 +405,7 @@ class ProductVariantSerializer(ModelSerializer):
     class Meta:
         model = ProductVariant
         fields = [
-            'id', 'in_stock', 'image', 'image_url', 'images', "packing",
+            'id', 'sku', 'in_stock', 'image', 'image_url', 'images', "packing",
             'price_display', 'price_value', 'compare_at_price', 'discount_percent',
             'default_unit_id', 'default_unit_name', 'unit_options',
             'product_ranking', 'is_published', 'is_hot',
@@ -686,13 +686,13 @@ class CategoryLevel1Serializer(ModelSerializer):
         """
         from storeApp.services.product_category_helpers import (
             category_tree_ids,
-            product_in_categories_exists,
+            product_in_categories_q,
         )
 
         category_ids = category_tree_ids(obj)
         qs = (
             ProductVariant.objects.filter(is_published=True)
-            .filter(product_in_categories_exists(category_ids))
+            .filter(product_in_categories_q(category_ids))
             .select_related("product", "product__category")
             .prefetch_related("product__product_categories__category")
             .order_by("-product_ranking", "-is_hot", "-id")

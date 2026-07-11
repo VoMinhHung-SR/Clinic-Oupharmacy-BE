@@ -4,6 +4,7 @@
 __pycache__/
 local_settings.py
 db.sqlite3
+.test_databases/
 media
 
 config/firebase.json
@@ -12,6 +13,7 @@ config/firebase.json
 .env
 .env.production
 .venv
+.venv-ci/
 env/
 venv/
 ENV/
@@ -37,3 +39,4 @@ tests/manual/artifacts/
 tests/manual/**/*.log
 tests/manual/**/*.out
 tests/manual/**/*.tmp
+.gitnexus

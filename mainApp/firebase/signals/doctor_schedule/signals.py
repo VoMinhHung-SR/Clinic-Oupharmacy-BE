@@ -6,8 +6,6 @@ from django.conf import settings
 from OUPharmacyManagementApp.firebase_config import get_firestore
 from mainApp.models import DoctorSchedule, TimeSlot, Examination, Patient, Bill
 
-db = get_firestore()
-
 def get_collection_name():
     """Get the appropriate collection name based on environment"""
     env = os.getenv('ENVIRONMENT', 'dev').lower()  # Default to 'dev' if not set
@@ -20,6 +18,10 @@ def get_collection_name():
 
 def sync_schedules_by_date(date):
     """Sync all doctor schedules for a specific date to Firebase"""
+    db = get_firestore()
+    if db is None:
+        return
+
     try:
         # Get all schedules for this date
         schedules = DoctorSchedule.objects.filter(date=date)
@@ -156,6 +158,10 @@ def delete_examination_from_firebase(sender, instance, **kwargs):
     try:
         if instance.time_slot and instance.time_slot.schedule:
             # Get the current document
+            db = get_firestore()
+            if db is None:
+                return
+
             collection_name = get_collection_name()
             date = instance.time_slot.schedule.date
             doc_ref = db.collection(collection_name).document(date.isoformat())
