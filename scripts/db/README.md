@@ -291,3 +291,38 @@ chmod +x scripts/db/*.sh
 
 5. **Backup files được tự động compress để tiết kiệm dung lượng**
 
+---
+
+## Staging / prod — store checkout schema align (`p4` runbook)
+
+Medicine→storeApp dual-DB đã ship. Staging dump đôi khi còn legacy cột `medicine_unit_id` trên `store_order_item` / `store_medicine_batch` → guest checkout 500.
+
+**Chỉ alias `store` — không đụng default/mainApp / prescribing.**
+
+### Dry-run (bắt buộc trước prod)
+
+```bash
+# trong container backend (hoặc venv local trỏ DB store)
+python manage.py align_store_checkout_schema --dry-run
+```
+
+### Apply (sau backup)
+
+```bash
+./scripts/db/backup.sh --docker
+python manage.py align_store_checkout_schema
+python manage.py reset_store_sequences --database=store
+```
+
+### Verify
+
+- Guest (hoặc auth) checkout → HTTP 201
+- `audit_product_categories` sạch (nếu vừa restore dump)
+- Không chạy lệnh này trên DB chỉ có schema đã align (command no-op / success message)
+
+### Không làm trong lệnh này
+
+- DROP `medicine_unit_id`
+- Migrate / rewrite `mainApp_prescriptiondetail`
+- `docker compose down -v` / wipe volume
+

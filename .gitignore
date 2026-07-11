@@ -39,3 +39,4 @@ tests/manual/artifacts/
 tests/manual/**/*.log
 tests/manual/**/*.out
 tests/manual/**/*.tmp
+.gitnexus
