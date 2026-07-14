@@ -170,6 +170,14 @@ class TimeSlot(models.Model):
     end_time = models.TimeField()
     is_available = models.BooleanField(default=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["schedule", "start_time", "end_time"],
+                name="uniq_timeslot_schedule_start_end",
+            ),
+        ]
+
     def __str__(self):
         return f"{self.schedule} ({self.start_time} - {self.end_time})"
 

@@ -1,3 +1,4 @@
+# Cap active exams whose appointment day is DoctorSchedule.date (not Examination.created_date).
 MAX_EXAMINATION_PER_DAY = 30
 SERVICE_FEE_PER_PRESCRIBING = 20000
 
