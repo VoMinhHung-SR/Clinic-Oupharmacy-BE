@@ -2,7 +2,7 @@ import datetime
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from rest_framework import viewsets, generics, status
 from rest_framework.response import Response
-from mainApp.models import DoctorSchedule, TimeSlot, User
+from mainApp.models import DoctorSchedule, TimeSlot, User, Examination
 from mainApp.serializers import DoctorScheduleSerializer
 from mainApp.serializers import TimeSlotSerializer
 from rest_framework.parsers import JSONParser, MultiPartParser
@@ -61,6 +61,13 @@ class DoctorScheduleViewSet(viewsets.ViewSet, generics.CreateAPIView,
                     session = session_info.get('session')
                     is_off = session_info.get('is_off', False)
                     if is_off:
+                        continue
+
+                    if DoctorSchedule.objects.filter(
+                        doctor_id=doctor_id,
+                        date=current_date,
+                        session=session,
+                    ).exists():
                         continue
 
                     DoctorSchedule.objects.create(
@@ -200,6 +207,25 @@ class DoctorScheduleViewSet(viewsets.ViewSet, generics.CreateAPIView,
             # Parse week string to get date range
             week_start = datetime.datetime.strptime(week_str + '-1', '%G-W%V-%u').date()
             week_end = week_start + datetime.timedelta(days=6)
+
+            # P2 / S0: never wipe schedules that still have patient bookings (CASCADE).
+            booked_count = Examination.objects.filter(
+                active=True,
+                time_slot__schedule__doctor_id=doctor_id,
+                time_slot__schedule__date__range=[week_start, week_end],
+            ).count()
+            if booked_count > 0:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "errMsg": (
+                            "Cannot update weekly schedule while this week has booked examinations. "
+                            "Cancel or reassign bookings first."
+                        ),
+                        "errCode": "HAS_BOOKINGS",
+                        "bookedCount": booked_count,
+                    },
+                )
 
             # Xóa tất cả lịch cũ trong tuần được chọn
             DoctorSchedule.objects.filter(
