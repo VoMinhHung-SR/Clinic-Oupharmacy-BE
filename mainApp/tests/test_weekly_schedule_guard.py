@@ -82,7 +82,8 @@ class WeeklyScheduleGuardTests(TestCase):
             format="json",
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertFalse(DoctorSchedule.objects.filter(pk=schedule_id).exists())
+        # Diff keeps existing open session (no wipe/recreate).
+        self.assertTrue(DoctorSchedule.objects.filter(pk=schedule_id).exists())
         self.assertTrue(
             DoctorSchedule.objects.filter(
                 doctor=self.doctor,
