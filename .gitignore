@@ -40,3 +40,7 @@ tests/manual/**/*.log
 tests/manual/**/*.out
 tests/manual/**/*.tmp
 .gitnexus
+
+# GitNexus / Claude local agent artifacts
+.claude/
+CLAUDE.md

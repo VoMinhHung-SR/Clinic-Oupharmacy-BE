@@ -1,6 +1,7 @@
 import datetime
 import math
 import pytz
+from django.db import transaction
 from django.utils import timezone
 
 from rest_framework import viewsets, generics, status, filters, permissions
@@ -31,42 +32,104 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
 
     def create(self, request):
         user = request.user
-        if user:
-            try:
-                patient = Patient.objects.get(pk=request.data.get('patient'))
-                description = request.data.get('description')
-                created_date = request.data.get('created_date')
-                time_slot = TimeSlot.objects.get(pk=request.data.get('time_slot'))
-            except:
-                return Response(status=status.HTTP_400_BAD_REQUEST)
-
-            if patient:
-                current_day = timezone.now()
-                max_examinations = MAX_EXAMINATION_PER_DAY
-                today_utc = current_day.replace(hour=0, minute=0, second=0).astimezone(pytz.utc)
-                tomorrow_utc = current_day.replace(hour=23, minute=59, second=59).astimezone(pytz.utc)
-
-                if Examination.objects.filter(created_date__range=(today_utc, tomorrow_utc)).count() > max_examinations:
-                    return Response(data={"errMsg": "Maximum number of examinations reached"},
-                                    status=status.HTTP_400_BAD_REQUEST)
-                try:
-                    e = Examination.objects.create(description=description, patient=patient,
-                                                   user=user, time_slot=time_slot)
-                    if created_date:
-                        e.created_date = created_date
-                    e.save()
-                    return Response(ExaminationSerializer(e, context={'request': request}).data,
-                                    status=status.HTTP_201_CREATED)
-                except:
-                    return Response(data={"errMsg": "Error occurred while creating examination"},
-                                    status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            else:
-                return Response(data={"errMgs": "Patient doesn't exist"},
-                                status=status.HTTP_400_BAD_REQUEST)
-        else:
-            return Response(data={"errMgs": "User not found"},
+        if not user or not getattr(user, "is_authenticated", False):
+            return Response(data={"errMsg": "User not found"},
                             status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            patient = Patient.objects.get(pk=request.data.get('patient'))
+            description = request.data.get('description')
+            created_date = request.data.get('created_date')
+            time_slot_id = request.data.get('time_slot')
+        except Patient.DoesNotExist:
+            return Response(data={"errMsg": "Patient doesn't exist"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        if not description:
+            return Response(data={"errMsg": "Description is required"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not time_slot_id:
+            return Response(data={"errMsg": "time_slot is required"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+                time_slot = (
+                    TimeSlot.objects.select_for_update()
+                    .select_related("schedule")
+                    .get(pk=time_slot_id)
+                )
+                schedule = time_slot.schedule
+
+                if schedule.is_off:
+                    return Response(
+                        data={"errMsg": "Doctor is off for this session"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                slot_start = timezone.make_aware(
+                    datetime.datetime.combine(schedule.date, time_slot.start_time),
+                    timezone.get_current_timezone(),
+                )
+                if slot_start < timezone.now():
+                    return Response(
+                        data={"errMsg": "Cannot book a past time slot"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                if Examination.objects.filter(time_slot=time_slot, active=True).exists():
+                    return Response(
+                        data={"errMsg": "Time slot already booked"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                day_count = Examination.objects.filter(
+                    active=True,
+                    time_slot__schedule__date=schedule.date,
+                ).count()
+                if day_count >= MAX_EXAMINATION_PER_DAY:
+                    return Response(
+                        data={"errMsg": "Maximum number of examinations reached for this appointment date"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                e = Examination.objects.create(
+                    description=description,
+                    patient=patient,
+                    user=user,
+                    time_slot=time_slot,
+                )
+                if created_date:
+                    e.created_date = created_date
+                    e.save()
+                return Response(
+                    ExaminationSerializer(e, context={'request': request}).data,
+                    status=status.HTTP_201_CREATED,
+                )
+        except TimeSlot.DoesNotExist:
+            return Response(
+                data={"errMsg": "Time slot not found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception:
+            return Response(
+                data={"errMsg": "Error occurred while creating examination"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete examination and free the hour (orphan TimeSlot) so FE radios reopen."""
+        instance = self.get_object()
+        time_slot = instance.time_slot
+        with transaction.atomic():
+            instance.delete()
+            if time_slot is not None:
+                still_linked = Examination.objects.filter(time_slot_id=time_slot.pk).exists()
+                if not still_linked:
+                    time_slot.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def patch(self, request, pk=None):
         user = request.user
