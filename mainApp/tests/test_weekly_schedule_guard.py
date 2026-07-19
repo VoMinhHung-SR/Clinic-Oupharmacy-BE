@@ -28,10 +28,14 @@ class WeeklyScheduleGuardTests(TestCase):
         )
         self.client.force_authenticate(user=self.doctor)
 
-        # ISO week in the future so dates are stable for the payload
-        self.appt_date = timezone.localdate() + datetime.timedelta(days=14)
-        self.week_str = self.appt_date.strftime("%G-W%V")
-        self.week_start = datetime.datetime.strptime(self.week_str + "-1", "%G-W%V-%u").date()
+        # Clinic frame is Mon–Sat only; snap to Wednesday of a future ISO week
+        # so Sunday (localdate()+14 when today is Sunday) never breaks the payload.
+        anchor = timezone.localdate() + datetime.timedelta(days=14)
+        self.week_str = anchor.strftime("%G-W%V")
+        self.week_start = datetime.datetime.strptime(
+            self.week_str + "-1", "%G-W%V-%u"
+        ).date()
+        self.appt_date = self.week_start + datetime.timedelta(days=2)
 
         self.schedule = DoctorSchedule.objects.create(
             doctor=self.doctor,
