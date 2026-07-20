@@ -255,7 +255,11 @@ class ExaminationSerializer(ModelSerializer):
     patient = PatientSerializer(read_only=True)
     user = UserSerializer()
     schedule_appointment = serializers.SerializerMethodField(source="time_slot")
-    diagnosis_info = DiagnosisStatusSerializer(many=True, read_only=True, source='diagnosis_set')
+    diagnosis_info = serializers.SerializerMethodField()
+
+    def get_diagnosis_info(self, obj):
+        qs = obj.diagnosis_set.filter(active=True)
+        return DiagnosisStatusSerializer(qs, many=True).data
 
     def get_schedule_appointment(self, obj):
         if obj.time_slot:
@@ -283,13 +287,14 @@ class ExaminationSerializer(ModelSerializer):
     class Meta:
         model = Examination
         fields = ["id", "created_date", "updated_date", "description", 'mail_status',
-                  'time_slot', 'user', 'patient', 'patient_id', 'wage',
+                  'status', 'time_slot', 'user', 'patient', 'patient_id', 'wage',
                   'reminder_email', 'schedule_appointment', 'diagnosis_info']
         exclude = []
         extra_kwargs = {
             'schedule_appointment': {'read_only': 'true'},
             'time_slot': {'write_only': 'true'},
             'description': {'required': False, 'allow_blank': True},
+            'status': {'read_only': True},
         }
 
 class UserNormalSerializer(ModelSerializer):
@@ -324,22 +329,29 @@ class PrescribingSerializer(ModelSerializer):
         exclude = []
 
     def get_bill_status(self, obj):
-        # Assuming 'bill' is the ForeignKey relation from Prescribing to Bill
-        bill_instance = obj.bill_set.first()
+        bill_instance = obj.bill_set.filter(active=True).order_by('-id').first()
         if bill_instance:
-            return {'id': bill_instance.id, 'amount': bill_instance.amount}
+            return {
+                'id': bill_instance.id,
+                'amount': bill_instance.amount,
+                'status': bill_instance.status,
+            }
         return None
+
 
 class DiagnosisSerializer(ModelSerializer):
     examination = ExaminationSerializer()
     user = UserNormalSerializer()
     patient = PatientSerializer()
-    prescribing_info = PrescribingSerializer(many=True, read_only=True, source='prescribing_set')
+    prescribing_info = serializers.SerializerMethodField()
+
+    def get_prescribing_info(self, obj):
+        qs = obj.prescribing_set.filter(active=True)
+        return PrescribingSerializer(qs, many=True, context=self.context).data
 
     class Meta:
         model = Diagnosis
         exclude = []
-
 class DiagnosisCRUDSerializer(ModelSerializer):
     class Meta:
         model = Diagnosis
@@ -475,7 +487,7 @@ class PrescriptionDetailSerializer(ModelSerializer):
 class BillSerializer(ModelSerializer):
     class Meta:
         model = Bill
-        fields = ["id", "amount", "prescribing"]
+        fields = ["id", "amount", "prescribing", "status", "paid_at"]
 
 class ExaminationsPairSerializer(ModelSerializer):
     user = UserNormalSerializer()

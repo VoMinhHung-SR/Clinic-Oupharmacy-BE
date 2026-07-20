@@ -17,19 +17,20 @@ class PatientFilter(django_filters.FilterSet):
 
 class ExaminationFilter(django_filters.FilterSet):
     kw = django_filters.CharFilter(field_name="user__email")
-    status = django_filters.BooleanFilter(field_name="mail_status")
-
+    # Was historically named `status` but mapped to mail_status — rename to avoid clash with visit status.
+    mail_status = django_filters.BooleanFilter(field_name="mail_status")
+    visit_status = django_filters.CharFilter(field_name="status")
     has_diagnosis = django_filters.BooleanFilter(method='filter_has_diagnosis')
 
     class Meta:
         model = Examination
-        fields = ('kw', 'status', 'has_diagnosis')
+        fields = ('kw', 'mail_status', 'visit_status', 'has_diagnosis')
 
     def filter_has_diagnosis(self, queryset, name, value):
         if value:
-            return queryset.filter(diagnosis__isnull=False)
-        else:
-            return queryset.filter(diagnosis__isnull=True)
+            return queryset.filter(diagnosis__active=True).distinct()
+        return queryset.exclude(diagnosis__active=True).distinct()
+
 
 class DiagnosisFilter(django_filters.FilterSet):
     has_prescription = django_filters.BooleanFilter(method='filter_has_prescription')
@@ -43,19 +44,19 @@ class DiagnosisFilter(django_filters.FilterSet):
 
     def filter_has_prescription(self, queryset, name, value):
         if value:
-            # Filter for Diagnoses that have associated Prescribing instances
-            return queryset.filter(prescribing__isnull=False).distinct()
-        else:
-            # Filter for Diagnoses that do not have associated Prescribing instances
-            return queryset.filter(prescribing__isnull=True)
+            return queryset.filter(prescribing__active=True).distinct()
+        return queryset.exclude(prescribing__active=True).distinct()
 
     def filter_bill(self, queryset, name, value):
         if value:
-            # Filter for Diagnoses that have associated Bill instances
-            return queryset.filter(prescribing__bill__isnull=False).distinct()
-        else:
-            # Filter for Diagnoses that do not have associated Bill instances
-            return queryset.filter(prescribing__bill__isnull=True)
+            return queryset.filter(
+                prescribing__bill__status=Bill.STATUS_PAID,
+                prescribing__bill__active=True,
+            ).distinct()
+        return queryset.exclude(
+            prescribing__bill__status=Bill.STATUS_PAID,
+            prescribing__bill__active=True,
+        ).distinct()
 
     def filter_patient_name(self, queryset, name, value):
         combined_name = value.strip()  # Remove leading and trailing whitespaces

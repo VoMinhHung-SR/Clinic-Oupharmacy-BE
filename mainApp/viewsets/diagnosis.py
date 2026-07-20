@@ -1,6 +1,7 @@
 from rest_framework import viewsets, generics
 from rest_framework.parsers import JSONParser, MultiPartParser
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db import transaction
 from mainApp.filters import DiagnosisFilter
 from mainApp.models import Diagnosis
 from mainApp.paginator import ExaminationPaginator
@@ -23,7 +24,13 @@ class DiagnosisViewSet(viewsets.ViewSet, generics.ListAPIView, generics.Retrieve
         serializer = DiagnosisCRUDSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        self.perform_create(serializer)
+        examination = serializer.validated_data.get('examination')
+        with transaction.atomic():
+            if examination is not None:
+                # Soft-swap: at most one active diagnosis per examination
+                Diagnosis.objects.filter(examination=examination, active=True).update(active=False)
+            self.perform_create(serializer)
+
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 

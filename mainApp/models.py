@@ -147,6 +147,7 @@ class Patient(BaseModel):
     gender = models.PositiveIntegerField(choices=genders, default=male)
     date_of_birth = models.DateTimeField(null=True)
     address = models.CharField(max_length=255, null=True)
+    allergies = models.TextField(blank=True, default="")
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True)
 
@@ -182,17 +183,39 @@ class TimeSlot(models.Model):
         return f"{self.schedule} ({self.start_time} - {self.end_time})"
 
 class Examination(BaseModel):
+    STATUS_PENDING = "pending"
+    STATUS_CONFIRMED = "confirmed"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_COMPLETED = "completed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_NO_SHOW = "no_show"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "pending"),
+        (STATUS_CONFIRMED, "confirmed"),
+        (STATUS_IN_PROGRESS, "in_progress"),
+        (STATUS_COMPLETED, "completed"),
+        (STATUS_CANCELLED, "cancelled"),
+        (STATUS_NO_SHOW, "no_show"),
+    ]
 
     class Meta:
         # id (3...2...1)
         ordering = ["-id"]
+
     wage = models.FloatField(null=False, default=20000)
     mail_status = models.BooleanField(null=True, default=False)
     reminder_email = models.BooleanField(null=True, default=False)
-    description = models.CharField(max_length=254, null=False, blank=False)
+    description = models.CharField(max_length=254, blank=True, null=False, default="")
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+    )
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, null=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=False)
     time_slot = models.ForeignKey(TimeSlot, on_delete=models.CASCADE, null=True)
+
     def __str__(self):
         return f"{self.patient} - {self.time_slot}"
 
@@ -209,12 +232,28 @@ class Diagnosis(BaseModel):
 
     class Meta:
         verbose_name_plural = "Diagnosis"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["examination"],
+                condition=models.Q(active=True),
+                name="uniq_active_diagnosis_per_examination",
+            ),
+        ]
 
 
 # Phieu ke toa
 class Prescribing(BaseModel):
     diagnosis = models.ForeignKey(Diagnosis, on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["diagnosis"],
+                condition=models.Q(active=True),
+                name="uniq_active_prescribing_per_diagnosis",
+            ),
+        ]
 
 
 class PrescriptionDetail(BaseModel):
@@ -233,9 +272,24 @@ class PrescriptionDetail(BaseModel):
 
 
 class Bill(BaseModel):
+    STATUS_UNPAID = "unpaid"
+    STATUS_PAID = "paid"
+    STATUS_VOID = "void"
+    STATUS_CHOICES = [
+        (STATUS_UNPAID, "unpaid"),
+        (STATUS_PAID, "paid"),
+        (STATUS_VOID, "void"),
+    ]
 
     amount = models.FloatField(null=False)
     prescribing = models.ForeignKey(Prescribing, on_delete=models.SET_NULL, null=True)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_UNPAID,
+        db_index=True,
+    )
+    paid_at = models.DateTimeField(null=True, blank=True)
 
 
 

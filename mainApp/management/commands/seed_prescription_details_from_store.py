@@ -19,6 +19,7 @@ import random
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
 from mainApp.constant import SERVICE_FEE_PER_PRESCRIBING
 from mainApp.models import Bill, PrescriptionDetail, Prescribing
@@ -75,7 +76,12 @@ def _rebuild_bills_for_prescribings(prescribings, stdout):
 
         bill, _ = Bill.objects.update_or_create(
             prescribing=pr,
-            defaults={"amount": total_amount, "active": True},
+            defaults={
+                "amount": total_amount,
+                "active": True,
+                "status": Bill.STATUS_PAID,
+                "paid_at": timezone.now(),
+            },
         )
 
         ref = _reference_datetime_for_bill(pr)

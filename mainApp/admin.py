@@ -133,7 +133,7 @@ class UserAdmin(admin.ModelAdmin):
             )
 
 class PatientAdmin(admin.ModelAdmin):
-    list_display = ['id', 'first_name', 'last_name', 'phone_number', 'email', 'gender']
+    list_display = ['id', 'first_name', 'last_name', 'phone_number', 'email', 'gender', 'allergies']
     list_filter = ['last_name']
 
 class DoctorScheduleAdmin(admin.ModelAdmin):
@@ -165,20 +165,21 @@ class UserAddressAdmin(admin.ModelAdmin):
 
 
 class ExaminationAdmin(admin.ModelAdmin):
-    list_display = ['id', 'description', 'created_date', 'patient', 'time_slot']
-    list_filter = ['patient', 'time_slot']
+    list_display = ['id', 'description', 'status', 'mail_status', 'created_date', 'patient', 'time_slot']
+    list_filter = ['status', 'mail_status', 'patient', 'time_slot']
 
 
 class DiagnosisAdmin(admin.ModelAdmin):
-    list_display = ['id', 'sign', 'diagnosed', 'examination', 'user', 'patient']
+    list_display = ['id', 'sign', 'diagnosed', 'examination', 'user', 'patient', 'active']
 
 
 class BillAdmin(admin.ModelAdmin):
-    list_display = ['id', 'amount', 'prescribing']
+    list_display = ['id', 'amount', 'status', 'paid_at', 'prescribing']
+    list_filter = ['status']
 
 
 class PrescribingAdmin(admin.ModelAdmin):
-    list_display = ['id', 'diagnosis', 'user']
+    list_display = ['id', 'diagnosis', 'user', 'active']
 
 
 class PrescriptionDetailAdmin(admin.ModelAdmin):

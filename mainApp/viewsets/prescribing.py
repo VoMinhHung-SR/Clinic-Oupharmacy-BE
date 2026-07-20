@@ -1,4 +1,5 @@
 from rest_framework import viewsets, generics
+from django.db import transaction
 from mainApp.models import  Prescribing, PrescriptionDetail
 from mainApp.paginator import ExaminationPaginator
 from mainApp.serializers import PrescribingSerializer
@@ -16,12 +17,26 @@ class PrescribingViewSet(viewsets.ViewSet, generics.ListAPIView, generics.Retrie
     serializer_class = PrescribingSerializer
     pagination_class = ExaminationPaginator
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        diagnosis = serializer.validated_data.get('diagnosis')
+        with transaction.atomic():
+            if diagnosis is not None:
+                Prescribing.objects.filter(diagnosis=diagnosis, active=True).update(active=False)
+            self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     @action(methods=['POST'], detail=False, url_path='get-by-diagnosis')
     def get_by_diagnosis(self, request):
         user = request.user
         if user:
             try:
-                prescribing = Prescribing.objects.filter(diagnosis=request.data.get('diagnosis')).all()
+                prescribing = Prescribing.objects.filter(
+                    diagnosis=request.data.get('diagnosis'),
+                    active=True,
+                ).all()
             except:
                 return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             if prescribing:

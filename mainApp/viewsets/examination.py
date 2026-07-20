@@ -97,6 +97,7 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
                     patient=patient,
                     user=user,
                     time_slot=time_slot,
+                    status=Examination.STATUS_PENDING,
                 )
                 if created_date:
                     e.created_date = created_date
@@ -211,6 +212,8 @@ OUPharmacy xin chúc bạn một ngày tốt lành và thật nhiều sức kh�
                 error_msg = 'Email was sent already!!!'
         if not error_msg:
             examination.mail_status = True
+            if examination.status == Examination.STATUS_PENDING:
+                examination.status = Examination.STATUS_CONFIRMED
             examination.save()
             return Response(data={
                 'status': 'Send mail successfully',
