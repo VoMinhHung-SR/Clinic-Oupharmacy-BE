@@ -38,7 +38,7 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
 
         try:
             patient = Patient.objects.get(pk=request.data.get('patient'))
-            description = request.data.get('description')
+            description = (request.data.get('description') or "").strip()
             created_date = request.data.get('created_date')
             time_slot_id = request.data.get('time_slot')
         except Patient.DoesNotExist:
@@ -47,9 +47,6 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
         except Exception:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        if not description:
-            return Response(data={"errMsg": "Description is required"},
-                            status=status.HTTP_400_BAD_REQUEST)
         if not time_slot_id:
             return Response(data={"errMsg": "time_slot is required"},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -136,7 +133,6 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
         if user:
             try:
                 patient = Patient.objects.get(pk=request.data.get('patient'))
-                description = request.data.get('description')
                 created_date = request.data.get('created_date')
                 time_slot = TimeSlot.objects.get(pk=request.data.get('time_slot'))
             except:
@@ -147,7 +143,9 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
                     e = self.get_object(pk)
                     if created_date:
                         e.created_date = created_date
-                    e.description = description
+                    # Partial: omit key keeps prior value; blank/None coerces to ""
+                    if 'description' in request.data:
+                        e.description = (request.data.get('description') or "").strip()
                     e.patient = patient
                     e.user = user
                     e.time_slot = time_slot

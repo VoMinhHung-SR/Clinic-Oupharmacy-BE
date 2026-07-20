@@ -204,3 +204,84 @@ class BookingSlotIntegrityTests(TestCase):
             format="json",
         )
         self.assertEqual(recreate_slot.status_code, status.HTTP_201_CREATED)
+
+    def test_create_exam_without_description(self):
+        slot = self._create_slot(start=datetime.time(11, 0), end=datetime.time(12, 0))
+        res = self.client.post(
+            "/examinations/",
+            {
+                "patient": self.patient.id,
+                "time_slot": slot.id,
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data.get("description"), "")
+        self.assertEqual(Examination.objects.get(pk=res.data["id"]).description, "")
+
+    def test_create_exam_empty_description(self):
+        slot = self._create_slot(start=datetime.time(12, 0), end=datetime.time(13, 0))
+        res = self.client.post(
+            "/examinations/",
+            {
+                "patient": self.patient.id,
+                "description": "   ",
+                "time_slot": slot.id,
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data.get("description"), "")
+
+    def test_patch_exam_clear_description(self):
+        slot = self._create_slot(start=datetime.time(14, 0), end=datetime.time(15, 0))
+        create = self.client.post(
+            "/examinations/",
+            {
+                "patient": self.patient.id,
+                "description": "Has note",
+                "time_slot": slot.id,
+            },
+            format="json",
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED)
+        exam_id = create.data["id"]
+
+        patch = self.client.patch(
+            f"/examinations/{exam_id}/",
+            {
+                "patient": self.patient.id,
+                "description": "",
+                "time_slot": slot.id,
+            },
+            format="json",
+        )
+        self.assertEqual(patch.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch.data.get("description"), "")
+        self.assertEqual(Examination.objects.get(pk=exam_id).description, "")
+
+    def test_patch_exam_omit_description_keeps_prior(self):
+        slot = self._create_slot(start=datetime.time(15, 0), end=datetime.time(16, 0))
+        create = self.client.post(
+            "/examinations/",
+            {
+                "patient": self.patient.id,
+                "description": "Keep me",
+                "time_slot": slot.id,
+            },
+            format="json",
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED)
+        exam_id = create.data["id"]
+
+        # API patch always requires patient + time_slot; omit description key only
+        patch = self.client.patch(
+            f"/examinations/{exam_id}/",
+            {
+                "patient": self.patient.id,
+                "time_slot": slot.id,
+            },
+            format="json",
+        )
+        self.assertEqual(patch.status_code, status.HTTP_200_OK)
+        self.assertEqual(Examination.objects.get(pk=exam_id).description, "Keep me")

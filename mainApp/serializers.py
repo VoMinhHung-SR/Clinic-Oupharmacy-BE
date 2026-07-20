@@ -288,7 +288,8 @@ class ExaminationSerializer(ModelSerializer):
         exclude = []
         extra_kwargs = {
             'schedule_appointment': {'read_only': 'true'},
-            'time_slot': {'write_only': 'true'}
+            'time_slot': {'write_only': 'true'},
+            'description': {'required': False, 'allow_blank': True},
         }
 
 class UserNormalSerializer(ModelSerializer):
