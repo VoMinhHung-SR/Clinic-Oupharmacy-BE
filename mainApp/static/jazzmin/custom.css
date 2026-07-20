@@ -1,4 +1,283 @@
-.login-logo{
-    width:0px;
-    height:0px;
+/* OUPharmacy Jazzmin overrides — login / logout / dashboard */
+
+:root {
+  --oup-primary: #1e5f8a;
+  --oup-primary-dark: #154a6c;
+  --oup-accent: #2a9d8f;
+  --oup-surface: #f4f7fb;
+  --oup-card: #ffffff;
+  --oup-text: #1f2937;
+  --oup-muted: #6b7280;
+  --oup-border: #e5e7eb;
+}
+
+/* ---- Login / logout pages ---- */
+body.login,
+body.jazzmin-login-page {
+  background: linear-gradient(145deg, #e8f1f8 0%, #f7fafc 45%, #eef6f4 100%) !important;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Wider than AdminLTE default (~360px) */
+body.jazzmin-login-page .login-box.oup-auth-box,
+body.jazzmin-login-page .oup-auth-box {
+  width: 440px;
+  max-width: calc(100vw - 2rem);
+  margin: 2.5rem auto;
+}
+
+.oup-auth-card.card,
+body.jazzmin-login-page .oup-auth-card {
+  border: 1px solid var(--oup-border) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 12px 40px rgba(30, 95, 138, 0.12) !important;
+  overflow: visible !important;
+  margin-top: 36px; /* room for half logo above card edge */
+}
+
+.oup-auth-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0 1.5rem;
+  text-align: center;
+}
+
+/* Half logo sits above the card top edge */
+.oup-logo-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  margin-top: -36px;
+  border-radius: 16px;
+  background: var(--oup-primary);
+  box-shadow: 0 8px 20px rgba(30, 95, 138, 0.28);
+  position: relative;
+  z-index: 2;
+}
+
+.oup-logo-mark img,
+.oup-auth-brand .oup-logo-mark img {
+  width: 44px !important;
+  height: 44px !important;
+  max-width: 44px;
+  object-fit: contain;
+  margin: 0 !important;
+  display: block;
+}
+
+.oup-auth-title {
+  font-size: 1.45rem !important;
+  font-weight: 700;
+  color: var(--oup-primary);
+  margin: 0.15rem 0 0;
+  line-height: 1.25;
+  position: static !important;
+}
+
+.oup-auth-card > .card-body {
+  padding: 1rem 1.75rem 1.75rem !important;
+}
+
+.oup-logout-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--oup-text);
+  margin-bottom: 0.5rem;
+}
+
+.oup-login-welcome {
+  clear: both;
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+.login-box-msg,
+.login .login-box-msg,
+.oup-login-welcome {
+  color: var(--oup-muted) !important;
+  font-size: 0.95rem;
+  margin-bottom: 1.25rem !important;
+}
+
+body.jazzmin-login-page .btn-primary,
+body.login .btn-primary {
+  background-color: var(--oup-primary) !important;
+  border-color: var(--oup-primary) !important;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+body.jazzmin-login-page .btn-primary:hover,
+body.login .btn-primary:hover {
+  background-color: var(--oup-primary-dark) !important;
+  border-color: var(--oup-primary-dark) !important;
+}
+
+/* Legacy logout helpers (kept harmless) */
+.logout-page,
+body.login .logout-wrap,
+#content-main.logout {
+  max-width: 440px;
+  margin: 4rem auto;
+  text-align: center;
+  padding: 2rem 1.5rem;
+  background: var(--oup-card);
+  border: 1px solid var(--oup-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(30, 95, 138, 0.1);
+}
+
+/* ---- Dashboard chart cards ---- */
+.oup-dash {
+  margin-bottom: 1.5rem;
+}
+
+.oup-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.oup-kpi {
+  background: var(--oup-card);
+  border: 1px solid var(--oup-border);
+  border-radius: 10px;
+  padding: 1rem 1.15rem;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.oup-kpi .label {
+  font-size: 0.8rem;
+  color: var(--oup-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.35rem;
+}
+
+.oup-kpi .value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--oup-text);
+  line-height: 1.2;
+}
+
+.oup-kpi .hint {
+  font-size: 0.75rem;
+  color: var(--oup-muted);
+  margin-top: 0.25rem;
+}
+
+.oup-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.oup-chart-card {
+  background: var(--oup-card);
+  border: 1px solid var(--oup-border);
+  border-radius: 10px;
+  padding: 1rem 1.15rem 1.25rem;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.oup-chart-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--oup-text);
+  margin: 0 0 0.75rem;
+}
+
+.oup-chart-card canvas {
+  width: 100% !important;
+  max-height: 280px;
+}
+
+.oup-chart-wide canvas {
+  max-height: 320px;
+}
+
+.oup-chart-hint {
+  font-size: 0.8rem;
+  color: var(--oup-muted);
+  margin: -0.35rem 0 0.75rem;
+}
+
+.oup-kpi-warn {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.oup-dash-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--oup-primary);
+  margin: 0 0 1rem;
+}
+
+/* Near-expiry panel */
+.oup-expiry-panel {
+  margin-bottom: 1.5rem;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.oup-expiry-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.oup-expiry-table th {
+  white-space: nowrap;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--oup-muted);
+  border-top: 0;
+}
+
+.oup-expiry-table td {
+  vertical-align: middle;
+  font-size: 0.9rem;
+}
+
+.oup-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.oup-badge-expired { background: #fee2e2; color: #991b1b; }
+.oup-badge-urgent { background: #ffedd5; color: #9a3412; }
+.oup-badge-warning { background: #fef3c7; color: #92400e; }
+.oup-badge-watch { background: #e0f2fe; color: #075985; }
+
+.oup-sev-expired { background: rgba(185, 28, 28, 0.04); }
+.oup-sev-urgent { background: rgba(234, 88, 12, 0.04); }
+
+.oup-expiry-help {
+  font-size: 0.8rem;
+  border-top: 1px solid var(--oup-border);
+  background: #fafafa;
+}
+
+.btn-xs {
+  padding: 0.15rem 0.45rem;
+  font-size: 0.75rem;
 }

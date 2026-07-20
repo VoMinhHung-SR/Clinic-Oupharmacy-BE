@@ -1,4 +1,7 @@
 from django.contrib import admin
+from django.utils.html import format_html
+from django.utils import timezone
+from datetime import timedelta
 from .models import (
     Brand,
     ShippingMethod,
@@ -102,16 +105,99 @@ class CategoryAdmin(admin.ModelAdmin):
     search_fields = ['name']
     list_editable = ['active']
 
+class ExpiryHorizonFilter(admin.SimpleListFilter):
+    title = "Expiry risk"
+    parameter_name = "expiry_risk"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("expired", "Expired (still in stock)"),
+            ("urgent", "Urgent (≤7 days)"),
+            ("warning", "Warning (≤30 days)"),
+            ("watch", "Watch (≤90 days)"),
+            ("ok", "OK (>90 days)"),
+        )
+
+    def queryset(self, request, queryset):
+        today = timezone.localdate()
+        value = self.value()
+        stocked = queryset.filter(active=True, remaining_quantity__gt=0)
+        if value == "expired":
+            return stocked.filter(expiry_date__lt=today)
+        if value == "urgent":
+            return stocked.filter(
+                expiry_date__gte=today, expiry_date__lte=today + timedelta(days=7)
+            )
+        if value == "warning":
+            return stocked.filter(
+                expiry_date__gt=today + timedelta(days=7),
+                expiry_date__lte=today + timedelta(days=30),
+            )
+        if value == "watch":
+            return stocked.filter(
+                expiry_date__gt=today + timedelta(days=30),
+                expiry_date__lte=today + timedelta(days=90),
+            )
+        if value == "ok":
+            return stocked.filter(expiry_date__gt=today + timedelta(days=90))
+        return queryset
+
+
 class MedicineBatchAdmin(admin.ModelAdmin):
-    list_display = ['batch_number', 'product_variant', 'import_date', 'expiry_date', 'quantity', 'remaining_quantity', 'is_expired', 'created_date']
-    list_filter = ['import_date', 'expiry_date', 'created_date']
-    search_fields = ['batch_number', 'product_variant__sku', 'product_variant__packing']
-    readonly_fields = ['is_expired', 'days_until_expiry']
-    
-    def is_expired(self, obj):
+    list_display = [
+        "batch_number",
+        "product_variant",
+        "import_date",
+        "expiry_date",
+        "days_left_display",
+        "quantity",
+        "remaining_quantity",
+        "is_expired_display",
+        "active",
+        "created_date",
+    ]
+    list_filter = [ExpiryHorizonFilter, "active", "import_date", "expiry_date", "created_date"]
+    search_fields = [
+        "batch_number",
+        "product_variant__sku",
+        "product_variant__packing",
+        "product_variant__product__name",
+    ]
+    list_editable = ["active", "remaining_quantity"]
+    readonly_fields = ["is_expired_display", "days_left_display"]
+    actions = ["deactivate_batches", "zero_remaining_stock"]
+    ordering = ["expiry_date"]
+    list_per_page = 50
+    date_hierarchy = "expiry_date"
+
+    @admin.display(description="Days left", ordering="expiry_date")
+    def days_left_display(self, obj):
+        days = obj.days_until_expiry
+        if days < 0:
+            color, label = "#b91c1c", f"Expired ({abs(days)}d)"
+        elif days <= 7:
+            color, label = "#c2410c", f"{days}d"
+        elif days <= 30:
+            color, label = "#a16207", f"{days}d"
+        else:
+            color, label = "#15803d", f"{days}d"
+        return format_html(
+            '<span style="font-weight:600;color:{}">{}</span>', color, label
+        )
+
+    @admin.display(description="Expired", boolean=True)
+    def is_expired_display(self, obj):
         return obj.is_expired
-    is_expired.boolean = True
-    is_expired.short_description = 'Hết hạn'
+
+    @admin.action(description="Deactivate selected batches")
+    def deactivate_batches(self, request, queryset):
+        updated = queryset.update(active=False)
+        self.message_user(request, f"Deactivated {updated} batch(es).")
+
+    @admin.action(description="Write off remaining qty (set to 0)")
+    def zero_remaining_stock(self, request, queryset):
+        updated = queryset.update(remaining_quantity=0)
+        self.message_user(request, f"Wrote off remaining stock on {updated} batch(es).")
 
 
 class NotificationAdmin(admin.ModelAdmin):
