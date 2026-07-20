@@ -51,8 +51,16 @@ CORS_ALLOW_HEADERS = (
 )
 
 # Application definition
+# Local admin (Docker): always trust localhost HTTP origins in addition to env list.
 csrf_origins = os.getenv('CSRF_TRUSTED_ORIGINS', '')
-CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins.split(',') if origin.strip()] if csrf_origins else []
+_CSRF_FROM_ENV = [origin.strip() for origin in csrf_origins.split(',') if origin.strip()] if csrf_origins else []
+_CSRF_LOCAL = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([*_CSRF_FROM_ENV, *_CSRF_LOCAL]))
 
 # 'debug_toolbar',
 INSTALLED_APPS = [
