@@ -195,7 +195,7 @@ OUPharmacy xin chúc bạn một ngày tốt lành và thật nhiều sức kh�
                             user.first_name + " " + user.last_name,
                             examination.pk,
                             patient.first_name + " " + patient.last_name,
-                            examination.description,
+                            examination.description or "—",
                             examination.created_date,
                             examination.wage,
                             current_date)
@@ -248,7 +248,7 @@ Bệnh nhân {patient.first_name} {patient.last_name} của bạn có lịch kh�
 Chi tiết lịch đặt khám của bạn:
 (+)  Mã đặt lịch: {examination.pk}
 (+)  Họ tên bệnh nhân: {patient.first_name} {patient.last_name}
-(+)  Mô tả: {examination.description}
+(+)  Mô tả: {examination.description or "—"}
 (+)  Ngày đăng ký: {doctor_availability.day:%d-%m-%Y}
 =====================
 (-)  Phí khám của bạn là: {examination.wage:,.0f} VND

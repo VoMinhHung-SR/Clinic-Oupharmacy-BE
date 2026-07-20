@@ -42,3 +42,17 @@ flowchart LR
 - `storeApp/models/__init__.py` re-export model để giữ tương thích import cũ (`from storeApp.models import ...`).
 
 Cập nhật file này khi thêm app Django mới, đổi mount URL gốc, hoặc tách/hợp store API.
+## Doctor taxonomy — Khoa vs Chuyên khoa (SoT)
+
+| Khái niệm | Model / code | Dùng để |
+|-----------|--------------|---------|
+| **Role** | `UserRole` (`ROLE_DOCTOR`, …) | Auth / permission — **không** = chuyên môn |
+| **Chuyên khoa** | `SpecializationTag` M2M ↔ `DoctorProfile.specializations` | BN filter khi booking; nurse cover cùng chuyên khoa |
+| **Khoa (Department)** | *Chưa có* | Org / roster / báo cáo — chỉ thêm khi có user story HR |
+
+**Rules:**
+
+1. Giữ **M2M** BS ↔ nhiều chuyên khoa (UI booking hiện nhiều tag / card).
+2. Không nhét khoa/chuyên khoa vào Django `Group` hoặc `UserRole`.
+3. Khi cần Khoa: thêm `Department` 1→N `SpecializationTag`; booking vẫn filter theo **Specialty**, không bắt chọn Khoa trước.
+4. Cover doctor (`schedule_cover`) tiếp tục theo shared specialization IDs.
