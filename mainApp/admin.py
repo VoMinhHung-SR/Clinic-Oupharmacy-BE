@@ -5,13 +5,36 @@ from django.shortcuts import render
 from . import cloud_context
 from django.urls import path
 from django.utils.safestring import mark_safe
+from django.utils import timezone
 from .models import *
 from django.template.response import TemplateResponse
 from django.db.models import Count, Sum
 from django.db.models.functions import TruncMonth
-from datetime import date
+from datetime import timedelta
 from django.urls import reverse
-from storeApp.models import ProductVariant, OrderItem
+from storeApp.models import ProductVariant, OrderItem, Order, MedicineBatch
+import json
+
+
+def _month_series(rows, value_key, year_len=12):
+    data = [0] * year_len
+    for rs in rows:
+        month = rs.get("month")
+        if not month:
+            continue
+        val = rs.get(value_key) or 0
+        data[month.month - 1] = float(val) if value_key != "count" else int(val)
+    return data
+
+
+def _expiry_severity(days_left):
+    if days_left < 0:
+        return "expired"
+    if days_left <= 7:
+        return "urgent"
+    if days_left <= 30:
+        return "warning"
+    return "watch"
 
 from django_celery_beat.admin import ClockedScheduleAdmin, CrontabScheduleAdmin, \
     PeriodicTaskAdmin
@@ -37,61 +60,202 @@ class MainAppAdminSite(admin.AdminSite):
 
     def index(self, request, extra_context=None):
         app_list = self.get_app_list(request)
-        # Get counts of active patients, medicine units, and active users
+        today = timezone.localdate()
+        year = today.year
+        try:
+            expiry_days = int(request.GET.get("expiry_days", 30))
+        except (TypeError, ValueError):
+            expiry_days = 30
+        if expiry_days not in (7, 30, 60, 90):
+            expiry_days = 30
+
         patients = Patient.objects.filter(active=True).count()
         medicine_units = ProductVariant.objects.filter(active=True).count()
         users = User.objects.filter(is_active=True).count()
 
-        # Get examination data
-        examinations = Examination.objects.filter(created_date__year=date.today().year) \
-            .annotate(month=TruncMonth('created_date')) \
-            .values('month').annotate(count=Count('pk')).values('month', 'count')
+        exams_qs = Examination.objects.filter(created_date__year=year)
+        exam_count_ytd = exams_qs.count()
+        data_examination = _month_series(
+            exams_qs.annotate(month=TruncMonth("created_date"))
+            .values("month")
+            .annotate(count=Count("pk")),
+            "count",
+        )
+        status_rows = (
+            exams_qs.values("status").annotate(count=Count("id")).order_by("status")
+        )
+        status_labels = [r["status"] or "unknown" for r in status_rows]
+        status_counts = [r["count"] for r in status_rows]
 
-        # Get bill data
-        bills = Bill.objects.filter(created_date__year=date.today().year) \
-            .annotate(month=TruncMonth('created_date')) \
-            .values('month').annotate(total=Sum("amount"), count=Count("id")).values('month', 'total', 'count')
-
-        # Get medicine data
-        medicines = (
-            OrderItem.objects.filter(active=True)
-            .values('product_variant__product__name')
-            .annotate(count=Count('id'))
-            .values('product_variant__product__name', 'count')
+        bills_qs = Bill.objects.filter(created_date__year=year)
+        revenue_ytd = bills_qs.aggregate(total=Sum("amount"))["total"] or 0
+        data_clinic_revenue = _month_series(
+            bills_qs.annotate(month=TruncMonth("created_date"))
+            .values("month")
+            .annotate(total=Sum("amount")),
+            "total",
         )
 
-        # Prepare examination data for chart
-        data_examination = [0] * 12
-        for rs in examinations:
-            month = rs['month'].month - 1
-            data_examination[month] = rs['count']
+        orders_qs = Order.objects.filter(created_date__year=year)
+        store_orders_ytd = orders_qs.count()
+        store_revenue_ytd = orders_qs.aggregate(total=Sum("total"))["total"] or 0
+        data_store_orders = _month_series(
+            orders_qs.annotate(month=TruncMonth("created_date"))
+            .values("month")
+            .annotate(count=Count("pk")),
+            "count",
+        )
+        data_store_revenue = _month_series(
+            orders_qs.annotate(month=TruncMonth("created_date"))
+            .values("month")
+            .annotate(total=Sum("total")),
+            "total",
+        )
+        order_status_rows = (
+            orders_qs.values("status").annotate(count=Count("id")).order_by("status")
+        )
+        order_status_labels = [r["status"] or "unknown" for r in order_status_rows]
+        order_status_counts = [r["count"] for r in order_status_rows]
 
-        # Prepare revenue data for chart
-        data_revenue = [0] * 12
-        for rs in bills:
-            month = rs['month'].month - 1
-            data_revenue[month] = rs['total']
+        medicines = (
+            OrderItem.objects.filter(active=True)
+            .values("product_variant__product__name")
+            .annotate(count=Count("id"))
+            .order_by("-count")[:8]
+        )
+        data_medicine_labels = [
+            m["product_variant__product__name"] or "—" for m in medicines
+        ]
+        data_medicine_quantity = [m["count"] for m in medicines]
 
-        # Prepare medicine data for chart
-        data_medicine_labels = []
-        data_medicine_quantity = []
-        for m in medicines:
-            data_medicine_labels.append(m['product_variant__product__name'])
-            data_medicine_quantity.append(m['count'])
+        stock_qs = MedicineBatch.objects.filter(active=True, remaining_quantity__gt=0)
+        expired_stock = stock_qs.filter(expiry_date__lt=today).count()
+        urgent_stock = stock_qs.filter(
+            expiry_date__gte=today, expiry_date__lte=today + timedelta(days=7)
+        ).count()
+        warning_stock = stock_qs.filter(
+            expiry_date__gt=today + timedelta(days=7),
+            expiry_date__lte=today + timedelta(days=30),
+        ).count()
+
+        near_batches = list(
+            MedicineBatch.objects.filter(
+                active=True,
+                remaining_quantity__gt=0,
+                expiry_date__gte=today,
+                expiry_date__lte=today + timedelta(days=expiry_days),
+            )
+            .select_related("product_variant", "product_variant__product")
+            .order_by("expiry_date")[:40]
+        )
+        # Include expired with remaining stock when viewing ≤90 horizon
+        expired_batches = list(
+            MedicineBatch.objects.filter(
+                active=True,
+                remaining_quantity__gt=0,
+                expiry_date__lt=today,
+            )
+            .select_related("product_variant", "product_variant__product")
+            .order_by("expiry_date")[:15]
+        )
+
+        def _batch_url(pk):
+            try:
+                return reverse(
+                    f"{self.name}:storeApp_medicinebatch_change", args=[pk]
+                )
+            except Exception:
+                try:
+                    return reverse("admin:storeApp_medicinebatch_change", args=[pk])
+                except Exception:
+                    return ""
+
+        def _rows(batches, include_expired=False):
+            rows = []
+            for b in batches:
+                days = b.days_until_expiry
+                if not include_expired and days < 0:
+                    continue
+                pv = b.product_variant
+                product_name = (
+                    pv.product.name if pv and getattr(pv, "product", None) else "—"
+                )
+                rows.append(
+                    {
+                        "id": b.pk,
+                        "batch_number": b.batch_number,
+                        "product": product_name,
+                        "sku": getattr(pv, "sku", "") or "—",
+                        "packing": getattr(pv, "packing", "") or "—",
+                        "expiry_date": b.expiry_date,
+                        "days_left": days,
+                        "remaining": b.remaining_quantity,
+                        "severity": _expiry_severity(days),
+                        "url": _batch_url(b.pk),
+                    }
+                )
+            return rows
+
+        near_expiry_rows = _rows(expired_batches, include_expired=True) + _rows(
+            near_batches
+        )
+        # de-dupe by id, keep earliest expiry first
+        seen = set()
+        deduped = []
+        for row in near_expiry_rows:
+            if row["id"] in seen:
+                continue
+            seen.add(row["id"])
+            deduped.append(row)
+        near_expiry_rows = deduped[:50]
+
+        try:
+            batch_changelist_url = reverse(
+                f"{self.name}:storeApp_medicinebatch_changelist"
+            )
+        except Exception:
+            try:
+                batch_changelist_url = reverse(
+                    "admin:storeApp_medicinebatch_changelist"
+                )
+            except Exception:
+                batch_changelist_url = "/admin/storeApp/medicinebatch/"
 
         context = {
             **self.each_context(request),
-            "title": "OUPharmacy",
+            "title": "Dashboard",
             "subtitle": None,
             "app_list": app_list,
             "patients": patients,
             "users": users,
-            "data_examination": data_examination,
-            "data_revenue": data_revenue,
-            "current_year": date.today().year,
+            "exam_count_ytd": exam_count_ytd,
+            "revenue_ytd": float(revenue_ytd),
+            "store_orders_ytd": store_orders_ytd,
+            "store_revenue_ytd": float(store_revenue_ytd),
+            "current_year": year,
             "medicineUnits": medicine_units,
-            'data_medicine_labels': data_medicine_labels,
-            'data_medicine_quantity': data_medicine_quantity,
+            "near_expiry_count": urgent_stock + warning_stock,
+            "expired_stock_count": expired_stock,
+            "expiry_days": expiry_days,
+            "expiry_day_options": [7, 30, 60, 90],
+            "near_expiry_rows": near_expiry_rows,
+            "batch_changelist_url": batch_changelist_url,
+            "chart_examination_json": mark_safe(json.dumps(data_examination)),
+            "chart_clinic_revenue_json": mark_safe(json.dumps(data_clinic_revenue)),
+            "chart_store_orders_json": mark_safe(json.dumps(data_store_orders)),
+            "chart_store_revenue_json": mark_safe(json.dumps(data_store_revenue)),
+            "chart_status_labels_json": mark_safe(json.dumps(status_labels)),
+            "chart_status_counts_json": mark_safe(json.dumps(status_counts)),
+            "chart_order_status_labels_json": mark_safe(
+                json.dumps(order_status_labels)
+            ),
+            "chart_order_status_counts_json": mark_safe(
+                json.dumps(order_status_counts)
+            ),
+            "chart_medicine_labels_json": mark_safe(json.dumps(data_medicine_labels)),
+            "chart_medicine_quantity_json": mark_safe(
+                json.dumps(data_medicine_quantity)
+            ),
             **(extra_context or {}),
         }
 
@@ -133,7 +297,7 @@ class UserAdmin(admin.ModelAdmin):
             )
 
 class PatientAdmin(admin.ModelAdmin):
-    list_display = ['id', 'first_name', 'last_name', 'phone_number', 'email', 'gender']
+    list_display = ['id', 'first_name', 'last_name', 'phone_number', 'email', 'gender', 'allergies']
     list_filter = ['last_name']
 
 class DoctorScheduleAdmin(admin.ModelAdmin):
@@ -165,20 +329,21 @@ class UserAddressAdmin(admin.ModelAdmin):
 
 
 class ExaminationAdmin(admin.ModelAdmin):
-    list_display = ['id', 'description', 'created_date', 'patient', 'time_slot']
-    list_filter = ['patient', 'time_slot']
+    list_display = ['id', 'description', 'status', 'mail_status', 'created_date', 'patient', 'time_slot']
+    list_filter = ['status', 'mail_status', 'patient', 'time_slot']
 
 
 class DiagnosisAdmin(admin.ModelAdmin):
-    list_display = ['id', 'sign', 'diagnosed', 'examination', 'user', 'patient']
+    list_display = ['id', 'sign', 'diagnosed', 'examination', 'user', 'patient', 'active']
 
 
 class BillAdmin(admin.ModelAdmin):
-    list_display = ['id', 'amount', 'prescribing']
+    list_display = ['id', 'amount', 'status', 'paid_at', 'prescribing']
+    list_filter = ['status']
 
 
 class PrescribingAdmin(admin.ModelAdmin):
-    list_display = ['id', 'diagnosis', 'user']
+    list_display = ['id', 'diagnosis', 'user', 'active']
 
 
 class PrescriptionDetailAdmin(admin.ModelAdmin):

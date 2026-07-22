@@ -51,8 +51,16 @@ CORS_ALLOW_HEADERS = (
 )
 
 # Application definition
+# Local admin (Docker): always trust localhost HTTP origins in addition to env list.
 csrf_origins = os.getenv('CSRF_TRUSTED_ORIGINS', '')
-CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins.split(',') if origin.strip()] if csrf_origins else []
+_CSRF_FROM_ENV = [origin.strip() for origin in csrf_origins.split(',') if origin.strip()] if csrf_origins else []
+_CSRF_LOCAL = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([*_CSRF_FROM_ENV, *_CSRF_LOCAL]))
 
 # 'debug_toolbar',
 INSTALLED_APPS = [
@@ -288,13 +296,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # JAZZMIN SETTING
 JAZZMIN_SETTINGS = {
-    "site_title": "OUPharmacy",
-    "site_header": "OUPharmacy",
+    "site_title": "OUPharmacy System",
+    "site_header": "OUPharmacy System",
     "site_brand": "OUPharmacy",
     "site_logo": "logo/logo_oupharmacy_1x1w.png",
     "site_logo_classes": "img-rounded",
-    "site_icon": "logo/logo_oupharmacy_1x1w.png",
-    "welcome_sign": "Welcome to the OUPharmacy management.",
+    "site_icon": "logo/logo_oupharmacy_1x1.png",
+    "welcome_sign": "Sign in to OUPharmacy System",
     "copyright": "VO MINH HUNG",
     "search_model": "mainApp.User",
     "user_avatar": None,
@@ -307,8 +315,9 @@ JAZZMIN_SETTINGS = {
     "usermenu_links": [
         {"name": "Support", "url": "https://github.com/VoMinhHung-SR/OUPharmacyManagement", "new_window": True,
          "icon": "fas fa-life-ring"},
-        {"model": "auth.user"}
+        {"model": "mainApp.User"},
     ],
+    # Jazzmin already appends "Log out" in the user menu; keep it visible via default behavior.
     "show_sidebar": True,
     "navigation_expanded": True,
     "hide_apps": [],
@@ -327,10 +336,46 @@ JAZZMIN_SETTINGS = {
         "auth": "fas fa-users-cog",
         "auth.user": "fas fa-user",
         "auth.Group": "fas fa-users",
+        "mainApp": "fas fa-clinic-medical",
         "mainApp.User": "fas fa-user",
-        "mainApp.Patient": "fas fa-user",
+        "mainApp.UserRole": "fas fa-user-tag",
+        "mainApp.UserAddress": "fas fa-map-marker-alt",
+        "mainApp.Patient": "fas fa-user-injured",
+        "mainApp.Examination": "fas fa-stethoscope",
+        "mainApp.Diagnosis": "fas fa-notes-medical",
+        "mainApp.Prescribing": "fas fa-file-prescription",
+        "mainApp.PrescriptionDetail": "fas fa-pills",
+        "mainApp.Bill": "fas fa-file-invoice-dollar",
+        "mainApp.DoctorProfile": "fas fa-user-md",
+        "mainApp.DoctorSchedule": "fas fa-calendar-alt",
+        "mainApp.TimeSlot": "fas fa-clock",
+        "mainApp.SpecializationTag": "fas fa-tags",
+        "storeApp": "fas fa-store",
+        "storeApp.Brand": "fas fa-trademark",
+        "storeApp.Category": "fas fa-sitemap",
+        "storeApp.Product": "fas fa-box",
+        "storeApp.ProductVariant": "fas fa-boxes",
+        "storeApp.MedicineBatch": "fas fa-flask",
+        "storeApp.Order": "fas fa-shopping-cart",
+        "storeApp.OrderItem": "fas fa-receipt",
+        "storeApp.PaymentMethod": "fas fa-credit-card",
+        "storeApp.ShippingMethod": "fas fa-truck",
+        "storeApp.Notification": "fas fa-bell",
+        "storeApp.SearchKeyword": "fas fa-search",
+        "oauth2_provider": "fas fa-key",
+        "oauth2_provider.Application": "fas fa-id-badge",
+        "oauth2_provider.AccessToken": "fas fa-unlock-alt",
+        "oauth2_provider.RefreshToken": "fas fa-sync",
+        "oauth2_provider.Grant": "fas fa-hand-holding",
+        "oauth2_provider.IDToken": "fas fa-fingerprint",
+        "django_celery_beat": "fas fa-tasks",
+        "django_celery_beat.PeriodicTask": "fas fa-redo",
+        "django_celery_beat.IntervalSchedule": "fas fa-hourglass-half",
+        "django_celery_beat.CrontabSchedule": "fas fa-calendar-check",
+        "django_celery_beat.SolarSchedule": "fas fa-sun",
+        "django_celery_beat.ClockedSchedule": "fas fa-stopwatch",
     },
-    "default_icon_parents": "fas fa-chevron-circle-right",
+    "default_icon_parents": "fas fa-folder",
     "default_icon_children": "fas fa-circle",
     "related_modal_active": True,
     "custom_css": "jazzmin/custom.css",

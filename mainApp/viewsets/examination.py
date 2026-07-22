@@ -38,7 +38,7 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
 
         try:
             patient = Patient.objects.get(pk=request.data.get('patient'))
-            description = request.data.get('description')
+            description = (request.data.get('description') or "").strip()
             created_date = request.data.get('created_date')
             time_slot_id = request.data.get('time_slot')
         except Patient.DoesNotExist:
@@ -47,9 +47,6 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
         except Exception:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        if not description:
-            return Response(data={"errMsg": "Description is required"},
-                            status=status.HTTP_400_BAD_REQUEST)
         if not time_slot_id:
             return Response(data={"errMsg": "time_slot is required"},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -100,6 +97,7 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
                     patient=patient,
                     user=user,
                     time_slot=time_slot,
+                    status=Examination.STATUS_PENDING,
                 )
                 if created_date:
                     e.created_date = created_date
@@ -136,7 +134,6 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
         if user:
             try:
                 patient = Patient.objects.get(pk=request.data.get('patient'))
-                description = request.data.get('description')
                 created_date = request.data.get('created_date')
                 time_slot = TimeSlot.objects.get(pk=request.data.get('time_slot'))
             except:
@@ -147,7 +144,9 @@ class ExaminationViewSet(viewsets.ViewSet, generics.ListAPIView,
                     e = self.get_object(pk)
                     if created_date:
                         e.created_date = created_date
-                    e.description = description
+                    # Partial: omit key keeps prior value; blank/None coerces to ""
+                    if 'description' in request.data:
+                        e.description = (request.data.get('description') or "").strip()
                     e.patient = patient
                     e.user = user
                     e.time_slot = time_slot
@@ -196,7 +195,7 @@ OUPharmacy xin chúc bạn một ngày tốt lành và thật nhiều sức kh�
                             user.first_name + " " + user.last_name,
                             examination.pk,
                             patient.first_name + " " + patient.last_name,
-                            examination.description,
+                            examination.description or "—",
                             examination.created_date,
                             examination.wage,
                             current_date)
@@ -213,6 +212,8 @@ OUPharmacy xin chúc bạn một ngày tốt lành và thật nhiều sức kh�
                 error_msg = 'Email was sent already!!!'
         if not error_msg:
             examination.mail_status = True
+            if examination.status == Examination.STATUS_PENDING:
+                examination.status = Examination.STATUS_CONFIRMED
             examination.save()
             return Response(data={
                 'status': 'Send mail successfully',
@@ -247,7 +248,7 @@ Bệnh nhân {patient.first_name} {patient.last_name} của bạn có lịch kh�
 Chi tiết lịch đặt khám của bạn:
 (+)  Mã đặt lịch: {examination.pk}
 (+)  Họ tên bệnh nhân: {patient.first_name} {patient.last_name}
-(+)  Mô tả: {examination.description}
+(+)  Mô tả: {examination.description or "—"}
 (+)  Ngày đăng ký: {doctor_availability.day:%d-%m-%Y}
 =====================
 (-)  Phí khám của bạn là: {examination.wage:,.0f} VND

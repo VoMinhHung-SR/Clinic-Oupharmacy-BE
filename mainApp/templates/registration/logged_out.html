@@ -1,0 +1,39 @@
+{% load i18n static jazzmin %}
+{% get_jazzmin_settings request as jazzmin_settings %}
+{% get_jazzmin_ui_tweaks as jazzmin_ui %}
+<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE|default:'en-us' }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% trans "Logged out" %} | {{ jazzmin_settings.site_title }}</title>
+    <link rel="stylesheet" href="{% static 'vendor/fontawesome-free/css/all.min.css' %}">
+    <link rel="stylesheet" href="{% static 'vendor/adminlte/css/adminlte.min.css' %}">
+    <link rel="stylesheet" href="{% static 'jazzmin/css/main.css' %}">
+    {% if jazzmin_settings.custom_css %}
+        <link rel="stylesheet" href="{% static jazzmin_settings.custom_css %}">
+    {% endif %}
+    <link rel="shortcut icon" href="{% static jazzmin_settings.site_icon %}" type="image/png">
+</head>
+<body class="hold-transition jazzmin-login-page">
+<div class="login-box oup-auth-box">
+    <div class="card oup-auth-card">
+        <div class="oup-auth-brand">
+            {% if jazzmin_settings.site_logo %}
+                <span class="oup-logo-mark">
+                    <img src="{% static jazzmin_settings.site_logo %}" alt="">
+                </span>
+            {% endif %}
+            <h1 class="oup-auth-title">{{ jazzmin_settings.site_header }}</h1>
+        </div>
+        <div class="card-body text-center oup-logout-body">
+            <p class="oup-logout-title">{% trans "You have been logged out." %}</p>
+            <p class="text-muted mb-3">{% trans "Thanks for spending some quality time with the Web site today." %}</p>
+            <a class="btn {{ jazzmin_ui.button_classes.primary }} btn-block" href="{% url 'admin:index' %}">
+                {% trans "Log in again" %}
+            </a>
+        </div>
+    </div>
+</div>
+</body>
+</html>
