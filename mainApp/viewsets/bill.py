@@ -21,11 +21,19 @@ from rest_framework import status
 
 from mainApp.prescription_pricing import resolve_prescription_detail_unit_price
 from mainApp.serializers import BillSerializer
+from django.utils import timezone
 
 
 def _resolve_unit_price(detail):
     price, _ = resolve_prescription_detail_unit_price(detail)
     return price
+
+
+def _create_paid_bill(**kwargs):
+    """Payment create paths always mean collected — set paid + paid_at."""
+    kwargs.setdefault("status", Bill.STATUS_PAID)
+    kwargs.setdefault("paid_at", timezone.now())
+    return Bill.objects.create(**kwargs)
 
 
 class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
@@ -105,7 +113,7 @@ class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
                                 
                                 total_amount = medicine_cost + service_fee_per_prescribing
                                 
-                                Bill.objects.create(
+                                _create_paid_bill(
                                     prescribing=prescribing, 
                                     amount=total_amount
                                 )
@@ -136,7 +144,7 @@ class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
                         total_amount = medicine_cost + SERVICE_FEE_PER_PRESCRIBING
                         
                         if not Bill.objects.filter(prescribing=prescribing).exists():
-                            Bill.objects.create(prescribing=prescribing, amount=total_amount)
+                            _create_paid_bill(prescribing=prescribing, amount=total_amount)
                         
                         return HttpResponseRedirect(redirect_to=os.getenv('CLIENT_SERVER')+'/dashboard/prescribing/' + str(prescribing.diagnosis.id) + '/payments')
                             
@@ -337,7 +345,7 @@ class BillViewSet(viewsets.ViewSet, generics.CreateAPIView,
                         medicine_cost = prescribing_amounts.get(prescribing.id, 0)
                         total_amount = medicine_cost + service_fee_per_prescribing
                         
-                        bill = Bill.objects.create(
+                        bill = _create_paid_bill(
                             prescribing=prescribing, 
                             amount=total_amount
                         )

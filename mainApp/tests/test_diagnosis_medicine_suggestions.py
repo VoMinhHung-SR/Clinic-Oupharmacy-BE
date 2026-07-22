@@ -83,10 +83,16 @@ class DiagnosisMedicineSuggestionsServiceTests(TestCase):
             is_published=True,
         )
 
+        # History diagnosis must use a separate examination (1 active diagnosis / exam).
+        self.past_examination = Examination.objects.create(
+            description="Khám history",
+            patient=self.patient,
+            user=self.doctor,
+        )
         self.past_diagnosis = Diagnosis.objects.create(
             sign="sốt ho khan",
             diagnosed="Viêm họng cấp",
-            examination=self.examination,
+            examination=self.past_examination,
             user=self.doctor,
             patient=self.patient,
         )
@@ -121,10 +127,15 @@ class DiagnosisMedicineSuggestionsServiceTests(TestCase):
         self.assertEqual(entry["quantity"], 2)
 
     def test_no_match_returns_empty_suggestions(self):
+        unrelated_exam = Examination.objects.create(
+            description="Khám unrelated",
+            patient=self.patient,
+            user=self.doctor,
+        )
         unrelated = Diagnosis.objects.create(
             sign="đau đầu",
             diagnosed="Migraine",
-            examination=self.examination,
+            examination=unrelated_exam,
             user=self.doctor,
             patient=self.patient,
         )

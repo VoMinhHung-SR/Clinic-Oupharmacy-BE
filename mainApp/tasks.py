@@ -137,7 +137,7 @@ def job_send_email_re_examination():
                   f"Đây là một lời nhắc nhở rằng đã một tháng kể từ lần khám trước của bạn. " \
                   f"Chúng tôi cần thông báo đến bạn, đặt lịch tái khám sớm nhất có thể để kiểm tra lại tình trạng sức khỏe của mình.\n\n" \
                   f"Họ tên bệnh nhân: {patient.first_name} {patient.last_name}\n" \
-                  f"Mô tả: {examination.description}\n" \
+                  f"Mô tả: {examination.description or '—'}\n" \
                   f"Ngày tạo: {created_date_formatted}\n\n" \
                   f"Vui lòng liên hệ chúng tôi, hoặc lên trang chủ OUPharmacy để đặt lịch tái khám.\n\n" \
                   f"Cảm ơn bạn, chúc bạn một ngày mới thật nhiều sức khỏe!\n"
