@@ -73,7 +73,7 @@ Sau đổi `views.py` / `urls.py` store: `docker compose build backend && docker
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Clinic-Oupharmacy-BE** (3968 symbols, 6192 relationships, 185 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Clinic-Oupharmacy-BE** (4222 symbols, 6558 relationships, 187 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
