@@ -69,6 +69,58 @@ class SearchFacetDistinctProductCountTests(TestCase):
         brand = next(b for b in facets["brand"] if b["name"] == "Search Facet Brand")
         self.assertEqual(brand["count"], 1)
 
+    def test_origin_country_facet_from_brand_country(self):
+        facets = SearchFacetsService.build_facets(self.queryset, include_category=False)
+        origins = facets["origin_country"]
+        self.assertEqual(origins[0]["key"], "Việt Nam")
+        self.assertEqual(origins[0]["count"], 1)
+
+    def test_origin_country_facet_drops_junk_labels(self):
+        junk_brand = Brand.objects.using("store").create(
+            name="Junk Origin Brand",
+            country="Hộp x 15ml",
+            active=True,
+        )
+        product = Product.objects.using("store").create(
+            name="Junk Origin Product",
+            mid="SEARCH-FACET-JUNK",
+            slug="search-facet-junk",
+            brand=junk_brand,
+        )
+        product.assign_category(self.category, using="store", set_primary_if_none=True)
+        variant = ProductVariant.objects.using("store").create(
+            product=product,
+            packing="Hộp",
+            is_published=True,
+            active=True,
+            in_stock=1,
+        )
+        ProductVariantUnit.objects.using("store").create(
+            variant=variant,
+            unit_name="Hộp",
+            quantity_in_base=1,
+            price_value=90000,
+            is_default=True,
+            is_published=True,
+        )
+        from storeApp.services.product_category_helpers import (
+            category_tree_ids,
+            product_in_categories_q,
+        )
+
+        category_ids = category_tree_ids(self.category, using="store")
+        queryset = annotate_variant_unit_price(
+            ProductVariant.objects.using("store")
+            .filter(active=True, is_published=True, product__active=True)
+            .filter(product_in_categories_q(category_ids, using="store"))
+            .select_related("product", "product__brand"),
+            db_alias="store",
+        )
+        facets = SearchFacetsService.build_facets(queryset, include_category=False)
+        keys = [item["key"] for item in facets["origin_country"]]
+        self.assertNotIn("Hộp x 15ml", keys)
+        self.assertIn("Việt Nam", keys)
+
 
 class SearchFacetsCacheTests(TestCase):
     databases = {"default", "store"}
@@ -135,6 +187,70 @@ class SearchFacetsApiTests(APITestCase):
         )
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json().get("facets"), {})
+
+    def test_search_origin_country_facet_and_filter(self):
+        res = self.client.get(
+            f"/api/store/search/?category={self.category.id}&page_size=12"
+        )
+        self.assertEqual(res.status_code, 200)
+        origins = (res.json().get("facets") or {}).get("origin_country") or []
+        self.assertTrue(any(o.get("key") == "Pháp" for o in origins))
+
+        filtered = self.client.get(
+            f"/api/store/search/?category={self.category.id}&origin_country=Pháp"
+        )
+        self.assertEqual(filtered.status_code, 200)
+        body = filtered.json()
+        self.assertEqual(body["meta"]["applied_filters"]["origin_country"], "Pháp")
+        self.assertGreaterEqual(body["meta"]["total"], 1)
+
+        junk = self.client.get(
+            f"/api/store/search/?category={self.category.id}&origin_country=Hộp%20x%2015ml"
+        )
+        self.assertEqual(junk.status_code, 200)
+        self.assertIsNone(junk.json()["meta"]["applied_filters"]["origin_country"])
+
+    def test_search_multi_brand_filter(self):
+        brand_b = Brand.objects.using("store").create(
+            name="Search API Brand B",
+            country="Việt Nam",
+            active=True,
+        )
+        product_b = Product.objects.using("store").create(
+            name="Search API Product B",
+            mid="SEARCH-API-002",
+            slug="search-api-product-b",
+            brand=brand_b,
+            category=self.category,
+        )
+        variant_b = ProductVariant.objects.using("store").create(
+            product=product_b,
+            packing="Hộp",
+            is_published=True,
+            active=True,
+            in_stock=3,
+        )
+        ProductVariantUnit.objects.using("store").create(
+            variant=variant_b,
+            unit_name="Hộp",
+            quantity_in_base=1,
+            price_value=120000,
+            is_default=True,
+            is_published=True,
+        )
+
+        brand_csv = f"{brand_b.id},{self.brand.id}"
+        res = self.client.get(
+            f"/api/store/search/?category={self.category.id}&brand={brand_csv}"
+        )
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        applied_brand = body["meta"]["applied_filters"]["brand"]
+        self.assertEqual(
+            applied_brand,
+            ",".join(str(x) for x in sorted([self.brand.id, brand_b.id])),
+        )
+        self.assertEqual(body["meta"]["total"], 2)
 
 
 class FkOnlyProductDetailResolveTests(APITestCase):

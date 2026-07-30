@@ -12,6 +12,8 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Count, Q
 
+from storeApp.services.country_normalize import normalize_country_label
+
 CACHE_PREFIX = "store_search_facets"
 CACHE_TIMEOUT = getattr(settings, "SEARCH_FACETS_CACHE_TTL", 3600)
 CACHE_VERSION_KEY = f"{CACHE_PREFIX}:version"
@@ -25,7 +27,7 @@ PRICE_RANGE_FILTER_Q = {
 
 
 class SearchFacetsService:
-    """Build and cache search response facets (brand, price, stock, optional category)."""
+    """Build and cache search response facets (brand, origin, price, stock, optional category)."""
 
     CACHE_VERSION_KEY = CACHE_VERSION_KEY
 
@@ -53,6 +55,7 @@ class SearchFacetsService:
         brand,
         price_range,
         in_stock,
+        origin_country=None,
     ) -> dict:
         return {
             "q": query_normalized,
@@ -60,6 +63,7 @@ class SearchFacetsService:
             "brand": str(brand) if brand not in (None, "") else None,
             "price_range": price_range or None,
             "in_stock": in_stock,
+            "origin_country": str(origin_country) if origin_country not in (None, "") else None,
         }
 
     @staticmethod
@@ -101,6 +105,28 @@ class SearchFacetsService:
         }
 
     @staticmethod
+    def build_origin_country_facets(queryset) -> list[dict]:
+        rows = (
+            queryset.exclude(product__brand__country__isnull=True)
+            .exclude(product__brand__country="")
+            .values("product__brand__country")
+            .annotate(count=Count("product_id", distinct=True))
+            .order_by("-count", "product__brand__country")
+        )
+        merged: dict[str, int] = {}
+        for item in rows:
+            raw = item["product__brand__country"]
+            canonical = normalize_country_label(raw)
+            if not canonical:
+                continue
+            merged[canonical] = merged.get(canonical, 0) + int(item["count"] or 0)
+
+        return [
+            {"key": country, "name": country, "count": count}
+            for country, count in sorted(merged.items(), key=lambda pair: (-pair[1], pair[0]))
+        ]
+
+    @staticmethod
     def build_facets(queryset, *, include_category: bool = True) -> dict:
         scalar_facets = SearchFacetsService.build_scalar_facets(queryset)
 
@@ -121,6 +147,7 @@ class SearchFacetsService:
                 for item in brand_facets
                 if item["product__brand_id"] is not None
             ],
+            "origin_country": SearchFacetsService.build_origin_country_facets(queryset),
             "price_ranges": scalar_facets["price_ranges"],
             "in_stock": scalar_facets["in_stock"],
         }
