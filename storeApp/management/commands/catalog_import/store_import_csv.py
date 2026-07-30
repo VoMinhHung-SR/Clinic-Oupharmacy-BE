@@ -33,6 +33,7 @@ from django.db import transaction
 from storeApp.constants import STORE_DATABASE_ALIAS
 
 from .store_import_categories import parse_category_array_from_row, resolve_leaf_category
+from .store_import_attributes import upsert_product_attributes_from_row
 from .store_import_packaging import _build_variant_payloads, _parse_package_options, _parse_price_value
 from .store_import_pricing import ensure_unit_pricing, is_positive_price
 from .store_import_products import resolve_brand, upsert_product_from_row
@@ -187,6 +188,10 @@ class Command(BaseCommand):
             "products_created": 0,
             "products_updated": 0,
             "product_categories_linked": 0,
+            "attribute_values_created": 0,
+            "attribute_values_existing": 0,
+            "attribute_options_created": 0,
+            "attribute_codes_skipped_missing_dict": 0,
             "variants_created": 0,
             "variants_updated": 0,
             "variant_units_created": 0,
@@ -310,6 +315,15 @@ class Command(BaseCommand):
         if product is None and not dry_run:
             return stats
 
+        attr_stats = upsert_product_attributes_from_row(
+            product,
+            row,
+            dry_run=dry_run,
+            using=STORE_DATABASE_ALIAS,
+        )
+        for key, value in attr_stats.items():
+            stats[key] = stats.get(key, 0) + value
+
         variant_payloads, units_source = self._build_variant_payloads_for_row(row)
         stats[units_source] = 1
 
@@ -418,6 +432,13 @@ class Command(BaseCommand):
         self.stdout.write(f"  Products tạo  : {total_stats['products_created']}")
         self.stdout.write(f"  Products cập nl: {total_stats['products_updated']}")
         self.stdout.write(f"  ProductCategory links: {total_stats.get('product_categories_linked', 0)}")
+        self.stdout.write(
+            f"  Attr values tạo/existing: {total_stats.get('attribute_values_created', 0)}"
+            f"/{total_stats.get('attribute_values_existing', 0)}"
+        )
+        self.stdout.write(
+            f"  Attr options tạo: {total_stats.get('attribute_options_created', 0)}"
+        )
         self.stdout.write(f"  Variants tạo  : {total_stats['variants_created']}")
         self.stdout.write(f"  Variants cập nl: {total_stats['variants_updated']}")
         self.stdout.write(f"  VariantUnits tạo : {total_stats['variant_units_created']}")
