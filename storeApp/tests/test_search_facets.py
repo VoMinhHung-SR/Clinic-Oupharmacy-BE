@@ -252,6 +252,103 @@ class SearchFacetsApiTests(APITestCase):
         )
         self.assertEqual(body["meta"]["total"], 2)
 
+    def test_search_attribute_facets_and_and_or_filter(self):
+        from storeApp.models import (
+            CatalogAttribute,
+            CatalogAttributeOption,
+            ProductAttributeValue,
+        )
+
+        skin = CatalogAttribute.objects.using("store").create(
+            code="skin_type",
+            label="Loại da",
+            facet_type="multiple",
+            sort_order=20,
+            is_filterable=True,
+        )
+        dry = CatalogAttributeOption.objects.using("store").create(
+            attribute=skin, slug="da-kho", label="Da khô"
+        )
+        oily = CatalogAttributeOption.objects.using("store").create(
+            attribute=skin, slug="da-dau", label="Da dầu"
+        )
+        audience = CatalogAttribute.objects.using("store").create(
+            code="target_user",
+            label="Đối tượng sử dụng",
+            facet_type="multiple",
+            sort_order=10,
+            is_filterable=True,
+        )
+        adult = CatalogAttributeOption.objects.using("store").create(
+            attribute=audience, slug="nguoi-lon", label="Người lớn"
+        )
+
+        ProductAttributeValue.objects.using("store").create(
+            product=self.product, option=dry
+        )
+        ProductAttributeValue.objects.using("store").create(
+            product=self.product, option=adult
+        )
+
+        brand_b = Brand.objects.using("store").create(
+            name="Attr Brand B", country="Việt Nam", active=True
+        )
+        product_b = Product.objects.using("store").create(
+            name="Attr Product B",
+            mid="SEARCH-API-ATTR-B",
+            slug="search-api-attr-b",
+            brand=brand_b,
+            category=self.category,
+        )
+        variant_b = ProductVariant.objects.using("store").create(
+            product=product_b,
+            packing="Hộp",
+            is_published=True,
+            active=True,
+            in_stock=2,
+        )
+        ProductVariantUnit.objects.using("store").create(
+            variant=variant_b,
+            unit_name="Hộp",
+            quantity_in_base=1,
+            price_value=99000,
+            is_default=True,
+            is_published=True,
+        )
+        ProductAttributeValue.objects.using("store").create(
+            product=product_b, option=oily
+        )
+
+        res = self.client.get(
+            f"/api/store/search/?category={self.category.id}&page_size=12"
+        )
+        self.assertEqual(res.status_code, 200)
+        attrs = (res.json().get("facets") or {}).get("attributes") or []
+        codes = [g["code"] for g in attrs]
+        self.assertIn("skin_type", codes)
+        self.assertIn("target_user", codes)
+
+        # OR within skin_type
+        or_res = self.client.get(
+            f"/api/store/search/?category={self.category.id}"
+            f"&attrs=skin_type:da-kho&attrs=skin_type:da-dau"
+        )
+        self.assertEqual(or_res.status_code, 200)
+        self.assertEqual(or_res.json()["meta"]["total"], 2)
+
+        # AND across codes
+        and_res = self.client.get(
+            f"/api/store/search/?category={self.category.id}"
+            f"&attrs=skin_type:da-kho&attrs=target_user:nguoi-lon"
+        )
+        self.assertEqual(and_res.status_code, 200)
+        body = and_res.json()
+        self.assertEqual(body["meta"]["total"], 1)
+        self.assertEqual(
+            body["meta"]["applied_filters"]["attrs"],
+            ["skin_type:da-kho", "target_user:nguoi-lon"],
+        )
+
 
 class FkOnlyProductDetailResolveTests(APITestCase):
     """Product detail resolve/listing when ProductCategory M2M rows are missing."""

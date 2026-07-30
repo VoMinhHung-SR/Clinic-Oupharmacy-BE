@@ -34,7 +34,7 @@ Tài liệu này mô tả bộ API search hiện tại cho storefront, gồm ana
 - Category browse: `q=` (rỗng) + `category=<id>`.
 - Trả:
   - `items`: danh sách product variants (1 card / product)
-  - `facets`: `category`, `brand`, `origin_country`, `price_ranges`, `in_stock`
+  - `facets`: `category`, `brand`, `origin_country`, `attributes`, `price_ranges`, `in_stock`
   - `meta`: `total`, `page`, `page_size`, `has_more`, `took_ms`, `applied_filters`
 
 ### `GET /api/store/resolve-path/<path>/` (category meta)
@@ -51,6 +51,9 @@ Category resolution trả listing meta cho search-first browse:
 - `category`: category id
 - `brand`: brand id **hoặc CSV multi** (`1,2,3`) — OR trong cùng param
 - `origin_country`: quốc gia chuẩn hóa **hoặc CSV multi** (`Việt Nam,Pháp`) — từ `Brand.country`; token không nhận diện bị bỏ
+- `attrs`: repeatable `code:slug` — ví dụ `attrs=skin_type:da-kho&attrs=skin_type:da-dau&attrs=target_user:tre-em`
+  - **OR** trong cùng `code`
+  - **AND** giữa các `code` khác nhau
 - `price_range`: `under_100k` | `100k_300k` | `300k_500k` | `over_500k`
 - `in_stock`: `true` | `false`
 - `sort`: `relevance` | `price_asc` | `price_desc` | `popular`
@@ -60,13 +63,21 @@ Category resolution trả listing meta cho search-first browse:
 ## 3) Facet service (P2+)
 
 - SoT: `storeApp/services/search_facets_service.py`
-- Brand / origin counts use **distinct `product_id`** (not variant rows).
+- Brand / origin / attribute counts use **distinct `product_id`** (not variant rows).
 - `origin_country` chỉ trả label canonical (`country_normalize`); bỏ junk kiểu packing size.
-- Category facet buckets skipped when `category=` filter is set (browse sidebar only needs brand/origin/price/stock).
-- Cache key: filter state (`q`, `category`, `brand`, `origin_country`, `price_range`, `in_stock`) — not page/sort.
+- `attributes`: nhóm từ `ProductAttributeValue` (chỉ option/attr active + `is_filterable`); chỉ hiện group có count > 0; cap groups/options.
+- Category facet buckets skipped when `category=` filter is set (browse sidebar still gets brand/origin/attrs/price/stock).
+- Cache key: filter state (`q`, `category`, `brand`, `origin_country`, `attrs`, `price_range`, `in_stock`) — not page/sort.
 - Bust all facet snapshots: `SearchFacetsService.invalidate_all_cache()` (hooked on `store_catalog import-csv` và `store_backfill brand-country`).
 
 Legacy `GET /api/store/dynamic-filters/` **removed** — use `/search/` facets only.
+
+Seed attribute dictionary:
+
+```bash
+python manage.py seed_catalog_attributes --dry-run
+python manage.py seed_catalog_attributes
+```
 
 Backfill empty / dirty brand country:
 

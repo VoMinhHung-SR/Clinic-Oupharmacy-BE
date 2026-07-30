@@ -135,6 +135,61 @@ def _brand_country_db_values_for_filter(canonical_countries: list[str], *, using
     return matched
 
 
+def _parse_attrs_filter(request) -> dict[str, list[str]]:
+    """
+    Parse repeatable attrs=code:slug params.
+
+    Example: attrs=skin_type:da-kho&attrs=skin_type:da-dau&attrs=target_user:tre-em
+    → {"skin_type": ["da-dau", "da-kho"], "target_user": ["tre-em"]}
+    """
+    raw_list = request.query_params.getlist("attrs")
+    if not raw_list:
+        single = request.query_params.get("attrs")
+        raw_list = [single] if single else []
+
+    grouped: dict[str, list[str]] = {}
+    for raw in raw_list:
+        if not raw or ":" not in str(raw):
+            continue
+        code, slug = str(raw).split(":", 1)
+        code = code.strip()
+        slug = slug.strip()
+        if not code or not slug:
+            continue
+        bucket = grouped.setdefault(code, [])
+        if slug not in bucket:
+            bucket.append(slug)
+
+    # Stable order for cache keys / applied_filters
+    return {code: sorted(slugs) for code, slugs in sorted(grouped.items())}
+
+
+def _encode_attrs_filter(attrs_by_code: dict[str, list[str]]) -> list[str] | None:
+    if not attrs_by_code:
+        return None
+    encoded: list[str] = []
+    for code, slugs in attrs_by_code.items():
+        for slug in slugs:
+            encoded.append(f"{code}:{slug}")
+    return encoded
+
+
+def _apply_attrs_filter(queryset, attrs_by_code: dict[str, list[str]]):
+    """AND across attribute codes; OR within the same code."""
+    for code, slugs in attrs_by_code.items():
+        queryset = queryset.filter(
+            product__attribute_values__active=True,
+            product__attribute_values__option__active=True,
+            product__attribute_values__option__attribute__active=True,
+            product__attribute_values__option__attribute__is_filterable=True,
+            product__attribute_values__option__attribute__code=code,
+            product__attribute_values__option__slug__in=slugs,
+        )
+    if attrs_by_code:
+        queryset = queryset.distinct()
+    return queryset
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def search_products(request):
@@ -147,6 +202,8 @@ def search_products(request):
     brand = ",".join(str(bid) for bid in brand_ids) if brand_ids else None
     origin_countries = _parse_origin_country_filter(request.query_params.get("origin_country"))
     origin_country = ",".join(origin_countries) if origin_countries else None
+    attrs_by_code = _parse_attrs_filter(request)
+    attrs_encoded = _encode_attrs_filter(attrs_by_code)
     price_range = request.query_params.get("price_range")
     in_stock = _parse_bool(request.query_params.get("in_stock"))
     sort = request.query_params.get("sort", "relevance")
@@ -215,6 +272,8 @@ def search_products(request):
             origin_countries, using=STORE_DB_ALIAS
         )
         queryset = queryset.filter(product__brand__country__in=db_countries)
+    if attrs_by_code:
+        queryset = _apply_attrs_filter(queryset, attrs_by_code)
     if in_stock is True:
         queryset = queryset.filter(in_stock__gt=0)
     if in_stock is False:
@@ -226,6 +285,7 @@ def search_products(request):
         "category": category,
         "brand": brand,
         "origin_country": origin_country,
+        "attrs": attrs_encoded,
         "price_range": price_range,
         "in_stock": in_stock,
         "sort": sort,
@@ -238,6 +298,7 @@ def search_products(request):
         price_range=price_range,
         in_stock=in_stock,
         origin_country=origin_country,
+        attrs=attrs_encoded,
     )
     if include_facets:
         facets = SearchFacetsService.get_facets(

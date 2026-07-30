@@ -18,6 +18,9 @@ CACHE_PREFIX = "store_search_facets"
 CACHE_TIMEOUT = getattr(settings, "SEARCH_FACETS_CACHE_TTL", 3600)
 CACHE_VERSION_KEY = f"{CACHE_PREFIX}:version"
 
+MAX_ATTRIBUTE_GROUPS = getattr(settings, "SEARCH_FACETS_MAX_ATTRIBUTE_GROUPS", 12)
+MAX_OPTIONS_PER_ATTRIBUTE = getattr(settings, "SEARCH_FACETS_MAX_OPTIONS_PER_ATTRIBUTE", 30)
+
 PRICE_RANGE_FILTER_Q = {
     "under_100k": Q(price_value__lt=100000),
     "100k_300k": Q(price_value__gte=100000, price_value__lt=300000),
@@ -27,7 +30,7 @@ PRICE_RANGE_FILTER_Q = {
 
 
 class SearchFacetsService:
-    """Build and cache search response facets (brand, origin, price, stock, optional category)."""
+    """Build and cache search response facets (brand, origin, attrs, price, stock, category)."""
 
     CACHE_VERSION_KEY = CACHE_VERSION_KEY
 
@@ -56,6 +59,7 @@ class SearchFacetsService:
         price_range,
         in_stock,
         origin_country=None,
+        attrs=None,
     ) -> dict:
         return {
             "q": query_normalized,
@@ -64,6 +68,7 @@ class SearchFacetsService:
             "price_range": price_range or None,
             "in_stock": in_stock,
             "origin_country": str(origin_country) if origin_country not in (None, "") else None,
+            "attrs": attrs or None,
         }
 
     @staticmethod
@@ -127,6 +132,73 @@ class SearchFacetsService:
         ]
 
     @staticmethod
+    def build_attribute_facets(queryset) -> list[dict]:
+        """
+        Aggregate ProductAttributeValue on products in the variant queryset.
+
+        Only attributes with count > 0 appear. Caps groups/options to keep payload small.
+        """
+        rows = (
+            queryset.filter(
+                product__attribute_values__option__attribute__is_filterable=True,
+                product__attribute_values__option__attribute__active=True,
+                product__attribute_values__option__active=True,
+                product__attribute_values__active=True,
+            )
+            .values(
+                "product__attribute_values__option__attribute__code",
+                "product__attribute_values__option__attribute__label",
+                "product__attribute_values__option__attribute__facet_type",
+                "product__attribute_values__option__attribute__sort_order",
+                "product__attribute_values__option__slug",
+                "product__attribute_values__option__label",
+            )
+            .annotate(count=Count("product_id", distinct=True))
+            .order_by(
+                "product__attribute_values__option__attribute__sort_order",
+                "-count",
+                "product__attribute_values__option__label",
+            )
+        )
+
+        grouped: dict[str, dict] = {}
+        for item in rows:
+            code = item["product__attribute_values__option__attribute__code"]
+            slug = item["product__attribute_values__option__slug"]
+            if not code or not slug:
+                continue
+            count = int(item["count"] or 0)
+            if count <= 0:
+                continue
+            group = grouped.get(code)
+            if group is None:
+                group = {
+                    "code": code,
+                    "label": item["product__attribute_values__option__attribute__label"],
+                    "type": item["product__attribute_values__option__attribute__facet_type"]
+                    or "multiple",
+                    "sort_order": item["product__attribute_values__option__attribute__sort_order"]
+                    or 100,
+                    "options": [],
+                }
+                grouped[code] = group
+            if len(group["options"]) >= MAX_OPTIONS_PER_ATTRIBUTE:
+                continue
+            group["options"].append(
+                {
+                    "slug": slug,
+                    "label": item["product__attribute_values__option__label"] or slug,
+                    "count": count,
+                }
+            )
+
+        groups = sorted(grouped.values(), key=lambda g: (g["sort_order"], g["code"]))
+        trimmed = groups[:MAX_ATTRIBUTE_GROUPS]
+        for group in trimmed:
+            group.pop("sort_order", None)
+        return trimmed
+
+    @staticmethod
     def build_facets(queryset, *, include_category: bool = True) -> dict:
         scalar_facets = SearchFacetsService.build_scalar_facets(queryset)
 
@@ -148,6 +220,7 @@ class SearchFacetsService:
                 if item["product__brand_id"] is not None
             ],
             "origin_country": SearchFacetsService.build_origin_country_facets(queryset),
+            "attributes": SearchFacetsService.build_attribute_facets(queryset),
             "price_ranges": scalar_facets["price_ranges"],
             "in_stock": scalar_facets["in_stock"],
         }

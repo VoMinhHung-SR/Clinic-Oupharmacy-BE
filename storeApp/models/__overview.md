@@ -11,6 +11,7 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 | File | Domain |
 |------|--------|
 | `product.py` | Brand, Category, Product, ProductCategory, Variant, PVU, Batch, Notification, SearchKeyword |
+| `catalog_attributes.py` | CatalogAttribute, CatalogAttributeOption, ProductAttributeValue (facet attrs) |
 | `cart.py` | Cart, CartItem |
 | `order.py` | ShippingMethod, PaymentMethod, Order, OrderItem |
 | `voucher.py` | Voucher, VoucherRedemption |
@@ -38,6 +39,14 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 - `product`, `category`, `is_primary`, `sort_order`.
 - Unique `(product, category)`; partial unique một `is_primary=True` / product.
 - Table: `store_product_category`.
+
+### Catalog attributes (facets)
+
+- `CatalogAttribute` (`code`, `label`, `facet_type`, `sort_order`, `is_filterable`)
+- `CatalogAttributeOption` unique `(attribute, slug)`
+- `ProductAttributeValue` unique `(product, option)` — gắn **Product**, không Variant
+- Seed: `manage.py seed_catalog_attributes`
+- Search: `facets.attributes[]` + query `attrs=code:slug` (AND giữa code, OR trong code)
 
 ### ProductVariant / PVU / Batch
 
