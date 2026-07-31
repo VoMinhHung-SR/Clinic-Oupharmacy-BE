@@ -60,17 +60,41 @@ Category resolution trả listing meta cho search-first browse:
 - `include_facets`: `true` | `false` (default `true`; set `false` for suggest-only item fetch)
 - `use_facet_cache`: `true` | `false` (default `true`; versioned cache via `SearchFacetsService`)
 
-## 3) Facet service (P2+)
+## 3) Facet service
 
 - SoT: `storeApp/services/search_facets_service.py`
 - Brand / origin / attribute counts use **distinct `product_id`** (not variant rows).
 - `origin_country` chỉ trả label canonical (`country_normalize`); bỏ junk kiểu packing size.
-- `attributes`: nhóm từ `ProductAttributeValue` (chỉ option/attr active + `is_filterable`); chỉ hiện group có count > 0; cap groups/options.
 - Category facet buckets skipped when `category=` filter is set (browse sidebar still gets brand/origin/attrs/price/stock).
 - Cache key: filter state (`q`, `category`, `brand`, `origin_country`, `attrs`, `price_range`, `in_stock`) — not page/sort.
 - Bust all facet snapshots: `SearchFacetsService.invalidate_all_cache()` (hooked on `store_catalog import-csv` và `store_backfill brand-country`).
 
 Legacy `GET /api/store/dynamic-filters/` **removed** — use `/search/` facets only.
+
+### 3.1) `facets.attributes` (catalog attributes)
+
+Feature SoT: [`catalog-attributes.md`](catalog-attributes.md).
+
+- Nguồn: `ProductAttributeValue` → `CatalogAttributeOption` → `CatalogAttribute` (`active` + `is_filterable`).
+- Chỉ trả **group có count > 0** trong queryset hiện tại (category/search scope) → listing khác nhau thấy facet khác nhau.
+- Cap số group / option (tránh sidebar phình).
+- Shape:
+
+```json
+"attributes": [
+  {
+    "code": "dosage_form",
+    "label": "Dạng bào chế",
+    "type": "multiple",
+    "options": [
+      { "slug": "gel", "label": "Gel", "count": 12 }
+    ]
+  }
+]
+```
+
+- Filter: repeatable `attrs=code:slug` — OR cùng `code`, AND khác `code`.
+- Không gồm brand / category / price / `Brand.country` (các facet riêng).
 
 Seed attribute dictionary:
 
@@ -112,8 +136,11 @@ python manage.py store_backfill brand-country
 ### Filters
 
 - `category` + `brand` kết hợp vẫn trả `meta.applied_filters` chính xác.
+- `origin_country=Việt Nam` (hoặc CSV multi) chỉ giữ brand có country canonical tương ứng.
+- `attrs=skin_type:da-kho&attrs=target_user:tre-em` — AND giữa codes; OR nếu lặp cùng code.
 - `price_range=under_100k` chỉ trả item trong bucket tương ứng.
 - `in_stock=true` chỉ trả item có tồn kho > 0.
+- Category browse: `facets.attributes` chỉ chứa group có PAV trong category đó (có thể `[]` nếu chưa import attrs).
 
 ### Suggest
 
@@ -146,4 +173,5 @@ python manage.py store_backfill brand-country
 
 ## 8) Related guidelines
 
+- Catalog attributes (model + feature): `storeApp/guidelines/catalog-attributes.md`
 - Cart-first checkout flow: `storeApp/guidelines/cart-first-checkout.md`

@@ -26,6 +26,9 @@ venv.bak/
 /staticfiles/
 
 storeApp/test/
+
+# Local-only scrape tooling, CSVs, spike notes (do not commit)
+/local_scrape/
 .cursor/    
 artifacts/*.dump
 
@@ -44,3 +47,4 @@ tests/manual/**/*.tmp
 # GitNexus / Claude local agent artifacts
 .claude/
 CLAUDE.md
+docker-compose.lan.yml

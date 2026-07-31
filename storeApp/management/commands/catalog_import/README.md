@@ -17,7 +17,7 @@ python manage.py backfill_product_categories [--dry-run]
 | `store_import_row.py` | Parse row: JSON flatten, brand/country, batch helpers, saleUnits payload |
 | `store_import_categories.py` | `category.category[]` → leaf `Category` (cache) |
 | `store_import_products.py` | Brand + Product upsert; **ProductCategory merge** |
-| `store_import_attributes.py` | Product filter attrs → `ProductAttributeValue` (P1b skeleton) |
+| `store_import_attributes.py` | Product filter attrs → `ProductAttributeValue` (see `guidelines/catalog-attributes.md`) |
 | `store_import_variants.py` | Variant, PVU, MedicineBatch |
 | `store_import_packaging.py` | packageOptions → variant payloads |
 | `store_import_pricing.py` | Giá synthetic khi thiếu |
@@ -40,6 +40,23 @@ python manage.py backfill_product_categories [--dry-run]
 - `category.category` → leaf category + M2M
 - `pricing.saleUnits[]` (ưu tiên) / `pricing.packageOptions` → PVU
 - `content.*` (7 fields) → Product text fields
-- `attributes.*` / PDP `objectUse|skin|flavor|indications|dosageForm|brandOrigin` → `ProductAttributeValue` (see `guidelines/catalog-attributes-scrape-spike.md`)
+- **Filter attrs (preferred):**
+
+```json
+"attributes": {
+  "objectUse": ["Người lớn"],
+  "skin": ["Da khô"],
+  "flavor": ["Vị Cam"],
+  "indications": ["Mụn"],
+  "dosageForm": "Gel",
+  "brandOrigin": "Pháp"
+}
+```
+
+  → `ProductAttributeValue` via `store_import_attributes` + `catalog_attribute_map`  
+  Flat PDP fields (`objectUse`, `skin`, …) cũng được chấp nhận.
 - `specifications.registrationNumber` — **SKIP**
 - `manufactor` / country — **not** catalog-attr; use `Brand.country` / `packing_meta.origin`
+
+Chi tiết model/feature: `storeApp/guidelines/catalog-attributes.md`.  
+Spike nguồn scrape: `storeApp/guidelines/catalog-attributes-scrape-spike.md`.
