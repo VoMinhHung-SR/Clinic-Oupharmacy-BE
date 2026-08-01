@@ -100,8 +100,10 @@ def upsert_variant_units(
         for unit in ProductVariantUnit.objects.using(using).filter(variant=variant)
     }
 
+    keep_keys: set[str] = set()
     for unit in units:
         unit_key = _normalize_unit_name(unit["unit_name"])
+        keep_keys.add(unit_key)
         unit_defaults = {
             "quantity_in_base": unit.get("quantity_in_base", 1),
             "unit_name": clip_db_str(unit.get("unit_name"), 50) or "Gói",
@@ -111,6 +113,7 @@ def upsert_variant_units(
             "compare_at_price": None,
             "is_default": bool(unit.get("is_default")),
             "is_published": is_published,
+            "active": True,
         }
         existing_unit = existing_units.get(unit_key)
         if existing_unit:
@@ -129,6 +132,22 @@ def upsert_variant_units(
                 **unit_defaults,
             )
             stats["created"] += 1
+
+    # Drop stale scrape units (e.g. packing junk "g24") not in current payload.
+    # Soft-deactivate to avoid breaking cart/order FKs.
+    if update_existing:
+        orphans = [
+            u for key, u in existing_units.items() if key not in keep_keys and u.active
+        ]
+        if orphans:
+            for u in orphans:
+                u.active = False
+                u.is_default = False
+                u.is_published = False
+            ProductVariantUnit.objects.using(using).bulk_update(
+                orphans, ["active", "is_default", "is_published"], batch_size=200
+            )
+            stats["deactivated"] = len(orphans)
 
     reconcile_single_default_variant_units_in_db(variant, using=using)
     return stats

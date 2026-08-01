@@ -72,6 +72,56 @@ def mark_scrape_consult_unit(unit: dict) -> None:
     unit["price_display"] = None
 
 
+def classify_unit_scrape_price_gap(unit: dict) -> Optional[str]:
+    """
+    Classify scrape price gap before synthetic fill.
+
+    Returns:
+      - "consult" — display/value is CONSULT (or already marked scrape_was_consult)
+      - "zero" — numeric price <= 0
+      - "missing" — empty / undefined / non-numeric
+      - None — has a positive scrape price
+    """
+    if scrape_price_was_consult(unit):
+        return "consult"
+
+    display = unit.get("price_display")
+    value = unit.get("price_value")
+
+    if is_consult_price_display(display) or (
+        isinstance(value, str) and str(value).strip().upper() == "CONSULT"
+    ):
+        return "consult"
+
+    if value is None or (isinstance(value, str) and not str(value).strip()):
+        if display is None or (isinstance(display, str) and not str(display).strip()):
+            return "missing"
+        if is_consult_price_display(display):
+            return "consult"
+        return "missing"
+
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "missing"
+
+    if numeric <= 0:
+        return "zero"
+    return None
+
+
+def collect_unit_price_gaps(units: list) -> list[tuple[dict, str]]:
+    """Return [(unit, reason), ...] for units that need synthetic pricing."""
+    gaps: list[tuple[dict, str]] = []
+    for unit in units or []:
+        if not isinstance(unit, dict):
+            continue
+        reason = classify_unit_scrape_price_gap(unit)
+        if reason:
+            gaps.append((unit, reason))
+    return gaps
+
+
 def round_vnd(amount: float) -> float:
     rounded = max(_MIN_UNIT_PRICE_VND, int(round(amount / _VND_ROUND_STEP)) * _VND_ROUND_STEP)
     return float(rounded)

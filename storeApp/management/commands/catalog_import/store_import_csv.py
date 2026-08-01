@@ -35,9 +35,23 @@ from storeApp.constants import STORE_DATABASE_ALIAS
 from .store_import_categories import parse_category_array_from_row, resolve_leaf_category
 from .store_import_attributes import upsert_product_attributes_from_row
 from .store_import_packaging import _build_variant_payloads, _parse_package_options, _parse_price_value
-from .store_import_pricing import ensure_unit_pricing, is_positive_price
+from .store_import_pricing import (
+    collect_unit_price_gaps,
+    ensure_unit_pricing,
+    is_positive_price,
+)
 from .store_import_products import resolve_brand, upsert_product_from_row
 from .store_import_row import build_variant_payloads_from_sale_units, flatten_dict, parse_json_field
+from .store_import_skip import should_skip_category_array
+from .store_import_artifacts import (
+    MissingPriceHit,
+    MissingPriceReporter,
+    default_artifact_path,
+    l0_slug_from_category_array,
+    mid_from_row,
+    name_from_row,
+    slug_from_row,
+)
 from .store_import_variants import (
     VariantImportSettings,
     build_variant_common,
@@ -116,6 +130,51 @@ class Command(BaseCommand):
             dest="no_smart_random_price",
             help="Giá thiếu: random phẳng 10k–500k thay vì theo tier đơn vị × quantity_in_base.",
         )
+        parser.add_argument(
+            "--skip-scrape-errors",
+            action="store_true",
+            default=True,
+            dest="skip_scrape_errors",
+            help="Bỏ qua row Cloudflare/5xx-error-landing (mặc định bật).",
+        )
+        parser.add_argument(
+            "--no-skip-scrape-errors",
+            action="store_false",
+            dest="skip_scrape_errors",
+            help="Không bỏ qua category scrape-error (cloudflare.com / 5xx-error-landing).",
+        )
+        parser.add_argument(
+            "--report-no-price",
+            action="store_true",
+            default=True,
+            dest="report_no_price",
+            help="Ghi artifact CSV các unit thiếu giá scrape (mặc định bật).",
+        )
+        parser.add_argument(
+            "--no-report-no-price",
+            action="store_false",
+            dest="report_no_price",
+            help="Không ghi artifact no-price.",
+        )
+        parser.add_argument(
+            "--no-price-artifact",
+            default=None,
+            dest="no_price_artifact",
+            help="Đường dẫn artifact no-price (default: storeApp/test/data/artifacts/no_price_products_*.csv).",
+        )
+        parser.add_argument(
+            "--annotate-source-csv",
+            action="store_true",
+            default=True,
+            dest="annotate_source_csv",
+            help="Ghi cột import.scrapePriceGap vào CSV nguồn (consult|zero|missing). Mặc định bật.",
+        )
+        parser.add_argument(
+            "--no-annotate-source-csv",
+            action="store_false",
+            dest="annotate_source_csv",
+            help="Không ghi đè cột import.scrapePriceGap lên CSV nguồn.",
+        )
 
     def handle(self, *args, **options):
         path = options["path"]
@@ -138,9 +197,15 @@ class Command(BaseCommand):
             using=STORE_DATABASE_ALIAS,
         )
         self.use_smart_random_price = not options.get("no_smart_random_price", False)
+        self.skip_scrape_errors = bool(options.get("skip_scrape_errors", True))
+        self.report_no_price = bool(options.get("report_no_price", True))
+        self.annotate_source_csv = bool(options.get("annotate_source_csv", True))
+        self.missing_price_reporter = MissingPriceReporter() if self.report_no_price else None
 
         if dry_run:
             self.stdout.write(self.style.WARNING("⚠  DRY-RUN mode — không ghi vào DB."))
+        if self.skip_scrape_errors:
+            self.stdout.write("⏭  Skip scrape-error L0 (cloudflare.com / 5xx-error-landing).")
 
         data_files = self._collect_data_files(path)
         if not data_files:
@@ -171,12 +236,51 @@ class Command(BaseCommand):
             self._print_file_stats(file_stats)
 
         self._print_summary(total_stats, dry_run, no_batches)
+        self._finalize_no_price_reports(options)
 
         if not dry_run:
             from storeApp.services.search_facets_service import SearchFacetsService
 
             SearchFacetsService.invalidate_all_cache()
             self.stdout.write("♻️  Search facet cache invalidated.")
+
+    def _finalize_no_price_reports(self, options: dict) -> None:
+        reporter = self.missing_price_reporter
+        if not reporter or not reporter.hits:
+            if self.report_no_price:
+                self.stdout.write("💸 No-price gaps: 0 (không ghi artifact).")
+            return
+
+        try:
+            from django.conf import settings
+
+            base_dir = str(settings.BASE_DIR)
+        except Exception:
+            base_dir = os.getcwd()
+
+        out_path = options.get("no_price_artifact") or default_artifact_path(base_dir)
+        if not os.path.isabs(out_path):
+            out_path = os.path.join(base_dir, out_path)
+        written = reporter.write_artifact(out_path, append=True)
+        self.stdout.write(
+            self.style.WARNING(
+                f"💸 No-price gaps: {len(reporter.hits)} unit(s) → {os.path.relpath(written, base_dir)}"
+            )
+        )
+
+        split_map = reporter.write_split_artifacts(written)
+        if split_map:
+            split_dir = os.path.dirname(split_map.get("summary") or written)
+            self.stdout.write(
+                f"📂 Split artifacts → {os.path.relpath(split_dir, base_dir)} "
+                f"({len(split_map)} files; see SUMMARY_*.txt)"
+            )
+
+        if self.annotate_source_csv:
+            rewritten = reporter.annotate_source_csvs()
+            self.stdout.write(
+                f"📝 Annotated import.scrapePriceGap on {len(rewritten)} CSV file(s)."
+            )
 
     @staticmethod
     def _empty_stats() -> dict:
@@ -200,6 +304,8 @@ class Command(BaseCommand):
             "errors": 0,
             "units_from_sale_units": 0,
             "units_from_package_options": 0,
+            "skipped_scrape_errors": 0,
+            "synthetic_price_units": 0,
         }
 
     def _collect_data_files(self, path: str):
@@ -254,6 +360,9 @@ class Command(BaseCommand):
             rows = rows[:limit]
         stats["rows"] = len(rows)
 
+        # CSV line 1 = header; data row i (0-based) → file line i+2
+        is_csv = data_file.endswith(".csv")
+
         for row_num, row in enumerate(rows, start=1):
             try:
                 with transaction.atomic(using=STORE_DATABASE_ALIAS):
@@ -264,6 +373,9 @@ class Command(BaseCommand):
                         no_batches=no_batches,
                         category_cache=category_cache,
                         brand_cache=brand_cache,
+                        source_file=data_file,
+                        row_index=row_num - 1,
+                        csv_line=(row_num + 1) if is_csv else row_num,
                     )
                 for k, v in row_stats.items():
                     stats[k] = stats.get(k, 0) + v
@@ -283,16 +395,23 @@ class Command(BaseCommand):
         no_batches: bool,
         category_cache: dict,
         brand_cache: dict,
+        source_file: str = "",
+        row_index: int = 0,
+        csv_line: int = 0,
     ) -> dict:
         stats = self._empty_stats()
         del stats["files"]
+
+        category_array = parse_category_array_from_row(row)
+        if self.skip_scrape_errors and should_skip_category_array(category_array):
+            stats["skipped_scrape_errors"] = 1
+            return stats
 
         brand_id, brands_created = resolve_brand(
             row, brand_cache, dry_run=dry_run, using=STORE_DATABASE_ALIAS
         )
         stats["brands_created"] = brands_created
 
-        category_array = parse_category_array_from_row(row)
         leaf_category = None
         if category_array:
             leaf_category, cat_new = resolve_leaf_category(
@@ -327,9 +446,29 @@ class Command(BaseCommand):
         variant_payloads, units_source = self._build_variant_payloads_for_row(row)
         stats[units_source] = 1
 
+        l0_slug = l0_slug_from_category_array(category_array)
         for payload in variant_payloads:
+            units = payload.get("units", []) or []
+            gaps = collect_unit_price_gaps(units)
+            if gaps and self.missing_price_reporter is not None:
+                for unit, reason in gaps:
+                    self.missing_price_reporter.add(
+                        MissingPriceHit(
+                            source_file=source_file,
+                            csv_line=csv_line,
+                            row_index=row_index,
+                            mid=mid_from_row(row),
+                            slug=slug_from_row(row),
+                            name=name_from_row(row),
+                            unit_name=str(unit.get("unit_name") or unit.get("name") or ""),
+                            reason=reason,
+                            l0_slug=l0_slug,
+                        )
+                    )
+                stats["synthetic_price_units"] += len(gaps)
+
             ensure_unit_pricing(
-                payload.get("units", []),
+                units,
                 fallback_price=_parse_price_value(
                     str(row.get("pricing.priceDisplay") or row.get("pricing.priceValue") or "")
                 ),
@@ -367,6 +506,9 @@ class Command(BaseCommand):
                 stats["variants_updated"] += 1
             stats["variant_units_created"] += unit_stats.get("created", 0)
             stats["variant_units_updated"] += unit_stats.get("updated", 0)
+            stats["variant_units_deactivated"] = (
+                stats.get("variant_units_deactivated", 0) + unit_stats.get("deactivated", 0)
+            )
             created_variants.append(variant_instance)
 
         if not no_batches and not dry_run and created_variants:
@@ -419,6 +561,8 @@ class Command(BaseCommand):
             f"brand+={stats['brands_created']}  "
             f"cat+={stats['categories_created']}  "
             f"batch+={stats['batches_created']}  "
+            f"skipErr={stats.get('skipped_scrape_errors', 0)}  "
+            f"synthPrice={stats.get('synthetic_price_units', 0)}  "
             f"err={stats['errors']}"
         )
 
@@ -430,7 +574,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  Brands tạo mới: {total_stats['brands_created']}")
         self.stdout.write(f"  Categories    : {total_stats['categories_created']}")
         self.stdout.write(f"  Products tạo  : {total_stats['products_created']}")
-        self.stdout.write(f"  Products cập nl: {total_stats['products_updated']}")
+        self.stdout.write(f"  Products cập nhật: {total_stats['products_updated']}")
         self.stdout.write(f"  ProductCategory links: {total_stats.get('product_categories_linked', 0)}")
         self.stdout.write(
             f"  Attr values tạo/existing: {total_stats.get('attribute_values_created', 0)}"
@@ -440,14 +584,20 @@ class Command(BaseCommand):
             f"  Attr options tạo: {total_stats.get('attribute_options_created', 0)}"
         )
         self.stdout.write(f"  Variants tạo  : {total_stats['variants_created']}")
-        self.stdout.write(f"  Variants cập nl: {total_stats['variants_updated']}")
+        self.stdout.write(f"  Variants cập nhật: {total_stats['variants_updated']}")
         self.stdout.write(f"  VariantUnits tạo : {total_stats['variant_units_created']}")
-        self.stdout.write(f"  VariantUnits cập nl: {total_stats['variant_units_updated']}")
+        self.stdout.write(f"  VariantUnits cập nhật: {total_stats['variant_units_updated']}")
         batch_label = "Batches (simulated)" if dry_run and not no_batches else "Batches tạo"
         self.stdout.write(f"  {batch_label:16}: {total_stats['batches_created']}")
         self.stdout.write(
             f"  Units source  : saleUnits={total_stats['units_from_sale_units']}  "
             f"packageOptions={total_stats['units_from_package_options']}"
+        )
+        self.stdout.write(
+            f"  Skip scrape-err: {total_stats.get('skipped_scrape_errors', 0)}"
+        )
+        self.stdout.write(
+            f"  Synthetic price units: {total_stats.get('synthetic_price_units', 0)}"
         )
         self.stdout.write(f"  Lỗi           : {total_stats['errors']}")
         if dry_run:

@@ -147,6 +147,11 @@ def build_variant_payloads_from_sale_units(
     if not sale_units:
         return []
 
+    # Manual/total-pack price often lands as single Hộp qib=1 — expand from packing.
+    from .store_import_packaging import reconcile_sale_units_with_packing
+
+    sale_units = reconcile_sale_units_with_packing(sale_units, default_packing)
+
     units = []
     for su in sale_units:
         if not isinstance(su, dict):

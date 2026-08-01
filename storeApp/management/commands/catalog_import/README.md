@@ -3,11 +3,53 @@
 Logic import/audit catalog (DB alias `store`). CLI entry: `../store_catalog.py`.
 
 ```bash
-python manage.py store_catalog import-csv [path] [--dry-run] ...
-python manage.py store_catalog import-refactor [--apply] ...
+python manage.py store_catalog import-csv [path] [--dry-run] [--update-existing] ...
+python manage.py store_catalog import-refactor [--apply] [--phase old|new|both] ...
 python manage.py store_catalog audit --overview [--overview-id-limit 10]
 python manage.py backfill_product_categories [--dry-run]
 ```
+
+## Import catalog (local) — SoT = ``storeApp/test/data/new``
+
+Toàn bộ CSV scrape (đã merge từ `old/` + chỉnh giá thủ công) nằm dưới:
+
+```text
+storeApp/test/data/new/<l0>/scraped-data-*.csv
+  cham-soc-ca-nhan/
+  duoc-mi-pham/
+  thiet-bi-y-te/
+  thuc-pham-chuc-nang/
+  thuoc/
+```
+
+Thư mục `storeApp/test/` (CSV + artifacts) và `local_scrape/` **không commit** lên GitHub.
+
+```bash
+# Seed filter dictionary first
+python manage.py seed_catalog_attributes
+
+# Dry-run toàn bộ data/new
+python manage.py store_catalog import-refactor --dry-run --update-existing
+
+# Apply to local store DB
+python manage.py store_catalog import-refactor --apply --update-existing
+```
+
+Defaults on import:
+- **Skip** scrape-error L0 (`cloudflare.com` / `5xx-error-landing`)
+- **Keep** smart random price for `CONSULT` / `0` / missing
+- **Artifact** `storeApp/test/data/artifacts/current/` (see `SUMMARY.md`)
+  - `no_price_products.csv`, `by_l0/`, `p3_thuoc_batches/batch_NNN.csv` (100 SKU/lô)
+  - Stale copies live under `artifacts/_archive_*/` — do not mix
+- **Annotate** source CSV column `import.scrapePriceGap` = `consult|zero|missing`
+
+Re-split an existing aggregate file:
+
+```bash
+python -c "from storeApp.management.commands.catalog_import.store_import_artifacts import split_existing_artifact_csv; print(split_existing_artifact_csv('storeApp/test/data/artifacts/no_price_products_local.csv'))"
+```
+
+Opt out: `--no-skip-scrape-errors`, `--no-report-no-price`, `--no-annotate-source-csv`.
 
 ## Module layout
 
@@ -20,8 +62,10 @@ python manage.py backfill_product_categories [--dry-run]
 | `store_import_attributes.py` | Product filter attrs → `ProductAttributeValue` (see `guidelines/catalog-attributes.md`) |
 | `store_import_variants.py` | Variant, PVU, MedicineBatch |
 | `store_import_packaging.py` | packageOptions → variant payloads |
-| `store_import_pricing.py` | Giá synthetic khi thiếu |
-| `store_import_refactor.py` | Workflow old/new; gọi `run_import_csv()` |
+| `store_import_pricing.py` | Giá synthetic khi thiếu; classify `consult`/`zero`/`missing` |
+| `store_import_skip.py` | Skip Cloudflare / 5xx-error-landing L0 |
+| `store_import_artifacts.py` | Artifact no-price + annotate `import.scrapePriceGap` trên CSV nguồn |
+| `store_import_refactor.py` | Workflow import `data/new` (legacy `--phase old` nếu còn) |
 | `store_audit_product.py` | So DB vs CSV |
 | `run.py` | `run_import_csv()` — gọi nội bộ |
 

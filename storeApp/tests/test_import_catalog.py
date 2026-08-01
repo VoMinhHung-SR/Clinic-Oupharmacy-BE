@@ -68,6 +68,89 @@ class StoreImportCsvHelperTests(SimpleTestCase):
         price = compute_import_price_per_base_unit(425000, 40)
         self.assertEqual(price, Decimal("10625.00"))
 
+    def test_parse_packing_hierarchy_hop_vi_vien(self):
+        from storeApp.management.commands.catalog_import.store_import_packaging import (
+            parse_packing_hierarchy,
+            expand_sale_units_from_pack_price,
+        )
+
+        levels = parse_packing_hierarchy("Hộp 3 Vỉ x 10 Viên")
+        self.assertEqual(
+            [(x["unit_name"], x["quantity_in_base"]) for x in levels],
+            [("Viên", 1), ("Vỉ", 10), ("Hộp", 30)],
+        )
+        units = expand_sale_units_from_pack_price("Hộp 3 Vỉ x 10 Viên", 105000)
+        by_name = {u["unitName"]: u for u in units}
+        self.assertEqual(by_name["Viên"]["priceValue"], 3500.0)
+        self.assertEqual(by_name["Vỉ"]["priceValue"], 35000.0)
+        self.assertEqual(by_name["Hộp"]["priceValue"], 105000.0)
+        self.assertEqual(by_name["Hộp"]["quantityInBase"], 30)
+        self.assertTrue(by_name["Hộp"]["isDefault"])
+        self.assertFalse(by_name["Viên"]["isDefault"])
+
+    def test_reconcile_sale_units_expands_single_hop(self):
+        from storeApp.management.commands.catalog_import.store_import_packaging import (
+            reconcile_sale_units_with_packing,
+        )
+        from storeApp.management.commands.catalog_import.store_import_row import (
+            build_variant_payloads_from_sale_units,
+        )
+
+        raw = [
+            {
+                "unitName": "Hộp",
+                "quantityInBase": 1,
+                "unitOrder": 0,
+                "isDefault": True,
+                "priceValue": 105000,
+                "priceDisplay": "105.000đ",
+            }
+        ]
+        expanded = reconcile_sale_units_with_packing(raw, "Hộp 3 Vỉ x 10 Viên")
+        self.assertEqual(len(expanded), 3)
+        payloads = build_variant_payloads_from_sale_units(raw, "Hộp 3 Vỉ x 10 Viên")
+        units = payloads[0]["units"]
+        self.assertEqual(payloads[0]["base_unit"], "Viên")
+        self.assertEqual(len(units), 3)
+        hop = next(u for u in units if u["unit_name"] == "Hộp")
+        self.assertEqual(hop["quantity_in_base"], 30)
+        self.assertEqual(hop["price_value"], 105000.0)
+
+    def test_parse_packing_hop_one_vi_collapses_duplicate(self):
+        from storeApp.management.commands.catalog_import.store_import_packaging import (
+            parse_packing_hierarchy,
+            expand_sale_units_from_pack_price,
+        )
+
+        # Hộp 1 Vỉ x 4 Viên → skip duplicate Vỉ/Hộp (same qib)
+        levels = parse_packing_hierarchy("Hộp 1 Vỉ x 4 Viên")
+        self.assertEqual(
+            [(x["unit_name"], x["quantity_in_base"]) for x in levels],
+            [("Viên", 1), ("Hộp", 4)],
+        )
+        units = expand_sale_units_from_pack_price("Hộp 1 Vỉ x 4 Viên", 170000)
+        by_name = {u["unitName"]: u for u in units}
+        self.assertEqual(set(by_name), {"Viên", "Hộp"})
+        self.assertEqual(by_name["Viên"]["priceValue"], 42500.0)
+        self.assertEqual(by_name["Hộp"]["priceValue"], 170000.0)
+        self.assertEqual(by_name["Hộp"]["quantityInBase"], 4)
+
+    def test_parse_packing_hop_n_vien_not_vi(self):
+        from storeApp.management.commands.catalog_import.store_import_packaging import (
+            parse_packing_hierarchy,
+            expand_sale_units_from_pack_price,
+        )
+
+        levels = parse_packing_hierarchy("Hộp 60 Viên")
+        self.assertEqual(
+            [(x["unit_name"], x["quantity_in_base"]) for x in levels],
+            [("Viên", 1), ("Hộp", 60)],
+        )
+        units = expand_sale_units_from_pack_price("Hộp 60 Viên", 355000)
+        by_name = {u["unitName"]: u for u in units}
+        self.assertEqual(by_name["Viên"]["priceValue"], 5917.0)
+        self.assertEqual(by_name["Hộp"]["priceValue"], 355000.0)
+
 
 class StoreImportCategoryMergeTests(TestCase):
     databases = {"default", "store"}

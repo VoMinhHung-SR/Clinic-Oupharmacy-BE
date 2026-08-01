@@ -3,10 +3,232 @@ import re
 from typing import Optional
 
 from .store_import_pricing import (
+    format_price_display,
     is_consult_price_display,
     is_positive_price,
     mark_scrape_consult_unit,
 )
+
+# Canonical unit tokens (longest match first when scanning).
+_UNIT_ALIASES = {
+    "viên": "Viên",
+    "vien": "Viên",
+    "vỉ": "Vỉ",
+    "vi": "Vỉ",
+    "gói": "Gói",
+    "goi": "Gói",
+    "ống": "Ống",
+    "ong": "Ống",
+    "chai": "Chai",
+    "lọ": "Lọ",
+    "lo": "Lọ",
+    "tuýp": "Tuýp",
+    "tuyp": "Tuýp",
+    "hộp": "Hộp",
+    "hop": "Hộp",
+    "thỏi": "Thỏi",
+}
+
+
+def _canon_unit(token: str) -> Optional[str]:
+    t = (token or "").strip().lower()
+    if not t:
+        return None
+    return _UNIT_ALIASES.get(t)
+
+
+def parse_packing_hierarchy(packing: str) -> list[dict]:
+    """
+    Parse quy cách đóng gói → list unit từ nhỏ → lớn, mỗi phần tử:
+      {unit_name, quantity_in_base}  # quantity_in_base = số đơn vị cơ sở trong unit đó
+
+    Ví dụ:
+      "Hộp 3 Vỉ x 10 Viên" → Viên=1, Vỉ=10, Hộp=30
+      "Hộp 20 Gói"         → Gói=1, Hộp=20
+      "Tuýp x 10g"         → Tuýp=1  (không tách khối lượng thành base bán)
+      "Hộp 4 Vỉ x 5 Ống x 10ml" → Ống=1, Vỉ=5, Hộp=20
+    """
+    text = (packing or "").strip()
+    if not text:
+        return []
+
+    # Normalize separators / junk
+    raw = text
+    raw = raw.replace("×", "x").replace("X", "x")
+    raw = re.sub(r"\s+", " ", raw).strip()
+
+    # Pattern: Outer N Mid x M Base  (optionally more "x qty unit")
+    # e.g. Hộp 3 Vỉ x 10 Viên | Hộp 4 Vỉ x 5 Ống x 10ml
+    m = re.match(
+        r"^(?P<outer>Hộp|hộp|Hop|hop)\s+"
+        r"(?P<n>\d+)\s*"
+        # Longer tokens first (Viên before Vi) so "Hộp 60 Viên" ≠ mid=Vỉ
+        r"(?P<mid>Viên|viên|Vien|vien|Vỉ|vỉ|Gói|gói|Goi|goi|Ống|ống|Ong|ong|Vi|vi)"
+        r"(?:\s*x\s*(?P<m>\d+)\s*"
+        r"(?P<base>Viên|viên|Vien|vien|Ống|ống|Ong|ong|Gói|gói|Goi|goi|Vỉ|vỉ))?"
+        r"(?:\s*x\s*\d+\s*(?:ml|g|mg|mcg|IU|iu))?"
+        r".*$",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        outer = _canon_unit(m.group("outer")) or "Hộp"
+        mid = _canon_unit(m.group("mid"))
+        n = int(m.group("n"))
+        if m.group("m") and m.group("base"):
+            base = _canon_unit(m.group("base"))
+            per_mid = int(m.group("m"))
+            if base and mid and n > 0 and per_mid > 0:
+                if n == 1:
+                    # Hộp 1 Vỉ x 10 Viên → Viên + Hộp (skip duplicate Vỉ/Hộp)
+                    return [
+                        {"unit_name": base, "quantity_in_base": 1},
+                        {"unit_name": outer, "quantity_in_base": per_mid},
+                    ]
+                return [
+                    {"unit_name": base, "quantity_in_base": 1},
+                    {"unit_name": mid, "quantity_in_base": per_mid},
+                    {"unit_name": outer, "quantity_in_base": n * per_mid},
+                ]
+        # Hộp N Gói / Hộp N Ống / Hộp N Viên (no mid×base)
+        if mid and n > 0:
+            return [
+                {"unit_name": mid, "quantity_in_base": 1},
+                {"unit_name": outer, "quantity_in_base": n},
+            ]
+
+    # Pattern: Hộp N Vỉ x M Viên already covered; try looser "A n B" repeated
+    # Single unit with size: "Tuýp x 10g", "Chai x 200ml", "Lọ 20ml", "Hộp x 15g"
+    m2 = re.match(
+        r"^(?P<u>Tuýp|tuýp|Tuyp|Chai|chai|Lọ|lọ|Lo|Hộp|hộp|Thỏi|thỏi)"
+        r"(?:\s*x\s*\d+(?:[.,]\d+)?\s*(?:ml|g|mg)?)?"
+        r"(?:\s+\d+(?:[.,]\d+)?\s*(?:ml|g|mg)?)?"
+        r"\s*$",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if m2:
+        u = _canon_unit(m2.group("u"))
+        if u:
+            return [{"unit_name": u, "quantity_in_base": 1}]
+
+    # Fallback: first known unit token → qib=1
+    for token in re.split(r"[\s/|]+", raw):
+        u = _canon_unit(token)
+        if u:
+            return [{"unit_name": u, "quantity_in_base": 1}]
+    return []
+
+
+def expand_sale_units_from_pack_price(
+    packing: str,
+    pack_price: float,
+    *,
+    default_is_outer: bool = True,
+) -> list[dict]:
+    """
+    Từ giá tổng của quy cách ngoài cùng → saleUnits đầy đủ (base → outer).
+
+    Ví dụ packing="Hộp 3 Vỉ x 10 Viên", pack_price=105000:
+      Viên qib=1  price=3500
+      Vỉ   qib=10 price=35000
+      Hộp  qib=30 price=105000 (isDefault)
+    """
+    hierarchy = parse_packing_hierarchy(packing)
+    if not hierarchy:
+        return []
+
+    try:
+        pack_price_f = float(pack_price or 0)
+    except (TypeError, ValueError):
+        pack_price_f = 0.0
+    if pack_price_f <= 0:
+        return []
+
+    outer_qib = max(int(hierarchy[-1]["quantity_in_base"] or 1), 1)
+    units: list[dict] = []
+    for idx, level in enumerate(hierarchy):
+        qib = max(int(level["quantity_in_base"] or 1), 1)
+        # proportional price; round to whole VND
+        price = round(pack_price_f * qib / outer_qib)
+        if price <= 0 and pack_price_f > 0:
+            price = 1
+        is_default = (idx == len(hierarchy) - 1) if default_is_outer else (idx == 0)
+        units.append(
+            {
+                "unitName": level["unit_name"],
+                "unitOrder": idx,
+                "quantityInBase": qib,
+                "priceValue": float(price),
+                "priceDisplay": format_price_display(price, level["unit_name"]),
+                "isDefault": is_default,
+                "isAvailable": True,
+                "compareAtPrice": None,
+                "compareAtPriceValue": None,
+            }
+        )
+    # Ensure exactly one default
+    if units:
+        if not any(u.get("isDefault") for u in units):
+            units[-1]["isDefault"] = True
+        else:
+            seen = False
+            for u in units:
+                if u.get("isDefault"):
+                    if seen:
+                        u["isDefault"] = False
+                    seen = True
+    return units
+
+
+def reconcile_sale_units_with_packing(
+    sale_units: list,
+    packing: str,
+    *,
+    pack_price: float | None = None,
+) -> list:
+    """
+    Nếu CSV chỉ có 1 saleUnit (thường Hộp qib=1) nhưng packing mô tả đa cấp,
+    mở rộng thành Viên/Vỉ/Hộp với giá tỉ lệ từ giá gói.
+    Không đụng nếu scrape đã có ≥2 unit hợp lệ với qib phân cấp.
+    """
+    if not isinstance(sale_units, list) or not sale_units:
+        return sale_units
+
+    hierarchy = parse_packing_hierarchy(packing)
+    if len(hierarchy) < 2:
+        return sale_units
+
+    # Already multi-level with distinct qib?
+    qibs = []
+    for su in sale_units:
+        if not isinstance(su, dict):
+            continue
+        try:
+            qibs.append(max(int(su.get("quantityInBase") or su.get("quantity_in_base") or 1), 1))
+        except (TypeError, ValueError):
+            qibs.append(1)
+    if len(sale_units) >= 2 and len(set(qibs)) >= 2 and max(qibs) > 1:
+        return sale_units
+
+    # Resolve pack price
+    price = pack_price
+    if price is None:
+        for su in sale_units:
+            if not isinstance(su, dict):
+                continue
+            try:
+                pv = float(su.get("priceValue") or su.get("price_value") or 0)
+            except (TypeError, ValueError):
+                pv = 0.0
+            if pv > 0:
+                price = pv
+                break
+    if not price or float(price) <= 0:
+        return sale_units
+
+    expanded = expand_sale_units_from_pack_price(packing, float(price))
+    return expanded or sale_units
 
 
 def _parse_price_value(price_display: str) -> float:

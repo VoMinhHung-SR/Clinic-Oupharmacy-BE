@@ -27,9 +27,9 @@ venv.bak/
 
 storeApp/test/
 
-# Local-only scrape tooling, CSVs, spike notes (do not commit)
-/local_scrape/
-.cursor/    
+local_scrape/
+
+.cursor/
 artifacts/*.dump
 
 # Database backups
