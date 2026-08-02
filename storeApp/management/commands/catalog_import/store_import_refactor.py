@@ -1,22 +1,24 @@
 """
 store_import_refactor.py
 ------------------------
-One-shot catalog refactor: gọi store_import_csv với preset đúng cho old → new workflow.
+One-shot catalog import: gọi store_import_csv trên cây CSV đã gộp.
+
+SoT CSV: ``storeApp/test/data/new/<l0>/scraped-data-*.csv``
+(các category cũ dưới ``data/old`` đã merge vào ``data/new``).
 
 Dry-run mặc định (không ghi DB). Dùng --apply để import thật.
 
 Ví dụ:
-  # Smoke: 1 file CSV nhỏ nhất trong data/old (2 dòng data)
+  # Smoke: 1 file CSV nhỏ nhất
   python manage.py store_catalog import-refactor --dry-run --sample
 
-  # Toàn bộ data/old (packageOptions refactor + batch simulated)
+  # Toàn bộ data/new
   python manage.py store_catalog import-refactor --dry-run
 
-  # Old rồi new (2 phase)
-  python manage.py store_catalog import-refactor --dry-run --phase both
-
   # Ghi DB
-  python manage.py store_catalog import-refactor --apply --phase both --update-existing
+  python manage.py store_catalog import-refactor --apply --update-existing
+
+  # Legacy: --phase old chỉ còn nếu thư mục data/old tồn tại
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from storeApp.management.commands.catalog_import.run import run_import_csv
 
+# Legacy path (removed after merge into new/). Kept for --phase old if restored.
 DEFAULT_OLD_DIR = "storeApp/test/data/old"
 DEFAULT_NEW_DIR = "storeApp/test/data/new"
 
@@ -96,8 +99,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--phase",
             choices=("old", "new", "both"),
-            default="old",
-            help="old=packageOptions refactor; new=saleUnits; both=old rồi new.",
+            default="new",
+            help=(
+                "new=storeApp/test/data/new (SoT, mặc định). "
+                "old=data/old (legacy, chỉ nếu thư mục còn). "
+                "both=old rồi new (skip phase nếu path thiếu)."
+            ),
         )
         parser.add_argument(
             "--path",
@@ -148,6 +155,26 @@ class Command(BaseCommand):
             action="store_true",
             help="Tắt random giá theo tier đơn vị (dùng random phẳng).",
         )
+        parser.add_argument(
+            "--no-skip-scrape-errors",
+            action="store_true",
+            help="Không bỏ qua Cloudflare/5xx-error-landing rows.",
+        )
+        parser.add_argument(
+            "--no-annotate-source-csv",
+            action="store_true",
+            help="Không ghi cột import.scrapePriceGap lên CSV nguồn.",
+        )
+        parser.add_argument(
+            "--no-report-no-price",
+            action="store_true",
+            help="Không ghi artifact no-price.",
+        )
+        parser.add_argument(
+            "--no-price-artifact",
+            default=None,
+            help="Override path artifact no-price CSV.",
+        )
 
     def handle(self, *args, **options):
         if options["dry_run"] and options["apply"]:
@@ -166,8 +193,20 @@ class Command(BaseCommand):
                 if options["category"]:
                     root = os.path.join(root, options["category"])
                 if not os.path.isdir(root) and not os.path.isfile(root):
+                    if phase == "old":
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f"  Skip phase [old] — không còn {base} "
+                                f"(CSV đã gộp vào {DEFAULT_NEW_DIR})."
+                            )
+                        )
+                        continue
                     raise CommandError(f"Không tìm thấy path: {root}")
                 paths.append((phase, root))
+            if not paths:
+                raise CommandError(
+                    f"Không có path import nào. Kiểm tra {DEFAULT_NEW_DIR}."
+                )
 
         self.stdout.write(self.style.MIGRATE_HEADING("store_import_refactor"))
         self.stdout.write(
@@ -209,6 +248,14 @@ class Command(BaseCommand):
                 kwargs["batch_count"] = options["batch_count"]
             if options["no_smart_random_price"]:
                 kwargs["no_smart_random_price"] = True
+            if options.get("no_skip_scrape_errors"):
+                kwargs["skip_scrape_errors"] = False
+            if options.get("no_annotate_source_csv"):
+                kwargs["annotate_source_csv"] = False
+            if options.get("no_report_no_price"):
+                kwargs["report_no_price"] = False
+            if options.get("no_price_artifact"):
+                kwargs["no_price_artifact"] = options["no_price_artifact"]
 
             run_import_csv(import_path, **kwargs)
 

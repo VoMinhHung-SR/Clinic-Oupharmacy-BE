@@ -11,27 +11,14 @@ from typing import Optional
 
 from dateutil.relativedelta import relativedelta
 
+from storeApp.services.country_normalize import (
+    COUNTRY_MAP,
+    extract_country,
+    extract_country_from_row,
+)
+
 from .store_import_packaging import normalize_single_default_unit_per_variant
 from .store_import_pricing import is_consult_price_display, mark_scrape_consult_unit
-
-COUNTRY_MAP = {
-    "úc": "Úc", "australia": "Úc",
-    "pháp": "Pháp", "france": "Pháp",
-    "đức": "Đức", "germany": "Đức",
-    "mỹ": "Mỹ", "usa": "Mỹ", "hoa kỳ": "Mỹ",
-    "anh": "Anh", "uk": "Anh", "united kingdom": "Anh", "england": "Anh",
-    "nhật": "Nhật Bản", "japan": "Nhật Bản",
-    "hàn quốc": "Hàn Quốc", "korea": "Hàn Quốc", "south korea": "Hàn Quốc",
-    "trung quốc": "Trung Quốc", "china": "Trung Quốc",
-    "ấn độ": "Ấn Độ", "india": "Ấn Độ",
-    "thái lan": "Thái Lan", "thailand": "Thái Lan",
-    "pakistan": "Pakistan",
-    "việt nam": "Việt Nam", "vietnam": "Việt Nam",
-    "hungary": "Hungary",
-    "thuỵ điển": "Thụy Điển", "sweden": "Thụy Điển",
-    "ý": "Ý", "italy": "Ý",
-    "tây ban nha": "Tây Ban Nha", "spain": "Tây Ban Nha",
-}
 
 _RANDOM_SHELF_LIFE_MONTHS = (12, 18, 24, 36)
 
@@ -82,25 +69,6 @@ def normalize_brand(name: str) -> Optional[str]:
         return None
     normalized = " ".join(name.strip().split())
     return normalized or None
-
-
-def extract_country(text: str) -> Optional[str]:
-    if not text:
-        return None
-    lower = text.lower()
-    for key, country in COUNTRY_MAP.items():
-        if key in lower:
-            return country
-    return None
-
-
-def extract_country_from_row(row: dict) -> Optional[str]:
-    for field in ("specifications.origin", "specifications.manufacturer"):
-        val = str(row.get(field) or "").strip()
-        country = extract_country(val)
-        if country:
-            return country
-    return None
 
 
 def add_months(d: date, months: int) -> date:
@@ -178,6 +146,11 @@ def build_variant_payloads_from_sale_units(
     """Direct payload từ scraper saleUnits[] (giữ unitOrder + isDefault gốc)."""
     if not sale_units:
         return []
+
+    # Manual/total-pack price often lands as single Hộp qib=1 — expand from packing.
+    from .store_import_packaging import reconcile_sale_units_with_packing
+
+    sale_units = reconcile_sale_units_with_packing(sale_units, default_packing)
 
     units = []
     for su in sale_units:

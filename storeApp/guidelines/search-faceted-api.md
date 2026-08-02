@@ -34,7 +34,7 @@ Tài liệu này mô tả bộ API search hiện tại cho storefront, gồm ana
 - Category browse: `q=` (rỗng) + `category=<id>`.
 - Trả:
   - `items`: danh sách product variants (1 card / product)
-  - `facets`: `category`, `brand`, `price_ranges`, `in_stock`
+  - `facets`: `category`, `brand`, `origin_country`, `attributes`, `price_ranges`, `in_stock`
   - `meta`: `total`, `page`, `page_size`, `has_more`, `took_ms`, `applied_filters`
 
 ### `GET /api/store/resolve-path/<path>/` (category meta)
@@ -49,22 +49,67 @@ Category resolution trả listing meta cho search-first browse:
 - `page`: mặc định `1`
 - `page_size`: mặc định `12`, max `100`
 - `category`: category id
-- `brand`: brand id
+- `brand`: brand id **hoặc CSV multi** (`1,2,3`) — OR trong cùng param
+- `origin_country`: quốc gia chuẩn hóa **hoặc CSV multi** (`Việt Nam,Pháp`) — từ `Brand.country`; token không nhận diện bị bỏ
+- `attrs`: repeatable `code:slug` — ví dụ `attrs=skin_type:da-kho&attrs=skin_type:da-dau&attrs=target_user:tre-em`
+  - **OR** trong cùng `code`
+  - **AND** giữa các `code` khác nhau
 - `price_range`: `under_100k` | `100k_300k` | `300k_500k` | `over_500k`
 - `in_stock`: `true` | `false`
 - `sort`: `relevance` | `price_asc` | `price_desc` | `popular`
 - `include_facets`: `true` | `false` (default `true`; set `false` for suggest-only item fetch)
 - `use_facet_cache`: `true` | `false` (default `true`; versioned cache via `SearchFacetsService`)
 
-## 3) Facet service (P2+)
+## 3) Facet service
 
 - SoT: `storeApp/services/search_facets_service.py`
-- Brand counts use **distinct `product_id`** (not variant rows).
-- Category facet buckets skipped when `category=` filter is set (browse sidebar only needs brand/price/stock).
-- Cache key: filter state (`q`, `category`, `brand`, `price_range`, `in_stock`) — not page/sort.
-- Bust all facet snapshots: `SearchFacetsService.invalidate_all_cache()` (hooked on `store_catalog import-csv`).
+- Brand / origin / attribute counts use **distinct `product_id`** (not variant rows).
+- `origin_country` chỉ trả label canonical (`country_normalize`); bỏ junk kiểu packing size.
+- Category facet buckets skipped when `category=` filter is set (browse sidebar still gets brand/origin/attrs/price/stock).
+- Cache key: filter state (`q`, `category`, `brand`, `origin_country`, `attrs`, `price_range`, `in_stock`) — not page/sort.
+- Bust all facet snapshots: `SearchFacetsService.invalidate_all_cache()` (hooked on `store_catalog import-csv` và `store_backfill brand-country`).
 
 Legacy `GET /api/store/dynamic-filters/` **removed** — use `/search/` facets only.
+
+### 3.1) `facets.attributes` (catalog attributes)
+
+Feature SoT: [`catalog-attributes.md`](catalog-attributes.md).
+
+- Nguồn: `ProductAttributeValue` → `CatalogAttributeOption` → `CatalogAttribute` (`active` + `is_filterable`).
+- Chỉ trả **group có count > 0** trong queryset hiện tại (category/search scope) → listing khác nhau thấy facet khác nhau.
+- Cap số group / option (tránh sidebar phình).
+- Shape:
+
+```json
+"attributes": [
+  {
+    "code": "dosage_form",
+    "label": "Dạng bào chế",
+    "type": "multiple",
+    "options": [
+      { "slug": "gel", "label": "Gel", "count": 12 }
+    ]
+  }
+]
+```
+
+- Filter: repeatable `attrs=code:slug` — OR cùng `code`, AND khác `code`.
+- Không gồm brand / category / price / `Brand.country` (các facet riêng).
+- Cache: default Django LocMem (`CACHES`); key theo filter state; TTL `SEARCH_FACETS_CACHE_TTL` (1h). Invalidate sau import/backfill.
+
+Seed attribute dictionary:
+
+```bash
+python manage.py seed_catalog_attributes --dry-run
+python manage.py seed_catalog_attributes
+```
+
+Backfill empty / dirty brand country:
+
+```bash
+python manage.py store_backfill brand-country --dry-run
+python manage.py store_backfill brand-country
+```
 
 ## 4) Ranking (v1)
 
@@ -92,8 +137,11 @@ Legacy `GET /api/store/dynamic-filters/` **removed** — use `/search/` facets o
 ### Filters
 
 - `category` + `brand` kết hợp vẫn trả `meta.applied_filters` chính xác.
+- `origin_country=Việt Nam` (hoặc CSV multi) chỉ giữ brand có country canonical tương ứng.
+- `attrs=skin_type:da-kho&attrs=target_user:tre-em` — AND giữa codes; OR nếu lặp cùng code.
 - `price_range=under_100k` chỉ trả item trong bucket tương ứng.
 - `in_stock=true` chỉ trả item có tồn kho > 0.
+- Category browse: `facets.attributes` chỉ chứa group có PAV trong category đó (có thể `[]` nếu chưa import attrs).
 
 ### Suggest
 
@@ -126,4 +174,5 @@ Legacy `GET /api/store/dynamic-filters/` **removed** — use `/search/` facets o
 
 ## 8) Related guidelines
 
+- Catalog attributes (model + feature): `storeApp/guidelines/catalog-attributes.md`
 - Cart-first checkout flow: `storeApp/guidelines/cart-first-checkout.md`
