@@ -31,7 +31,7 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 | `name`, `slug` | Unique |
 | `category` | FK **primary** (canonical URL; sync với M2M sau) |
 | `categories` | M2M `through=ProductCategory` — import `assign_category()`; list/detail/search filter theo M2M |
-| `content.*` (7) | Detail only; HTML sanitized (scraper) hoặc plain text cũ; FE DOMPurify |
+| `content.*` (7) | Detail only; HTML sanitized on import hoặc plain text; FE DOMPurify |
 | `ingredients` | Comma-list `"Name: amount, …"` — FE parse riêng |
 
 ### ProductCategory (M2M through)
@@ -57,7 +57,7 @@ CatalogAttribute 1──* Option 1──* ProductAttributeValue *──1 Product
 ```
 
 - Seed dictionary v1: `manage.py seed_catalog_attributes` (`target_user`, `skin_type`, `flavor`, `indication`, `dosage_form`, `brand_origin`).
-- Map scrape → store: `services/catalog_attribute_map.py` (`objectUse`→`target_user`, …; skip `brand`/`category`/`manufactor`).
+- Map nguồn → store: `services/catalog_attribute_map.py` (`objectUse`→`target_user`, …; skip `brand`/`category`/`manufactor`).
 - Import: `catalog_import/store_import_attributes.py` (hook sau product upsert trong `store_import_csv`).
 - Search: `facets.attributes[]` + `attrs=code:slug` — **AND** giữa code, **OR** trong code; counts = distinct `product_id`.
 - `Brand.country` / `origin_country` facet **riêng** (không qua PAV).
@@ -152,7 +152,7 @@ Voucher ──< VoucherRedemption >── Order
 - `storeApp/guidelines/cart-first-checkout.md`
 - `storeApp/guidelines/catalog-attributes.md` — **model + feature bộ lọc thuộc tính**
 - `storeApp/guidelines/search-faceted-api.md`, `search-facets-migration-2026-07-10.md`
-- `storeApp/guidelines/catalog-attributes-scrape-spike.md` — nguồn field scrape
+- `storeApp/services/catalog_attribute_map.py` — map mã nguồn → store attr
 - `storeApp/services/variant_listing.py`, `store_path_resolver.py`
 - `oupharmacy-store/docs/ROUTING.md`
 - `PersonalProject/plans/[Done] product-multi-category-m2m.plan.md`

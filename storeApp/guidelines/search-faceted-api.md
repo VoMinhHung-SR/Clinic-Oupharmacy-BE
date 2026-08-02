@@ -95,6 +95,7 @@ Feature SoT: [`catalog-attributes.md`](catalog-attributes.md).
 
 - Filter: repeatable `attrs=code:slug` — OR cùng `code`, AND khác `code`.
 - Không gồm brand / category / price / `Brand.country` (các facet riêng).
+- Cache: default Django LocMem (`CACHES`); key theo filter state; TTL `SEARCH_FACETS_CACHE_TTL` (1h). Invalidate sau import/backfill.
 
 Seed attribute dictionary:
 

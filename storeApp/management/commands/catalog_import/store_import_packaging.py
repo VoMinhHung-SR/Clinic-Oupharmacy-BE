@@ -3,6 +3,7 @@ import re
 from typing import Optional
 
 from .store_import_pricing import (
+    PRICE_DISPLAY_CONSULT,
     format_price_display,
     is_consult_price_display,
     is_positive_price,
@@ -125,6 +126,7 @@ def expand_sale_units_from_pack_price(
     pack_price: float,
     *,
     default_is_outer: bool = True,
+    consult_display: bool = False,
 ) -> list[dict]:
     """
     Từ giá tổng của quy cách ngoài cùng → saleUnits đầy đủ (base → outer).
@@ -133,6 +135,8 @@ def expand_sale_units_from_pack_price(
       Viên qib=1  price=3500
       Vỉ   qib=10 price=35000
       Hộp  qib=30 price=105000 (isDefault)
+
+    consult_display=True → giữ priceDisplay=CONSULT (clinic dùng priceValue).
     """
     hierarchy = parse_packing_hierarchy(packing)
     if not hierarchy:
@@ -160,7 +164,11 @@ def expand_sale_units_from_pack_price(
                 "unitOrder": idx,
                 "quantityInBase": qib,
                 "priceValue": float(price),
-                "priceDisplay": format_price_display(price, level["unit_name"]),
+                "priceDisplay": (
+                    PRICE_DISPLAY_CONSULT
+                    if consult_display
+                    else format_price_display(price, level["unit_name"])
+                ),
                 "isDefault": is_default,
                 "isAvailable": True,
                 "compareAtPrice": None,
@@ -227,7 +235,21 @@ def reconcile_sale_units_with_packing(
     if not price or float(price) <= 0:
         return sale_units
 
-    expanded = expand_sale_units_from_pack_price(packing, float(price))
+    was_consult = False
+    for su in sale_units:
+        if not isinstance(su, dict):
+            continue
+        pd = su.get("priceDisplay") or su.get("price_display")
+        pv = su.get("priceValue") if "priceValue" in su else su.get("price_value")
+        if is_consult_price_display(pd) or (
+            isinstance(pv, str) and str(pv).strip().upper() == PRICE_DISPLAY_CONSULT
+        ):
+            was_consult = True
+            break
+
+    expanded = expand_sale_units_from_pack_price(
+        packing, float(price), consult_display=was_consult
+    )
     return expanded or sale_units
 
 
@@ -271,7 +293,7 @@ def _parse_package_options(raw: str, default_packing: str = "", default_price_di
             for item in items:
                 if isinstance(item, dict):
                     pd = item.get("price", item.get("priceDisplay", default_price_display))
-                    pv = item.get("priceValue", _parse_price_value(pd))
+                    raw_pv = item.get("priceValue", _parse_price_value(pd))
                     consult = (
                         is_consult_price_display(pd)
                         or str(item.get("priceValue") or "").strip().upper() == "CONSULT"
@@ -281,11 +303,21 @@ def _parse_package_options(raw: str, default_packing: str = "", default_price_di
                         or item.get("unit", "")
                         or item.get("unitDisplay", default_packing)
                     )
+                    try:
+                        if (
+                            isinstance(raw_pv, str)
+                            and str(raw_pv).strip().upper() == PRICE_DISPLAY_CONSULT
+                        ):
+                            numeric_pv = 0.0
+                        else:
+                            numeric_pv = float(raw_pv or 0)
+                    except (TypeError, ValueError):
+                        numeric_pv = 0.0
                     entry = {
                         "packing": str(packing)[:100],
                         "unit_name": str(item.get("unit", item.get("unitDisplay", ""))).strip()[:50],
                         "price_display": str(pd)[:50] if not consult else None,
-                        "price_value": 0.0 if consult else (float(pv) if pv else 0.0),
+                        "price_value": numeric_pv,
                     }
                     if consult:
                         mark_scrape_consult_unit(entry)

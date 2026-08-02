@@ -29,8 +29,8 @@ CatalogAttribute 1──* CatalogAttributeOption 1──* ProductAttributeValue 
 
 `manage.py seed_catalog_attributes` — idempotent:
 
-| `code` | Label (VI) | Nguồn scrape điển hình |
-|--------|------------|-------------------------|
+| `code` | Label (VI) | Nguồn CSV điển hình |
+|--------|------------|---------------------|
 | `target_user` | Đối tượng sử dụng | `objectUse` |
 | `skin_type` | Loại da | `skin` |
 | `flavor` | Mùi vị / hương | `flavor` |
@@ -49,13 +49,13 @@ Map nguồn → store: `storeApp/services/catalog_attribute_map.py`
 
 ```mermaid
 flowchart LR
-  Scrape[Scrape / CSV attributes]
+  CSV[Catalog CSV / JSON attributes]
   Import[store_import_attributes]
   Dict[CatalogAttribute + Option]
   PAV[ProductAttributeValue]
   Search["GET /search/"]
   FE[SearchFacetsSidebar]
-  Scrape --> Import
+  CSV --> Import
   Dict --> Import
   Import --> PAV
   PAV --> Search
@@ -64,7 +64,7 @@ flowchart LR
 ```
 
 1. **Seed** dictionary (một lần / môi trường).  
-2. **Import** attrs từ scrape row (`attributes` JSON hoặc flat PDP fields) → get_or_create option + PAV (additive).  
+2. **Import** attrs từ catalog row (`attributes` JSON hoặc flat fields) → get_or_create option + PAV (additive).  
 3. **Search** `SearchFacetsService.build_attribute_facets` — chỉ group có count > 0 trong queryset hiện tại.  
 4. **FE** `mapSearchFacetsToFilterGroups` → `facetSearchParams.collectAttrFacetParams` → repeatable `attrs`.
 
@@ -103,8 +103,6 @@ python manage.py seed_catalog_attributes
 
 # Attrs khi import catalog CSV/JSON (hook trong store_import_csv)
 python manage.py store_catalog import-csv <path>
-
-# Offline pilot CSV (local only — không commit): local_scrape/tools/import_attrs_csv.py
 ```
 
 Invalidate facet cache: `SearchFacetsService.invalidate_all_cache()` (sau import / backfill).
@@ -115,6 +113,13 @@ Facet `attributes` **chỉ** đếm SP đã có `ProductAttributeValue`.
 Nếu listing có hàng trăm SP nhưng mới import attrs cho một phần → sidebar chỉ hiện vài option / count nhỏ — **đúng theo data PAV**, không phải lỗi aggregation.  
 
 `origin_country` (Nước sản xuất) lấy từ `Brand.country` nên thường đầy hơn nhiều so với các nhóm attr.
+
+### Performance / cache
+
+- Facet aggregate trên Postgres + **versioned cache** (`SearchFacetsService`, default LocMem).
+- Cap payload: `SEARCH_FACETS_MAX_ATTRIBUTE_GROUPS` (12), `SEARCH_FACETS_MAX_OPTIONS_PER_ATTRIBUTE` (30).
+- Coverage facet phụ thuộc PAV đã gán — import attributes đầy đủ thì sidebar mới đa dạng.
+- Scale ~7k SP: ổn với cache; cold miss sau restart/invalidate có thể chậm hơn lần đầu.
 
 ## Non-goals
 
@@ -128,5 +133,5 @@ Nếu listing có hàng trăm SP nhưng mới import attrs cho một phần → 
 - Models overview: `storeApp/models/__overview.md`  
 - Search API: `storeApp/guidelines/search-faceted-api.md`  
 - Import: `storeApp/management/commands/catalog_import/README.md`  
-- Spike nguồn scrape: `storeApp/guidelines/catalog-attributes-scrape-spike.md`  
+- Attribute map: `storeApp/services/catalog_attribute_map.py`  
 - FE routing: `oupharmacy-store/docs/ROUTING.md`

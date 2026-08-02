@@ -1,7 +1,7 @@
 """
 Import product filter attributes → CatalogAttributeOption + ProductAttributeValue.
 
-Skeleton for P1b: idempotent get_or_create options/values from scrape row.
+Idempotent get_or_create options/values from a catalog import row.
 Requires CatalogAttribute dictionary (seed_catalog_attributes) to exist.
 """
 
@@ -82,9 +82,9 @@ def _resolve_store_code(source_key: str) -> Optional[str]:
 
 def collect_attribute_labels_from_row(row: dict) -> dict[str, list[str]]:
     """
-    Return {store_attr_code: [labels...]} from a flattened scrape row.
+    Return {store_attr_code: [labels...]} from a flattened catalog import row.
 
-    Accepts nested `attributes` object and/or flat PDP-style fields.
+    Accepts nested `attributes` object and/or flat product fields.
     """
     collected: dict[str, list[str]] = {}
 
@@ -96,7 +96,7 @@ def collect_attribute_labels_from_row(row: dict) -> dict[str, list[str]]:
             if label and label not in bucket:
                 bucket.append(label)
 
-    # Nested attributes blob (preferred scrape enrichment)
+    # Nested attributes blob (preferred catalog enrichment)
     for blob_key in ("attributes", "product.attributes"):
         blob = row.get(blob_key)
         if blob is None:

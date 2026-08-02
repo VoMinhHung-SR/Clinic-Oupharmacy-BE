@@ -11,7 +11,7 @@ python manage.py backfill_product_categories [--dry-run]
 
 ## Import catalog (local) — SoT = ``storeApp/test/data/new``
 
-Toàn bộ CSV scrape (đã merge từ `old/` + chỉnh giá thủ công) nằm dưới:
+Catalog CSV (đã merge từ `old/` + chỉnh giá / attributes) nằm dưới:
 
 ```text
 storeApp/test/data/new/<l0>/scraped-data-*.csv
@@ -22,7 +22,7 @@ storeApp/test/data/new/<l0>/scraped-data-*.csv
   thuoc/
 ```
 
-Thư mục `storeApp/test/` (CSV + artifacts) và `local_scrape/` **không commit** lên GitHub.
+Thư mục `storeApp/test/` (CSV + artifacts) **không commit** lên GitHub.
 
 ```bash
 # Seed filter dictionary first
@@ -37,11 +37,15 @@ python manage.py store_catalog import-refactor --apply --update-existing
 
 Defaults on import:
 - **Skip** scrape-error L0 (`cloudflare.com` / `5xx-error-landing`)
-- **Keep** smart random price for `CONSULT` / `0` / missing
+- **Dual price model** for `CONSULT` / clinic-ref fills:
+  - storefront `price_display` = `CONSULT` (FE “Liên hệ”)
+  - clinic kê toa uses numeric `price_value` (sibling infer / smart random / `manual_ref`)
 - **Artifact** `storeApp/test/data/artifacts/current/` (see `SUMMARY.md`)
   - `no_price_products.csv`, `by_l0/`, `p3_thuoc_batches/batch_NNN.csv` (100 SKU/lô)
   - Stale copies live under `artifacts/_archive_*/` — do not mix
 - **Annotate** source CSV column `import.scrapePriceGap` = `consult|zero|missing`
+- Rows with `import.scrapePriceGap=consult`, `pricing.priceDisplay=CONSULT`, or
+  `import.priceSource` starting with `manual_ref` force storefront CONSULT after pricing
 
 Re-split an existing aggregate file:
 
@@ -62,7 +66,7 @@ Opt out: `--no-skip-scrape-errors`, `--no-report-no-price`, `--no-annotate-sourc
 | `store_import_attributes.py` | Product filter attrs → `ProductAttributeValue` (see `guidelines/catalog-attributes.md`) |
 | `store_import_variants.py` | Variant, PVU, MedicineBatch |
 | `store_import_packaging.py` | packageOptions → variant payloads |
-| `store_import_pricing.py` | Giá synthetic khi thiếu; classify `consult`/`zero`/`missing` |
+| `store_import_pricing.py` | Giá synthetic khi thiếu; dual CONSULT display + clinic `price_value`; classify `consult`/`zero`/`missing` |
 | `store_import_skip.py` | Skip Cloudflare / 5xx-error-landing L0 |
 | `store_import_artifacts.py` | Artifact no-price + annotate `import.scrapePriceGap` trên CSV nguồn |
 | `store_import_refactor.py` | Workflow import `data/new` (legacy `--phase old` nếu còn) |
@@ -103,4 +107,4 @@ Opt out: `--no-skip-scrape-errors`, `--no-report-no-price`, `--no-annotate-sourc
 - `manufactor` / country — **not** catalog-attr; use `Brand.country` / `packing_meta.origin`
 
 Chi tiết model/feature: `storeApp/guidelines/catalog-attributes.md`.  
-Spike nguồn scrape: `storeApp/guidelines/catalog-attributes-scrape-spike.md`.
+Map mã nguồn: `storeApp/services/catalog_attribute_map.py`.

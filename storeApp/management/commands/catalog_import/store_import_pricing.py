@@ -4,10 +4,12 @@ Smart synthetic pricing for store_import_csv when scrape price is missing or zer
 Strategy per variant (units list):
   1) Treat price_value <= 0 and scrape "CONSULT" as missing (no listed price).
   2) Infer from sibling units with known price (median VND per base unit × quantity_in_base).
-  3) Row fallback (priceDisplay/priceValue) for units that had a real scrape price — not for CONSULT scrape.
-  4) Tiered random per base unit by unit_name (viên/gói vs hộp vs thùng).
+  3) Row numeric fallback fills clinic price_value; CONSULT units keep storefront CONSULT.
+  4) Tiered random per base unit by unit_name (viên/gói vs hộp vs thùng) for remaining gaps.
 
-CONSULT on scrape → same as old catalog: synthetic VND price + formatted price_display (not stored as "CONSULT").
+Dual display model (CONSULT scrape / clinic ref fill):
+  - storefront: price_display = "CONSULT" (FE shows Liên hệ)
+  - clinic kê toa: price_value = numeric VND (synthetic or manual_ref)
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ import random
 import re
 import unicodedata
 from typing import Optional
+
+PRICE_DISPLAY_CONSULT = "CONSULT"
 
 # VND per đơn vị cơ sở (before × quantity_in_base)
 _UNIT_TIER_RULES: tuple[tuple[tuple[str, ...], int, int], ...] = (
@@ -57,19 +61,66 @@ def is_positive_price(value) -> bool:
 def is_consult_price_display(value) -> bool:
     if value is None:
         return False
-    return str(value).strip().upper() == "CONSULT"
+    return str(value).strip().upper() == PRICE_DISPLAY_CONSULT
 
 
 def scrape_price_was_consult(unit: dict) -> bool:
-    """Scrape marked CONSULT — use random tier, skip row-level price fallback."""
+    """Scrape marked CONSULT — fill clinic price_value; keep storefront CONSULT display."""
     return bool(unit.get("scrape_was_consult"))
 
 
 def mark_scrape_consult_unit(unit: dict) -> None:
-    """Normalize unit parsed from CONSULT scrape before ensure_unit_pricing."""
+    """Normalize unit from CONSULT scrape; keep positive clinic price_value if present."""
+    keep_value = unit.get("price_value")
     unit["scrape_was_consult"] = True
-    unit["price_value"] = 0
     unit["price_display"] = None
+    if is_positive_price(keep_value) and not (
+        isinstance(keep_value, str) and str(keep_value).strip().upper() == PRICE_DISPLAY_CONSULT
+    ):
+        unit["price_value"] = float(keep_value)
+    else:
+        unit["price_value"] = 0
+
+
+def apply_consult_storefront_display(unit: dict) -> None:
+    """Keep storefront CONSULT while allowing a numeric clinic price_value."""
+    unit["scrape_was_consult"] = True
+    unit["price_display"] = PRICE_DISPLAY_CONSULT
+
+
+def row_uses_consult_storefront(row: dict | None) -> bool:
+    """
+    Row should show CONSULT on store even when clinic has a filled price_value.
+
+    True when:
+      - scrape gap annotated as consult
+      - row-level price display/value is CONSULT
+      - import.priceSource is manual_ref* (clinic ref fill for consult catalog)
+    """
+    if not row:
+        return False
+    gap = str(row.get("import.scrapePriceGap") or "").strip().lower()
+    if gap == "consult":
+        return True
+    if is_consult_price_display(row.get("pricing.priceDisplay")):
+        return True
+    if isinstance(row.get("pricing.priceValue"), str) and str(
+        row.get("pricing.priceValue")
+    ).strip().upper() == PRICE_DISPLAY_CONSULT:
+        return True
+    source = str(row.get("import.priceSource") or "").strip().lower()
+    if source.startswith("manual_ref"):
+        return True
+    return False
+
+
+def force_consult_storefront_on_units(units: list) -> None:
+    """Force CONSULT price_display after pricing; do not leave scrape_was_consult."""
+    for u in units or []:
+        if not isinstance(u, dict):
+            continue
+        u["price_display"] = PRICE_DISPLAY_CONSULT
+        u.pop("scrape_was_consult", None)
 
 
 def classify_unit_scrape_price_gap(unit: dict) -> Optional[str]:
@@ -177,13 +228,19 @@ def _apply_row_fallback(units: list, fallback_price: float, fallback_display: st
 
     def_qib = max(int((default_u or {}).get("quantity_in_base") or 1), 1)
     per_base = float(fallback_price) / def_qib
+    fallback_is_consult = is_consult_price_display(fallback_display)
 
     for u in units:
-        if scrape_price_was_consult(u) or is_positive_price(u.get("price_value")):
+        if is_positive_price(u.get("price_value")):
+            continue
+        # Pure CONSULT row fallback (no numeric) — leave for smart-random clinic fill
+        if scrape_price_was_consult(u) and fallback_is_consult:
             continue
         qib = max(int(u.get("quantity_in_base") or 1), 1)
         u["price_value"] = round_vnd(per_base * qib)
-        if not u.get("price_display"):
+        if scrape_price_was_consult(u) or fallback_is_consult:
+            apply_consult_storefront_display(u)
+        elif not u.get("price_display"):
             u["price_display"] = format_price_display(u["price_value"], u.get("unit_name", ""))
 
 
@@ -204,7 +261,11 @@ def ensure_unit_pricing(
 ) -> None:
     """
     Fill missing/zero unit prices in-place.
-    Scrape CONSULT → random (optional sibling infer); row fallback does not apply to CONSULT units.
+
+    CONSULT scrape / clinic-ref units:
+      - price_value ← sibling infer / smart random / numeric fallback (clinic)
+      - price_display stays "CONSULT" (storefront)
+    Listed scrape prices: both value + VND display.
     """
     if not units:
         return
@@ -212,9 +273,16 @@ def ensure_unit_pricing(
     for u in units:
         if is_consult_price_display(u.get("price_display")) or (
             isinstance(u.get("price_value"), str)
-            and str(u.get("price_value")).strip().upper() == "CONSULT"
+            and str(u.get("price_value")).strip().upper() == PRICE_DISPLAY_CONSULT
         ):
+            # Preserve existing positive clinic value if already filled (manual_ref re-import)
+            keep_value = u.get("price_value")
             mark_scrape_consult_unit(u)
+            if is_positive_price(keep_value) and not (
+                isinstance(keep_value, str)
+                and str(keep_value).strip().upper() == PRICE_DISPLAY_CONSULT
+            ):
+                u["price_value"] = float(keep_value)
         elif not is_positive_price(u.get("price_value")):
             u["price_value"] = 0
 
@@ -222,8 +290,12 @@ def ensure_unit_pricing(
     _apply_row_fallback(units, fallback_price, fallback_display)
 
     for u in units:
+        was_consult = scrape_price_was_consult(u)
+
         if is_positive_price(u.get("price_value")):
-            if not u.get("price_display") or is_consult_price_display(u.get("price_display")):
+            if was_consult:
+                apply_consult_storefront_display(u)
+            elif not u.get("price_display") or is_consult_price_display(u.get("price_display")):
                 u["price_display"] = format_price_display(
                     float(u["price_value"]), u.get("unit_name", "")
                 )
@@ -237,10 +309,13 @@ def ensure_unit_pricing(
         else:
             u["price_value"] = float(random.randint(10_000, 500_000))
 
-        if not u.get("price_display") or is_consult_price_display(u.get("price_display")):
+        if was_consult:
+            apply_consult_storefront_display(u)
+        elif not u.get("price_display") or is_consult_price_display(u.get("price_display")):
             u["price_display"] = format_price_display(
                 float(u["price_value"]), u.get("unit_name", "")
             )
 
     for u in units:
+        # Drop transient flag; storefront signal is price_display == CONSULT
         u.pop("scrape_was_consult", None)

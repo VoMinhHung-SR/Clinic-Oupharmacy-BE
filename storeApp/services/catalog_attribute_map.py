@@ -1,24 +1,23 @@
 """
-Map source-catalog attribute codes → store CatalogAttribute.code.
+Map source catalog attribute codes → store CatalogAttribute.code.
 
-Spike SoT (listing `__NEXT_DATA__.props.pageProps.viewData.filterAttributes`
-and PDP `pageProps.product`):
+Import accepts an `attributes` object (or flat CSV columns) with these source keys:
 
-| Source code   | Listing filter label     | Store code      | Notes                          |
+| Source code   | Store facet label        | Store code      | Notes                          |
 |---------------|--------------------------|-----------------|--------------------------------|
-| objectUse     | Đối tượng sử dụng        | target_user     | list[str] on PDP               |
+| objectUse     | Đối tượng sử dụng        | target_user     | list[str]                      |
 | skin          | Loại da                  | skin_type       | cosmetics categories           |
 | flavor        | Mùi vị / Mùi hương       | flavor          | list[str]                      |
 | indications   | Chỉ định                 | indication      | list[str]                      |
-| dosageForm    | Dạng bào chế             | dosage_form     | often scalar string on cards   |
-| brandOrigin   | Xuất xứ thương hiệu      | brand_origin    | scalar / badge.attributeName   |
-| manufactor    | Nước sản xuất            | (skip attr)     | use Brand.country / packing_meta |
+| dosageForm    | Dạng bào chế             | dosage_form     | often scalar string            |
+| brandOrigin   | Xuất xứ thương hiệu      | brand_origin    | scalar / badge                 |
+| manufactor    | Nước sản xuất            | (skip attr)     | use Brand.country              |
 | brand         | Thương hiệu              | (skip)          | Product.brand FK               |
 | category      | Danh mục                 | (skip)          | Category tree                  |
 | priceSystem   | Giá bán                  | (skip)          | price_range facets             |
 | prescription  | Loại thuốc               | (skip v1)       | not in dictionary yet          |
 
-Scraper should export per product (JSON preferred):
+Preferred payload:
 
 ```json
 "attributes": {
@@ -72,7 +71,7 @@ SOURCE_ATTR_SKIP = frozenset(
 FLAT_ATTR_KEYS = (
     "attributes",
     "product.attributes",
-    # Direct source codes (PDP / enriched scrape)
+    # Direct source codes (enriched catalog CSV / PDP-style fields)
     "objectUse",
     "product.objectUse",
     "attributes.objectUse",

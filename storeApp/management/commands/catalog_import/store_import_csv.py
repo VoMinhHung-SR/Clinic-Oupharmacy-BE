@@ -38,7 +38,9 @@ from .store_import_packaging import _build_variant_payloads, _parse_package_opti
 from .store_import_pricing import (
     collect_unit_price_gaps,
     ensure_unit_pricing,
+    force_consult_storefront_on_units,
     is_positive_price,
+    row_uses_consult_storefront,
 )
 from .store_import_products import resolve_brand, upsert_product_from_row
 from .store_import_row import build_variant_payloads_from_sale_units, flatten_dict, parse_json_field
@@ -475,6 +477,9 @@ class Command(BaseCommand):
                 fallback_display=str(row.get("pricing.priceDisplay") or "").strip()[:50],
                 use_smart_random=self.use_smart_random_price,
             )
+            # Clinic ref / consult catalog: keep storefront CONSULT even when price_value is filled
+            if row_uses_consult_storefront(row):
+                force_consult_storefront_on_units(units)
 
         images = parse_json_field(row.get("media.images", []), default=[])
         image_url = str(row.get("media.image") or "").strip()

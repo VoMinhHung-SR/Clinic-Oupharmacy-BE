@@ -36,6 +36,56 @@ class StoreImportCsvHelperTests(SimpleTestCase):
         ensure_unit_pricing(units, fallback_price=400000, fallback_display="400.000đ / Hộp")
         self.assertEqual(units[0]["price_value"], 400000.0)
 
+    def test_ensure_unit_pricing_consult_keeps_display_fills_value(self):
+        from storeApp.management.commands.catalog_import.store_import_pricing import (
+            PRICE_DISPLAY_CONSULT,
+            ensure_unit_pricing,
+        )
+
+        random.seed(7)
+        units = [
+            {
+                "unit_name": "Hộp",
+                "quantity_in_base": 30,
+                "price_value": 0,
+                "price_display": "CONSULT",
+                "is_default": True,
+            }
+        ]
+        ensure_unit_pricing(units, fallback_price=0, use_smart_random=True)
+        self.assertGreater(units[0]["price_value"], 0)
+        self.assertEqual(units[0]["price_display"], PRICE_DISPLAY_CONSULT)
+        self.assertNotIn("scrape_was_consult", units[0])
+
+    def test_ensure_unit_pricing_preserves_manual_ref_clinic_value(self):
+        from storeApp.management.commands.catalog_import.store_import_pricing import (
+            PRICE_DISPLAY_CONSULT,
+            ensure_unit_pricing,
+            force_consult_storefront_on_units,
+            row_uses_consult_storefront,
+        )
+
+        units = [
+            {
+                "unit_name": "Hộp",
+                "quantity_in_base": 30,
+                "price_value": 600000,
+                "price_display": "600.000đ / Hộp",
+                "is_default": True,
+            }
+        ]
+        row = {
+            "import.scrapePriceGap": "consult",
+            "import.priceSource": "manual_ref_p3",
+            "pricing.priceDisplay": "600.000đ / Hộp",
+            "pricing.priceValue": "600000",
+        }
+        ensure_unit_pricing(units, fallback_price=600000, fallback_display="600.000đ / Hộp")
+        self.assertTrue(row_uses_consult_storefront(row))
+        force_consult_storefront_on_units(units)
+        self.assertEqual(units[0]["price_value"], 600000.0)
+        self.assertEqual(units[0]["price_display"], PRICE_DISPLAY_CONSULT)
+
     def test_smart_random_scales_with_quantity_in_base(self):
         from storeApp.management.commands.catalog_import.store_import_pricing import smart_random_unit_price
 
@@ -115,6 +165,39 @@ class StoreImportCsvHelperTests(SimpleTestCase):
         hop = next(u for u in units if u["unit_name"] == "Hộp")
         self.assertEqual(hop["quantity_in_base"], 30)
         self.assertEqual(hop["price_value"], 105000.0)
+
+    def test_reconcile_consult_keeps_clinic_value_and_consult_display(self):
+        from storeApp.management.commands.catalog_import.store_import_packaging import (
+            reconcile_sale_units_with_packing,
+        )
+        from storeApp.management.commands.catalog_import.store_import_pricing import (
+            PRICE_DISPLAY_CONSULT,
+            ensure_unit_pricing,
+        )
+        from storeApp.management.commands.catalog_import.store_import_row import (
+            build_variant_payloads_from_sale_units,
+        )
+
+        raw = [
+            {
+                "unitName": "Hộp",
+                "quantityInBase": 1,
+                "unitOrder": 0,
+                "isDefault": True,
+                "priceValue": 105000,
+                "priceDisplay": "CONSULT",
+            }
+        ]
+        payloads = build_variant_payloads_from_sale_units(raw, "Hộp 3 Vỉ x 10 Viên")
+        units = payloads[0]["units"]
+        ensure_unit_pricing(units, fallback_price=0, use_smart_random=False)
+        hop = next(u for u in units if u["unit_name"] == "Hộp")
+        self.assertEqual(hop["price_value"], 105000.0)
+        self.assertEqual(hop["price_display"], PRICE_DISPLAY_CONSULT)
+        # Expanded levels keep proportional clinic values
+        vien = next(u for u in units if u["unit_name"] == "Viên")
+        self.assertEqual(vien["price_value"], 3500.0)
+        self.assertEqual(vien["price_display"], PRICE_DISPLAY_CONSULT)
 
     def test_parse_packing_hop_one_vi_collapses_duplicate(self):
         from storeApp.management.commands.catalog_import.store_import_packaging import (
