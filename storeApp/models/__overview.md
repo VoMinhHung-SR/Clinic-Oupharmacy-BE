@@ -11,6 +11,7 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 | File | Domain |
 |------|--------|
 | `product.py` | Brand, Category, Product, ProductCategory, Variant, PVU, Batch, Notification, SearchKeyword |
+| `catalog_attributes.py` | CatalogAttribute, CatalogAttributeOption, ProductAttributeValue (facet attrs) |
 | `cart.py` | Cart, CartItem |
 | `order.py` | ShippingMethod, PaymentMethod, Order, OrderItem |
 | `voucher.py` | Voucher, VoucherRedemption |
@@ -30,7 +31,7 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 | `name`, `slug` | Unique |
 | `category` | FK **primary** (canonical URL; sync với M2M sau) |
 | `categories` | M2M `through=ProductCategory` — import `assign_category()`; list/detail/search filter theo M2M |
-| `content.*` (7) | Detail only; HTML sanitized (scraper) hoặc plain text cũ; FE DOMPurify |
+| `content.*` (7) | Detail only; HTML sanitized on import hoặc plain text; FE DOMPurify |
 | `ingredients` | Comma-list `"Name: amount, …"` — FE parse riêng |
 
 ### ProductCategory (M2M through)
@@ -38,6 +39,28 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 - `product`, `category`, `is_primary`, `sort_order`.
 - Unique `(product, category)`; partial unique một `is_primary=True` / product.
 - Table: `store_product_category`.
+
+### Catalog attributes (facets)
+
+> Chi tiết feature: [`guidelines/catalog-attributes.md`](../guidelines/catalog-attributes.md).
+
+**Không phải** catalog hàng hóa — đây là **từ điển thuộc tính lọc** cho sidebar.
+
+| Model | Table | Ghi chú |
+|-------|--------|---------|
+| `CatalogAttribute` | `store_catalog_attribute` | `code` (slug, unique), `label`, `facet_type` (`multiple`\|`single`), `sort_order`, `is_filterable` |
+| `CatalogAttributeOption` | `store_catalog_attribute_option` | FK attribute; unique `(attribute, slug)`; `label`, `sort_order` |
+| `ProductAttributeValue` | `store_product_attribute_value` | FK `product` + `option`; unique `(product, option)`; gắn **Product**, không Variant |
+
+```
+CatalogAttribute 1──* Option 1──* ProductAttributeValue *──1 Product
+```
+
+- Seed dictionary v1: `manage.py seed_catalog_attributes` (`target_user`, `skin_type`, `flavor`, `indication`, `dosage_form`, `brand_origin`).
+- Map nguồn → store: `services/catalog_attribute_map.py` (`objectUse`→`target_user`, …; skip `brand`/`category`/`manufactor`).
+- Import: `catalog_import/store_import_attributes.py` (hook sau product upsert trong `store_import_csv`).
+- Search: `facets.attributes[]` + `attrs=code:slug` — **AND** giữa code, **OR** trong code; counts = distinct `product_id`.
+- `Brand.country` / `origin_country` facet **riêng** (không qua PAV).
 
 ### ProductVariant / PVU / Batch
 
@@ -89,7 +112,8 @@ Tổng quan schema `storeApp`. **Source of truth:** `product.py`, `cart.py`, `or
 Category ──< Product ──< ProductVariant ──< ProductVariantUnit
               │              ├── MedicineBatch
               │              └── ProductVariantStats
-              └── ProductCategory >── Category   (M2M, schema)
+              ├── ProductCategory >── Category   (M2M, schema)
+              └── ProductAttributeValue >── CatalogAttributeOption >── CatalogAttribute
 
 Cart (user_id XOR guest_session_id) ──< CartItem >── ProductVariant / PVU
   └──► Order (user_id nullable) ──< OrderItem
@@ -126,7 +150,9 @@ Voucher ──< VoucherRedemption >── Order
 ## Docs liên quan
 
 - `storeApp/guidelines/cart-first-checkout.md`
+- `storeApp/guidelines/catalog-attributes.md` — **model + feature bộ lọc thuộc tính**
 - `storeApp/guidelines/search-faceted-api.md`, `search-facets-migration-2026-07-10.md`
+- `storeApp/services/catalog_attribute_map.py` — map mã nguồn → store attr
 - `storeApp/services/variant_listing.py`, `store_path_resolver.py`
 - `oupharmacy-store/docs/ROUTING.md`
 - `PersonalProject/plans/[Done] product-multi-category-m2m.plan.md`

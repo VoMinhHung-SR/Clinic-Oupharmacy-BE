@@ -15,6 +15,9 @@ from .models import (
     ProductCategory,
     ProductVariant,
     Category,
+    CatalogAttribute,
+    CatalogAttributeOption,
+    ProductAttributeValue,
 )
 from mainApp.admin import admin_site
 
@@ -215,6 +218,27 @@ class SearchKeywordAdmin(admin.ModelAdmin):
     ordering = ['-hit_count']
 
 
+class CatalogAttributeOptionInline(admin.TabularInline):
+    model = CatalogAttributeOption
+    extra = 0
+    fields = ['slug', 'label', 'sort_order', 'active']
+
+
+class CatalogAttributeAdmin(admin.ModelAdmin):
+    list_display = ['code', 'label', 'facet_type', 'sort_order', 'is_filterable', 'active']
+    list_filter = ['facet_type', 'is_filterable', 'active']
+    search_fields = ['code', 'label']
+    list_editable = ['sort_order', 'is_filterable', 'active']
+    inlines = [CatalogAttributeOptionInline]
+
+
+class ProductAttributeValueAdmin(admin.ModelAdmin):
+    list_display = ['product', 'option', 'active', 'created_date']
+    list_filter = ['option__attribute', 'active']
+    search_fields = ['product__name', 'product__mid', 'option__slug', 'option__label']
+    raw_id_fields = ['product', 'option']
+
+
 # Đăng ký với custom admin site
 admin_site.register(Brand, BrandAdmin)
 admin_site.register(ShippingMethod, ShippingMethodAdmin)
@@ -227,3 +251,5 @@ admin_site.register(SearchKeyword, SearchKeywordAdmin)
 admin_site.register(Category, CategoryAdmin)
 admin_site.register(Product, ProductAdmin)
 admin_site.register(ProductVariant, ProductVariantAdmin)
+admin_site.register(CatalogAttribute, CatalogAttributeAdmin)
+admin_site.register(ProductAttributeValue, ProductAttributeValueAdmin)

@@ -8,7 +8,7 @@ from django.db.models import Case, Count, Exists, F, IntegerField, OuterRef, Q, 
 from django.db.models import Prefetch
 from django.db.models.functions import Lower
 from django.utils import timezone
-from storeApp.models import ProductVariant, ProductVariantUnit, Category, Product, ProductCategory
+from storeApp.models import ProductVariant, ProductVariantUnit, Category, Product, ProductCategory, Brand
 from storeApp.serializers import ProductVariantPickerSerializer, ProductVariantSerializer
 from storeApp.services.product_category_helpers import (
     filter_variants_by_category_id,
@@ -27,6 +27,11 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from storeApp.services.catalog_constants import LARGE_CATEGORY_THRESHOLD
 from storeApp.services.filter_helpers import FilterHelpers
+from storeApp.services.country_normalize import (
+    normalize_country_label,
+    parse_csv_ints,
+    parse_csv_strings,
+)
 from storeApp.services.search_facets_service import SearchFacetsService
 from storeApp.services.store_path_resolver import resolve_store_path
 from storeApp.models import Notification
@@ -80,6 +85,111 @@ def _apply_price_range_filter(queryset, price_range):
     return queryset
 
 
+def _parse_brand_filter(raw) -> list[int]:
+    return parse_csv_ints(raw)
+
+
+def _parse_origin_country_filter(raw) -> list[str]:
+    """Normalize CSV origin values; drop unknown / junk tokens."""
+    countries: list[str] = []
+    seen: set[str] = set()
+    for token in parse_csv_strings(raw):
+        canonical = normalize_country_label(token)
+        if not canonical or canonical in seen:
+            continue
+        seen.add(canonical)
+        countries.append(canonical)
+    return countries
+
+
+def _brand_country_db_values_for_filter(canonical_countries: list[str], *, using: str) -> list[str]:
+    """
+    Map canonical origin labels → actual Brand.country strings in DB.
+
+    Facet UI always emits canonical names; DB may still hold aliases like 'VN'.
+    """
+    if not canonical_countries:
+        return []
+    wanted = set(canonical_countries)
+    raw_values = (
+        Brand.objects.using(using)
+        .exclude(country__isnull=True)
+        .exclude(country="")
+        .values_list("country", flat=True)
+        .distinct()
+    )
+    matched: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        if normalize_country_label(raw) not in wanted:
+            continue
+        if raw in seen:
+            continue
+        seen.add(raw)
+        matched.append(raw)
+    # Always include canonicals so exact rows match even before distinct scan finds them
+    for country in canonical_countries:
+        if country not in seen:
+            matched.append(country)
+            seen.add(country)
+    return matched
+
+
+def _parse_attrs_filter(request) -> dict[str, list[str]]:
+    """
+    Parse repeatable attrs=code:slug params.
+
+    Example: attrs=skin_type:da-kho&attrs=skin_type:da-dau&attrs=target_user:tre-em
+    → {"skin_type": ["da-dau", "da-kho"], "target_user": ["tre-em"]}
+    """
+    raw_list = request.query_params.getlist("attrs")
+    if not raw_list:
+        single = request.query_params.get("attrs")
+        raw_list = [single] if single else []
+
+    grouped: dict[str, list[str]] = {}
+    for raw in raw_list:
+        if not raw or ":" not in str(raw):
+            continue
+        code, slug = str(raw).split(":", 1)
+        code = code.strip()
+        slug = slug.strip()
+        if not code or not slug:
+            continue
+        bucket = grouped.setdefault(code, [])
+        if slug not in bucket:
+            bucket.append(slug)
+
+    # Stable order for cache keys / applied_filters
+    return {code: sorted(slugs) for code, slugs in sorted(grouped.items())}
+
+
+def _encode_attrs_filter(attrs_by_code: dict[str, list[str]]) -> list[str] | None:
+    if not attrs_by_code:
+        return None
+    encoded: list[str] = []
+    for code, slugs in attrs_by_code.items():
+        for slug in slugs:
+            encoded.append(f"{code}:{slug}")
+    return encoded
+
+
+def _apply_attrs_filter(queryset, attrs_by_code: dict[str, list[str]]):
+    """AND across attribute codes; OR within the same code."""
+    for code, slugs in attrs_by_code.items():
+        queryset = queryset.filter(
+            product__attribute_values__active=True,
+            product__attribute_values__option__active=True,
+            product__attribute_values__option__attribute__active=True,
+            product__attribute_values__option__attribute__is_filterable=True,
+            product__attribute_values__option__attribute__code=code,
+            product__attribute_values__option__slug__in=slugs,
+        )
+    if attrs_by_code:
+        queryset = queryset.distinct()
+    return queryset
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def search_products(request):
@@ -88,7 +198,12 @@ def search_products(request):
     page = max(1, _safe_int(request.query_params.get("page"), 1))
     page_size = min(100, max(1, _safe_int(request.query_params.get("page_size"), 12)))
     category = request.query_params.get("category")
-    brand = request.query_params.get("brand")
+    brand_ids = _parse_brand_filter(request.query_params.get("brand"))
+    brand = ",".join(str(bid) for bid in brand_ids) if brand_ids else None
+    origin_countries = _parse_origin_country_filter(request.query_params.get("origin_country"))
+    origin_country = ",".join(origin_countries) if origin_countries else None
+    attrs_by_code = _parse_attrs_filter(request)
+    attrs_encoded = _encode_attrs_filter(attrs_by_code)
     price_range = request.query_params.get("price_range")
     in_stock = _parse_bool(request.query_params.get("in_stock"))
     sort = request.query_params.get("sort", "relevance")
@@ -150,8 +265,15 @@ def search_products(request):
 
     if category:
         queryset = filter_variants_by_category_id(queryset, category, using=STORE_DB_ALIAS)
-    if brand:
-        queryset = queryset.filter(product__brand_id=brand)
+    if brand_ids:
+        queryset = queryset.filter(product__brand_id__in=brand_ids)
+    if origin_countries:
+        db_countries = _brand_country_db_values_for_filter(
+            origin_countries, using=STORE_DB_ALIAS
+        )
+        queryset = queryset.filter(product__brand__country__in=db_countries)
+    if attrs_by_code:
+        queryset = _apply_attrs_filter(queryset, attrs_by_code)
     if in_stock is True:
         queryset = queryset.filter(in_stock__gt=0)
     if in_stock is False:
@@ -162,6 +284,8 @@ def search_products(request):
         "q": query_normalized,
         "category": category,
         "brand": brand,
+        "origin_country": origin_country,
+        "attrs": attrs_encoded,
         "price_range": price_range,
         "in_stock": in_stock,
         "sort": sort,
@@ -173,6 +297,8 @@ def search_products(request):
         brand=brand,
         price_range=price_range,
         in_stock=in_stock,
+        origin_country=origin_country,
+        attrs=attrs_encoded,
     )
     if include_facets:
         facets = SearchFacetsService.get_facets(

@@ -22,6 +22,10 @@ IMPORT_CSV_DEFAULTS = {
     "batch_pack_mult_max": DEFAULT_BATCH_PACK_MULT_MAX,
     "batch_count": DEFAULT_BATCH_COUNT,
     "no_smart_random_price": False,
+    "skip_scrape_errors": True,
+    "report_no_price": True,
+    "annotate_source_csv": True,
+    "no_price_artifact": None,
 }
 
 

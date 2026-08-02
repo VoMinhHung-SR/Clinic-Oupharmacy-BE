@@ -26,7 +26,10 @@ venv.bak/
 /staticfiles/
 
 storeApp/test/
-.cursor/    
+
+local_scrape/
+
+.cursor/
 artifacts/*.dump
 
 # Database backups
@@ -44,3 +47,4 @@ tests/manual/**/*.tmp
 # GitNexus / Claude local agent artifacts
 .claude/
 CLAUDE.md
+docker-compose.lan.yml

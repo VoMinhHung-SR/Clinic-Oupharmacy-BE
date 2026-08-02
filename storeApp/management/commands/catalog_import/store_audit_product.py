@@ -500,7 +500,7 @@ class Command(BaseCommand):
                     f"\n⚠ Không có row [new] CSV cho mid={lookup_mid!r} under {scrape_root}"
                 )
             )
-            self.stdout.write("  (Sản phẩm có thể chỉ có trong data/old — phase old sẽ dùng packageOptions.)")
+            self.stdout.write("  (Sản phẩm có thể chỉ có trong data/new — kiểm tra đúng L0 category.)")
             return
 
         csv_path, row = csv_hit
