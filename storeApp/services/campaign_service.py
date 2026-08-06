@@ -260,3 +260,72 @@ def apply_time_expiry(*, campaign_id, using="store", now=None):
             return campaign
         campaign.status = Campaign.STATUS_ENDED
         return _bump_and_save(campaign=campaign, update_fields=["status"], using=using)
+
+
+def activate_scheduled_campaign(*, campaign_id, using="store", now=None):
+    """
+    Scheduler helper: scheduled → active when start_at <= now < end_at.
+    No-op if window missing or not yet/no longer valid.
+    """
+    now = now or timezone.now()
+    with transaction.atomic(using=using):
+        campaign = get_campaign(campaign_id=campaign_id, using=using, for_update=True)
+        if campaign.status != Campaign.STATUS_SCHEDULED:
+            return campaign
+        if campaign.start_at is None or campaign.end_at is None:
+            return campaign
+        if now < campaign.start_at or now >= campaign.end_at:
+            return campaign
+        campaign.status = Campaign.STATUS_ACTIVE
+        return _bump_and_save(campaign=campaign, update_fields=["status"], using=using)
+
+
+def run_campaign_scheduler(*, now=None, using="store"):
+    """
+    Converge statuses by clock (D-14):
+    1) end scheduled|active|paused when now >= end_at
+    2) activate scheduled when start_at <= now < end_at
+    Idempotent. Public APIs still filter by window if cron is late.
+    """
+    now = now or timezone.now()
+    stats = {"activated": 0, "ended": 0, "scanned_end": 0, "scanned_activate": 0}
+
+    end_ids = list(
+        Campaign.objects.using(using)
+        .filter(
+            status__in=[
+                Campaign.STATUS_SCHEDULED,
+                Campaign.STATUS_ACTIVE,
+                Campaign.STATUS_PAUSED,
+            ],
+            end_at__isnull=False,
+            end_at__lte=now,
+        )
+        .values_list("id", flat=True)
+    )
+    stats["scanned_end"] = len(end_ids)
+    for campaign_id in end_ids:
+        before = Campaign.objects.using(using).get(id=campaign_id).status
+        after = apply_time_expiry(campaign_id=campaign_id, using=using, now=now)
+        if before != Campaign.STATUS_ENDED and after.status == Campaign.STATUS_ENDED:
+            stats["ended"] += 1
+
+    activate_ids = list(
+        Campaign.objects.using(using)
+        .filter(
+            status=Campaign.STATUS_SCHEDULED,
+            start_at__isnull=False,
+            end_at__isnull=False,
+            start_at__lte=now,
+            end_at__gt=now,
+        )
+        .values_list("id", flat=True)
+    )
+    stats["scanned_activate"] = len(activate_ids)
+    for campaign_id in activate_ids:
+        before = Campaign.objects.using(using).get(id=campaign_id).status
+        after = activate_scheduled_campaign(campaign_id=campaign_id, using=using, now=now)
+        if before == Campaign.STATUS_SCHEDULED and after.status == Campaign.STATUS_ACTIVE:
+            stats["activated"] += 1
+
+    return stats

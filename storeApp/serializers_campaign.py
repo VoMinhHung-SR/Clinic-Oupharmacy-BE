@@ -110,3 +110,70 @@ class CampaignPlacementsReplaceSerializer(serializers.Serializer):
 
 class CampaignActionSerializer(serializers.Serializer):
     version = serializers.IntegerField()
+
+
+class PublicCampaignPlacementBriefSerializer(serializers.Serializer):
+    slot = serializers.CharField()
+    image_desktop_url = serializers.CharField(allow_null=True, required=False)
+    cta_url = serializers.CharField(allow_null=True, required=False)
+
+
+class PublicCampaignListSerializer(serializers.ModelSerializer):
+    primary_placement = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Campaign
+        fields = [
+            "id",
+            "slug",
+            "title",
+            "subtitle",
+            "priority",
+            "start_at",
+            "end_at",
+            "primary_placement",
+        ]
+
+    def get_primary_placement(self, obj):
+        from storeApp.services.campaign_public import pick_primary_placement
+
+        placement = pick_primary_placement(obj)
+        if not placement:
+            return None
+        return {
+            "slot": placement.slot,
+            "image_desktop_url": placement.image_desktop_url,
+            "cta_url": placement.cta_url,
+        }
+
+
+class PublicCampaignDetailSerializer(serializers.ModelSerializer):
+    placements = CampaignPlacementSerializer(many=True, read_only=True)
+    product_mids = serializers.SerializerMethodField()
+    category_slugs = serializers.SerializerMethodField()
+    vouchers = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Campaign
+        fields = [
+            "id",
+            "slug",
+            "title",
+            "subtitle",
+            "description_html",
+            "start_at",
+            "end_at",
+            "placements",
+            "product_mids",
+            "category_slugs",
+            "vouchers",
+        ]
+
+    def get_product_mids(self, obj):
+        return []
+
+    def get_category_slugs(self, obj):
+        return []
+
+    def get_vouchers(self, obj):
+        return []

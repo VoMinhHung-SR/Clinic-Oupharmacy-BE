@@ -50,6 +50,7 @@ Locked plan for Job `campaign` (P0-T2): see [`docs/campaign-permissions-urls.md`
 - Public: `/api/store/campaigns/`, `/api/store/campaigns/placements/`, `/api/store/campaigns/{slug}/`
 - Admin: `/api/store/admin/campaigns/...` (numeric id)
 - Permissions: `storeApp.campaign_view` / `storeApp.campaign_manage` (contract names `store.campaign.view` / `store.campaign.manage`)
+- Scheduler: `python manage.py run_campaign_scheduler` (cron every ~5m; public queries still filter by time window if cron is late — D-14)
 
 ## Doctor taxonomy — Khoa vs Chuyên khoa (SoT)
 

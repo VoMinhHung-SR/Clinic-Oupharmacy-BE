@@ -14,6 +14,7 @@ from .viewsets import (
     SearchSuggestViewSet,
     CartViewSet,
     CampaignAdminViewSet,
+    CampaignPublicViewSet,
 )
 from .views import (
     products_by_category_slug,
@@ -35,6 +36,7 @@ router.register("notifications", NotificationViewSet, basename="notification")
 router.register("search-terms", SearchTermsViewSet, basename="search-terms")
 router.register("carts", CartViewSet, basename="cart")
 router.register("admin/campaigns", CampaignAdminViewSet, basename="admin-campaign")
+router.register("campaigns", CampaignPublicViewSet, basename="campaign-public")
 
 urlpatterns = [
     # Router URLs (các routes khác như /products/, /categories/, etc.)
@@ -49,7 +51,7 @@ urlpatterns = [
     # Trailing slash là optional (/?)
     # Exclude các API endpoint names để tránh conflict
     re_path(
-        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|notifications|search-terms|search|resolve-path|admin|carts)(?P<category_slug>[\w\-/]+)/?$',
+        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|notifications|search-terms|search|resolve-path|admin|carts|campaigns)(?P<category_slug>[\w\-/]+)/?$',
         products_by_category_slug, 
         name='products-by-category-slug'
     ),
