@@ -42,6 +42,15 @@ flowchart LR
 - `storeApp/models/__init__.py` re-export model để giữ tương thích import cũ (`from storeApp.models import ...`).
 
 Cập nhật file này khi thêm app Django mới, đổi mount URL gốc, hoặc tách/hợp store API.
+
+## Campaign (storeApp) — permissions & URLs
+
+Locked plan for Job `campaign` (P0-T2): see [`docs/campaign-permissions-urls.md`](campaign-permissions-urls.md).
+
+- Public: `/api/store/campaigns/`, `/api/store/campaigns/placements/`, `/api/store/campaigns/{slug}/`
+- Admin: `/api/store/admin/campaigns/...` (numeric id)
+- Permissions: `storeApp.campaign_view` / `storeApp.campaign_manage` (contract names `store.campaign.view` / `store.campaign.manage`)
+
 ## Doctor taxonomy — Khoa vs Chuyên khoa (SoT)
 
 | Khái niệm | Model / code | Dùng để |

@@ -26,6 +26,7 @@
 | Auth / OAuth / Firebase         | `mainApp/views.py`, `mainApp/urls.py` (`oauth2-info/`, `auth/...`)           |
 | Model / migration               | App tương ứng (`mainApp`, `storeApp`, …)                                     |
 | Khoa vs Chuyên khoa (doctor)    | `docs/ARCHITECTURE.md` § Doctor taxonomy; `SpecializationTag` / `DoctorProfile` |
+| Campaign permissions & URL plan | `docs/campaign-permissions-urls.md` (+ `docs/ARCHITECTURE.md` § Campaign) |
 
 
 ## Lệnh thường dùng

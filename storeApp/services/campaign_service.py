@@ -1,0 +1,262 @@
+"""Campaign lifecycle service: status transitions + optimistic version lock."""
+
+from django.db import transaction
+from django.db.models import F
+from django.utils import timezone
+
+from storeApp.models import Campaign
+
+
+class CampaignServiceError(Exception):
+    """Base error for campaign lifecycle operations."""
+
+
+class CampaignVersionConflictError(CampaignServiceError):
+    def __init__(self, *, expected_version, current_version):
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__(
+            f"Campaign version mismatch. expected={expected_version}, current={current_version}"
+        )
+
+
+class CampaignTransitionError(CampaignServiceError):
+    def __init__(self, *, from_status, to_status, reason=None):
+        self.from_status = from_status
+        self.to_status = to_status
+        self.reason = reason
+        msg = f"Illegal transition {from_status} → {to_status}"
+        if reason:
+            msg = f"{msg}: {reason}"
+        super().__init__(msg)
+
+
+# Legal edges from database.md (action helpers may add side effects).
+ALLOWED_TRANSITIONS = {
+    Campaign.STATUS_DRAFT: {
+        Campaign.STATUS_SCHEDULED,
+        Campaign.STATUS_ACTIVE,
+        Campaign.STATUS_ARCHIVED,
+    },
+    Campaign.STATUS_SCHEDULED: {
+        Campaign.STATUS_ACTIVE,
+        Campaign.STATUS_DRAFT,
+        Campaign.STATUS_ENDED,
+        Campaign.STATUS_ARCHIVED,
+    },
+    Campaign.STATUS_ACTIVE: {
+        Campaign.STATUS_PAUSED,
+        Campaign.STATUS_ENDED,
+    },
+    Campaign.STATUS_PAUSED: {
+        Campaign.STATUS_ACTIVE,
+        Campaign.STATUS_ENDED,
+    },
+    Campaign.STATUS_ENDED: {
+        Campaign.STATUS_ARCHIVED,
+    },
+    Campaign.STATUS_ARCHIVED: set(),
+}
+
+
+def _assert_version(*, campaign, expected_version):
+    if expected_version is None:
+        raise CampaignServiceError("expected_version is required")
+    if campaign.version != expected_version:
+        raise CampaignVersionConflictError(
+            expected_version=expected_version,
+            current_version=campaign.version,
+        )
+
+
+def _assert_transition(*, from_status, to_status):
+    allowed = ALLOWED_TRANSITIONS.get(from_status, set())
+    if to_status not in allowed:
+        raise CampaignTransitionError(from_status=from_status, to_status=to_status)
+
+
+def _require_window_for_live(*, campaign, now):
+    """schedule/publish require both ends; end_at must be strictly after start and in the future for go-live."""
+    if campaign.start_at is None or campaign.end_at is None:
+        raise CampaignServiceError("start_at and end_at are required")
+    if campaign.end_at <= campaign.start_at:
+        raise CampaignServiceError("end_at must be after start_at")
+    if campaign.end_at <= now:
+        raise CampaignServiceError("end_at must be in the future")
+
+
+def _bump_and_save(*, campaign, update_fields, using):
+    campaign.version = F("version") + 1
+    fields = list(update_fields) + ["version", "updated_date"]
+    campaign.save(using=using, update_fields=fields)
+    campaign.refresh_from_db(using=using)
+    return campaign
+
+
+def get_campaign(*, campaign_id, using="store", for_update=False):
+    qs = Campaign.objects.using(using)
+    if for_update:
+        qs = qs.select_for_update()
+    return qs.get(id=campaign_id)
+
+
+def transition_status(
+    *,
+    campaign_id,
+    to_status,
+    expected_version,
+    using="store",
+    actor_user_id=None,
+    extra_updates=None,
+):
+    """Low-level transition with version check. Prefer named actions below."""
+    with transaction.atomic(using=using):
+        campaign = get_campaign(campaign_id=campaign_id, using=using, for_update=True)
+        _assert_version(campaign=campaign, expected_version=expected_version)
+        _assert_transition(from_status=campaign.status, to_status=to_status)
+        campaign.status = to_status
+        update_fields = ["status"]
+        if extra_updates:
+            for key, value in extra_updates.items():
+                setattr(campaign, key, value)
+                update_fields.append(key)
+        if actor_user_id is not None:
+            campaign.updated_by_id = actor_user_id
+            update_fields.append("updated_by_id")
+        return _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+
+
+def schedule_campaign(*, campaign_id, expected_version, using="store", actor_user_id=None):
+    """draft → scheduled (window required)."""
+    with transaction.atomic(using=using):
+        campaign = get_campaign(campaign_id=campaign_id, using=using, for_update=True)
+        _assert_version(campaign=campaign, expected_version=expected_version)
+        now = timezone.now()
+        _require_window_for_live(campaign=campaign, now=now)
+        _assert_transition(from_status=campaign.status, to_status=Campaign.STATUS_SCHEDULED)
+        campaign.status = Campaign.STATUS_SCHEDULED
+        update_fields = ["status"]
+        if actor_user_id is not None:
+            campaign.updated_by_id = actor_user_id
+            update_fields.append("updated_by_id")
+        return _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+
+
+def publish_campaign(*, campaign_id, expected_version, using="store", actor_user_id=None):
+    """
+    publish_now: draft|scheduled → active.
+    If start_at is null or in the future, set start_at=now (D-04). end_at must remain in the future.
+    """
+    with transaction.atomic(using=using):
+        campaign = get_campaign(campaign_id=campaign_id, using=using, for_update=True)
+        _assert_version(campaign=campaign, expected_version=expected_version)
+        now = timezone.now()
+
+        if campaign.end_at is None:
+            raise CampaignServiceError("end_at is required to publish")
+        if campaign.end_at <= now:
+            raise CampaignServiceError("end_at must be in the future")
+
+        start_at = campaign.start_at
+        if start_at is None or start_at > now:
+            start_at = now
+        if campaign.end_at <= start_at:
+            raise CampaignServiceError("end_at must be after start_at")
+
+        _assert_transition(from_status=campaign.status, to_status=Campaign.STATUS_ACTIVE)
+        campaign.status = Campaign.STATUS_ACTIVE
+        campaign.start_at = start_at
+        update_fields = ["status", "start_at"]
+        if actor_user_id is not None:
+            campaign.updated_by_id = actor_user_id
+            update_fields.append("updated_by_id")
+        return _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+
+
+def pause_campaign(*, campaign_id, expected_version, using="store", actor_user_id=None):
+    return transition_status(
+        campaign_id=campaign_id,
+        to_status=Campaign.STATUS_PAUSED,
+        expected_version=expected_version,
+        using=using,
+        actor_user_id=actor_user_id,
+    )
+
+
+def resume_campaign(*, campaign_id, expected_version, using="store", actor_user_id=None):
+    """paused → active if still in window; else force ended."""
+    with transaction.atomic(using=using):
+        campaign = get_campaign(campaign_id=campaign_id, using=using, for_update=True)
+        _assert_version(campaign=campaign, expected_version=expected_version)
+        if campaign.status != Campaign.STATUS_PAUSED:
+            raise CampaignTransitionError(
+                from_status=campaign.status,
+                to_status=Campaign.STATUS_ACTIVE,
+                reason="resume only from paused",
+            )
+        now = timezone.now()
+        if campaign.end_at is None or now >= campaign.end_at:
+            campaign.status = Campaign.STATUS_ENDED
+            update_fields = ["status"]
+            if actor_user_id is not None:
+                campaign.updated_by_id = actor_user_id
+                update_fields.append("updated_by_id")
+            return _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+
+        campaign.status = Campaign.STATUS_ACTIVE
+        update_fields = ["status"]
+        if actor_user_id is not None:
+            campaign.updated_by_id = actor_user_id
+            update_fields.append("updated_by_id")
+        return _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+
+
+def end_campaign(*, campaign_id, expected_version, using="store", actor_user_id=None):
+    return transition_status(
+        campaign_id=campaign_id,
+        to_status=Campaign.STATUS_ENDED,
+        expected_version=expected_version,
+        using=using,
+        actor_user_id=actor_user_id,
+    )
+
+
+def archive_campaign(*, campaign_id, expected_version, using="store", actor_user_id=None):
+    return transition_status(
+        campaign_id=campaign_id,
+        to_status=Campaign.STATUS_ARCHIVED,
+        expected_version=expected_version,
+        using=using,
+        actor_user_id=actor_user_id,
+    )
+
+
+def unschedule_to_draft(*, campaign_id, expected_version, using="store", actor_user_id=None):
+    """scheduled → draft."""
+    return transition_status(
+        campaign_id=campaign_id,
+        to_status=Campaign.STATUS_DRAFT,
+        expected_version=expected_version,
+        using=using,
+        actor_user_id=actor_user_id,
+    )
+
+
+def apply_time_expiry(*, campaign_id, using="store", now=None):
+    """
+    Scheduler helper: scheduled|active|paused → ended when now >= end_at.
+    No version required (system clock). Returns campaign (possibly unchanged).
+    """
+    now = now or timezone.now()
+    with transaction.atomic(using=using):
+        campaign = get_campaign(campaign_id=campaign_id, using=using, for_update=True)
+        if campaign.status not in (
+            Campaign.STATUS_SCHEDULED,
+            Campaign.STATUS_ACTIVE,
+            Campaign.STATUS_PAUSED,
+        ):
+            return campaign
+        if campaign.end_at is None or now < campaign.end_at:
+            return campaign
+        campaign.status = Campaign.STATUS_ENDED
+        return _bump_and_save(campaign=campaign, update_fields=["status"], using=using)
