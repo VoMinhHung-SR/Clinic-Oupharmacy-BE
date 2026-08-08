@@ -358,6 +358,7 @@ class CartViewSet(viewsets.ViewSet):
         delivery_raw = request.data.get("delivery")
         notes = request.data.get("notes")
         raw_line_ids = request.data.get("cart_item_ids")
+        raw_campaign_id = request.data.get("campaign_id")
         checkout_item_ids = None
         if raw_line_ids is not None:
             if not isinstance(raw_line_ids, list):
@@ -388,6 +389,7 @@ class CartViewSet(viewsets.ViewSet):
                 using="store",
                 expected_version=expected_version,
                 checkout_item_ids=checkout_item_ids,
+                campaign_id=raw_campaign_id,
             )
         except PaymentMethod.DoesNotExist:
             return Response({"error": "PaymentMethod not found"}, status=status.HTTP_400_BAD_REQUEST)

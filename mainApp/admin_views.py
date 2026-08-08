@@ -1,5 +1,6 @@
 import random
 
+from mainApp.authz import is_system_superadmin
 from rest_framework.decorators import api_view
 
 from rest_framework import status
@@ -21,7 +22,7 @@ colors = ['#2c3e50', '#3c8dbc', '#f39c12', '#f1c40f', '#d63031', '#f56954', '#e6
 
 
 def get_admin_revenue(request):
-    if request.user.is_anonymous or not request.user.is_staff:
+    if not is_system_superadmin(request.user):
         return HttpResponseForbidden()
     try:
         quarter = request.GET.get('quarter', '0')
@@ -52,7 +53,7 @@ def get_admin_revenue(request):
 
 
 def get_examinations_stats(request):
-    if request.user.is_anonymous or not request.user.is_staff:
+    if not is_system_superadmin(request.user):
         return HttpResponseForbidden()
     try:
         quarter = request.GET.get('quarter', '0')
@@ -88,7 +89,7 @@ def get_examinations_stats(request):
 
 
 def get_medicines_stats(request):
-    if request.user.is_anonymous or not request.user.is_staff:
+    if not is_system_superadmin(request.user):
         return HttpResponseForbidden()
     try:
         quarter = request.GET.get('quarter', '0')
@@ -140,7 +141,7 @@ from storeApp import admin_views as store_admin_views
 
 
 def get_doctor_stats(request):
-    if request.user.is_anonymous or not request.user.is_staff:
+    if not is_system_superadmin(request.user):
         return HttpResponseForbidden()
 
     try:

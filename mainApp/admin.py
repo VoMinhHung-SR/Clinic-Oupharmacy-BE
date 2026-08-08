@@ -1,11 +1,14 @@
 from django.contrib import admin
+from django.contrib.admin.forms import AdminAuthenticationForm
+from django.core.exceptions import ValidationError
 
 from django.utils.html import format_html
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from . import cloud_context
 from django.urls import path
 from django.utils.safestring import mark_safe
 from django.utils import timezone
+from .authz import is_business_admin, is_system_superadmin
 from .models import *
 from django.template.response import TemplateResponse
 from django.db.models import Count, Sum
@@ -56,9 +59,35 @@ from oauth2_provider.models import (
     get_refresh_token_model,
 )
 
+class OUPharmacyAdminAuthenticationForm(AdminAuthenticationForm):
+    """Allow is_superuser or is_admin (D-18). Do not require Django is_staff."""
+
+    def confirm_login_allowed(self, user):
+        if not user.is_active:
+            raise ValidationError(
+                self.error_messages["invalid_login"],
+                code="invalid_login",
+                params={"username": self.username_field.verbose_name},
+            )
+        if not is_business_admin(user):
+            raise ValidationError(
+                self.error_messages["invalid_login"],
+                code="invalid_login",
+                params={"username": self.username_field.verbose_name},
+            )
+
+
 class MainAppAdminSite(admin.AdminSite):
+    login_form = OUPharmacyAdminAuthenticationForm
+
+    def has_permission(self, request):
+        """Jazzmin: superuser (full site) or is_admin (Campaign-scoped via ModelAdmin)."""
+        return is_business_admin(request.user)
 
     def index(self, request, extra_context=None):
+        if is_business_admin(request.user) and not is_system_superadmin(request.user):
+            return redirect(reverse(f"{self.name}:storeApp_campaign_changelist"))
+
         app_list = self.get_app_list(request)
         today = timezone.localdate()
         year = today.year

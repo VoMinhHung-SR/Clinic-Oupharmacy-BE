@@ -3,7 +3,10 @@ from decimal import Decimal, InvalidOperation
 from rest_framework import viewsets, generics, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated
+
+from mainApp.authz import is_business_admin
+from mainApp.permissions import IsBusinessAdmin
 from rest_framework.serializers import ValidationError as DRFValidationError
 from rest_framework.generics import get_object_or_404
 from django.db import transaction, IntegrityError
@@ -38,27 +41,27 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
 
     def get_permissions(self):
         """
-        - list: IsAdminUser (only admin sees all orders)
+        - list: IsBusinessAdmin (only business/system admin sees all orders)
         - retrieve: IsAuthenticated (owner or admin only, enforced via get_queryset)
         - create, by_user: IsAuthenticated
-        - update, destroy, update_status: IsAdminUser
+        - update, destroy, update_status: IsBusinessAdmin
         """
         if self.action == 'list':
-            permission_classes = [IsAdminUser]
+            permission_classes = [IsBusinessAdmin]
         elif self.action in ['retrieve', 'create', 'by_user', 'cancel']:
             permission_classes = [IsAuthenticated]
         else:
-            permission_classes = [IsAdminUser]
+            permission_classes = [IsBusinessAdmin]
         return [permission() for permission in permission_classes]
 
     def get_queryset(self):
         """Restrict list to admin; restrict retrieve to owner or admin."""
         if self.action == 'list':
-            if self.request.user.is_authenticated and self.request.user.is_staff:
+            if is_business_admin(self.request.user):
                 return Order.objects.all()
             return Order.objects.none()
         if self.action == 'retrieve':
-            if self.request.user.is_authenticated and self.request.user.is_staff:
+            if is_business_admin(self.request.user):
                 return Order.objects.all()
             if self.request.user.is_authenticated:
                 return Order.objects.filter(user_id=self.request.user.id)
@@ -68,7 +71,7 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                 return Order.objects.filter(user_id=self.request.user.id)
             return Order.objects.none()
         if self.action in ['update_status']:
-            if self.request.user.is_authenticated and self.request.user.is_staff:
+            if is_business_admin(self.request.user):
                 return Order.objects.all()
             return Order.objects.none()
         return Order.objects.all()
@@ -250,6 +253,7 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                     notes=notes,
                     using='store',
                     expected_version=expected_version,
+                    campaign_id=data.get("campaign_id"),
                 )
             except CartVersionConflictError as exc:
                 return Response(
@@ -478,7 +482,7 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         """
         # Check if user is viewing their own orders or admin
         if request.user.is_authenticated:
-            if str(request.user.id) != str(user_id) and not request.user.is_staff:
+            if str(request.user.id) != str(user_id) and not is_business_admin(request.user):
                 return Response(
                     {'error': 'You can only view your own orders'},
                     status=status.HTTP_403_FORBIDDEN

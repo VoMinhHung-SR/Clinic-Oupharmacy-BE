@@ -1,5 +1,6 @@
 from rest_framework import viewsets, generics
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny
+from mainApp.permissions import IsBusinessAdmin
 from storeApp.models import Brand
 from storeApp.serializers import BrandSerializer
 
@@ -12,10 +13,10 @@ class BrandViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
     def get_permissions(self):
         """
         - list, retrieve: AllowAny (public)
-        - create, update, destroy: IsAdminUser (admin)
+        - create, update, destroy: IsBusinessAdmin
         """
         if self.action in ['list', 'retrieve']:
             permission_classes = [AllowAny]
         else:
-            permission_classes = [IsAdminUser]
+            permission_classes = [IsBusinessAdmin]
         return [permission() for permission in permission_classes]

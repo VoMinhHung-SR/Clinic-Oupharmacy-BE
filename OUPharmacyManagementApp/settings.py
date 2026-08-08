@@ -362,6 +362,7 @@ JAZZMIN_SETTINGS = {
         "storeApp.ShippingMethod": "fas fa-truck",
         "storeApp.Notification": "fas fa-bell",
         "storeApp.SearchKeyword": "fas fa-search",
+        "storeApp.Campaign": "fas fa-bullhorn",
         "oauth2_provider": "fas fa-key",
         "oauth2_provider.Application": "fas fa-id-badge",
         "oauth2_provider.AccessToken": "fas fa-unlock-alt",
