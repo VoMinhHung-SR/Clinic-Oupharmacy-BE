@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
@@ -14,6 +15,9 @@ from storeApp.services.campaign_service import run_campaign_scheduler
 
 class CampaignSchedulerTests(TestCase):
     databases = {"default", "store"}
+
+    def setUp(self):
+        cache.clear()
 
     def _campaign(self, *, slug, status, start_at, end_at, priority=0):
         return Campaign.objects.create(

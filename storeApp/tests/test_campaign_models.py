@@ -6,7 +6,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from storeApp.models import Campaign, CampaignPlacement
+from storeApp.models import Campaign, CampaignCategory, CampaignPlacement, CampaignProduct
 
 
 class CampaignModelTests(TestCase):
@@ -60,3 +60,18 @@ class CampaignModelTests(TestCase):
         codenames = {p[0] for p in Campaign._meta.permissions}
         self.assertIn("campaign_view", codenames)
         self.assertIn("campaign_manage", codenames)
+
+    def test_campaign_product_and_category_unique(self):
+        campaign = Campaign.objects.create(
+            name="Scope",
+            slug="scope-unique",
+            title="Scope",
+        )
+        CampaignProduct.objects.create(campaign=campaign, product_mid="MID001")
+        CampaignCategory.objects.create(campaign=campaign, category_slug="duoc-my-pham")
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic(using="store"):
+                CampaignProduct.objects.create(campaign=campaign, product_mid="MID001")
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic(using="store"):
+                CampaignCategory.objects.create(campaign=campaign, category_slug="duoc-my-pham")

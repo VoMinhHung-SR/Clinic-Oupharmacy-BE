@@ -1,19 +1,24 @@
 """Admin REST for Campaign CRUD + lifecycle + placements replace (P1-T3)."""
 
 from django.db import transaction
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from storeApp.models import Campaign, CampaignPlacement
+from storeApp.models import Campaign, CampaignCategory, CampaignPlacement, CampaignProduct, CampaignVoucher
 from storeApp.permissions.campaign_permissions import CanManageCampaign, CanViewCampaign
 from storeApp.serializers_campaign import (
     CampaignActionSerializer,
+    CampaignCategoriesReplaceSerializer,
     CampaignPlacementsReplaceSerializer,
+    CampaignProductsReplaceSerializer,
     CampaignSerializer,
+    CampaignVouchersReplaceSerializer,
     CampaignWriteSerializer,
 )
+from storeApp.services.campaign_cache import invalidate_public_campaign_cache
 from storeApp.services.campaign_service import (
     CampaignServiceError,
     CampaignTransitionError,
@@ -58,6 +63,12 @@ def _error_response(exc):
     raise exc
 
 
+def _campaign_qs():
+    return Campaign.objects.prefetch_related(
+        "placements", "products", "categories", "voucher_links"
+    ).annotate(attributed_order_count=Count("orders", distinct=True))
+
+
 class CampaignAdminViewSet(viewsets.ViewSet):
     """
     /api/store/admin/campaigns/
@@ -70,7 +81,7 @@ class CampaignAdminViewSet(viewsets.ViewSet):
         return [CanManageCampaign()]
 
     def list(self, request):
-        qs = Campaign.objects.all().prefetch_related("placements").order_by("-priority", "start_at", "id")
+        qs = _campaign_qs().order_by("-priority", "start_at", "id")
         status_filter = request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
@@ -86,11 +97,16 @@ class CampaignAdminViewSet(viewsets.ViewSet):
             created_by_id=_actor_id(request),
             updated_by_id=_actor_id(request),
         )
-        campaign = Campaign.objects.prefetch_related("placements").get(id=campaign.id)
+        campaign = _campaign_qs().get(
+            id=campaign.id
+        )
         return Response(CampaignSerializer(campaign).data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, pk=None):
-        campaign = get_object_or_404(Campaign.objects.prefetch_related("placements"), pk=pk)
+        campaign = get_object_or_404(
+            _campaign_qs(),
+            pk=pk,
+        )
         return Response(CampaignSerializer(campaign).data)
 
     def partial_update(self, request, pk=None):
@@ -147,7 +163,10 @@ class CampaignAdminViewSet(viewsets.ViewSet):
             locked.save(update_fields=update_fields)
             locked.refresh_from_db()
 
-        locked = Campaign.objects.prefetch_related("placements").get(id=locked.id)
+        locked = _campaign_qs().get(
+            id=locked.id
+        )
+        invalidate_public_campaign_cache()
         return Response(CampaignSerializer(locked).data)
 
     def _run_action(self, request, pk, service_fn):
@@ -161,7 +180,9 @@ class CampaignAdminViewSet(viewsets.ViewSet):
             )
         except (CampaignServiceError, CampaignVersionConflictError, CampaignTransitionError) as exc:
             return _error_response(exc)
-        campaign = Campaign.objects.prefetch_related("placements").get(id=campaign.id)
+        campaign = _campaign_qs().get(
+            id=campaign.id
+        )
         return Response(CampaignSerializer(campaign).data)
 
     @action(detail=True, methods=["post"], url_path="schedule")
@@ -221,5 +242,98 @@ class CampaignAdminViewSet(viewsets.ViewSet):
         except (CampaignServiceError, CampaignVersionConflictError) as exc:
             return _error_response(exc)
 
-        campaign = Campaign.objects.prefetch_related("placements").get(id=campaign.id)
+        campaign = _campaign_qs().get(
+            id=campaign.id
+        )
+        invalidate_public_campaign_cache()
         return Response(CampaignSerializer(campaign).data)
+
+    def _replace_scope(self, request, pk, *, ser_cls, apply_rows):
+        ser = ser_cls(data=request.data)
+        ser.is_valid(raise_exception=True)
+        expected = ser.validated_data["version"]
+
+        try:
+            with transaction.atomic(using="store"):
+                campaign = Campaign.objects.select_for_update().get(id=pk)
+                if campaign.version != expected:
+                    raise CampaignVersionConflictError(
+                        expected_version=expected,
+                        current_version=campaign.version,
+                    )
+                if campaign.status == Campaign.STATUS_ARCHIVED:
+                    raise CampaignServiceError("archived campaigns are not editable")
+
+                apply_rows(campaign, ser.validated_data)
+
+                from django.db.models import F
+
+                campaign.updated_by_id = _actor_id(request)
+                campaign.version = F("version") + 1
+                campaign.save(update_fields=["updated_by_id", "version", "updated_date"])
+                campaign.refresh_from_db()
+        except Campaign.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        except (CampaignServiceError, CampaignVersionConflictError) as exc:
+            return _error_response(exc)
+
+        campaign = _campaign_qs().get(
+            id=campaign.id
+        )
+        invalidate_public_campaign_cache()
+        return Response(CampaignSerializer(campaign).data)
+
+    @action(detail=True, methods=["put"], url_path="products")
+    def replace_products(self, request, pk=None):
+        def apply_rows(campaign, data):
+            CampaignProduct.objects.filter(campaign_id=campaign.id).delete()
+            for index, mid in enumerate(data["product_mids"]):
+                CampaignProduct.objects.create(
+                    campaign=campaign,
+                    product_mid=mid,
+                    sort_order=index,
+                )
+
+        return self._replace_scope(
+            request,
+            pk,
+            ser_cls=CampaignProductsReplaceSerializer,
+            apply_rows=apply_rows,
+        )
+
+    @action(detail=True, methods=["put"], url_path="categories")
+    def replace_categories(self, request, pk=None):
+        def apply_rows(campaign, data):
+            CampaignCategory.objects.filter(campaign_id=campaign.id).delete()
+            for index, slug in enumerate(data["category_slugs"]):
+                CampaignCategory.objects.create(
+                    campaign=campaign,
+                    category_slug=slug,
+                    sort_order=index,
+                )
+
+        return self._replace_scope(
+            request,
+            pk,
+            ser_cls=CampaignCategoriesReplaceSerializer,
+            apply_rows=apply_rows,
+        )
+
+    @action(detail=True, methods=["put"], url_path="vouchers")
+    def replace_vouchers(self, request, pk=None):
+        def apply_rows(campaign, data):
+            CampaignVoucher.objects.filter(campaign_id=campaign.id).delete()
+            for index, row in enumerate(data["vouchers"]):
+                CampaignVoucher.objects.create(
+                    campaign=campaign,
+                    voucher_id=row["voucher_id"],
+                    sort_order=row.get("sort_order", index),
+                    is_featured=row.get("is_featured", True),
+                )
+
+        return self._replace_scope(
+            request,
+            pk,
+            ser_cls=CampaignVouchersReplaceSerializer,
+            apply_rows=apply_rows,
+        )

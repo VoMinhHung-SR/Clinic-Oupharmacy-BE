@@ -2,26 +2,18 @@
 
 from rest_framework.permissions import BasePermission
 
+from mainApp.authz import is_business_admin
+
 
 class CanViewCampaign(BasePermission):
-    """Staff with storeApp.campaign_view or campaign_manage."""
+    """Business admin (is_admin) or system superuser. Not is_staff-only."""
 
     def has_permission(self, request, view):
-        user = request.user
-        if not user or not user.is_authenticated or not user.is_staff:
-            return False
-        if user.is_superuser:
-            return True
-        return user.has_perm("storeApp.campaign_view") or user.has_perm("storeApp.campaign_manage")
+        return is_business_admin(request.user)
 
 
 class CanManageCampaign(BasePermission):
-    """Staff with storeApp.campaign_manage."""
+    """Same gate as view in v1: business admin owns campaign lifecycle (Jazzmin + REST)."""
 
     def has_permission(self, request, view):
-        user = request.user
-        if not user or not user.is_authenticated or not user.is_staff:
-            return False
-        if user.is_superuser:
-            return True
-        return user.has_perm("storeApp.campaign_manage")
+        return is_business_admin(request.user)

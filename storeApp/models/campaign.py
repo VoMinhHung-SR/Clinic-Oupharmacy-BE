@@ -1,4 +1,4 @@
-"""Campaign + CampaignPlacement models (P1). Scope/voucher/order attribution land in later phases."""
+"""Campaign models: core + placements (P1) + catalog scope (P4). Voucher/order attribution later."""
 
 from django.db import models
 
@@ -44,6 +44,8 @@ class Campaign(BaseModel):
 
     class Meta:
         db_table = "store_campaign"
+        verbose_name = "Campaign"
+        verbose_name_plural = "Campaigns"
         ordering = ["-priority", "start_at", "id"]
         indexes = [
             models.Index(fields=["status", "start_at", "end_at"], name="campaign_status_window_idx"),
@@ -124,3 +126,96 @@ class CampaignPlacement(BaseModel):
 
     def __str__(self):
         return f"{self.campaign_id}:{self.slot}"
+
+
+class CampaignProduct(BaseModel):
+    """Explicit product MID scope for a campaign landing (P4)."""
+
+    campaign = models.ForeignKey(
+        Campaign,
+        on_delete=models.CASCADE,
+        related_name="products",
+        db_column="campaign_id",
+    )
+    product_mid = models.CharField(max_length=64, db_column="product_mid", db_index=True)
+    sort_order = models.IntegerField(default=0, db_column="sort_order")
+
+    class Meta:
+        db_table = "store_campaign_product"
+        ordering = ["sort_order", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campaign", "product_mid"],
+                name="campaign_product_mid_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["campaign", "sort_order"], name="campaign_product_sort_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.campaign_id}:{self.product_mid}"
+
+
+class CampaignCategory(BaseModel):
+    """Category slug scope for a campaign landing (P4)."""
+
+    campaign = models.ForeignKey(
+        Campaign,
+        on_delete=models.CASCADE,
+        related_name="categories",
+        db_column="campaign_id",
+    )
+    category_slug = models.CharField(max_length=120, db_column="category_slug", db_index=True)
+    sort_order = models.IntegerField(default=0, db_column="sort_order")
+
+    class Meta:
+        db_table = "store_campaign_category"
+        ordering = ["sort_order", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campaign", "category_slug"],
+                name="campaign_category_slug_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["campaign", "sort_order"], name="campaign_category_sort_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.campaign_id}:{self.category_slug}"
+
+
+class CampaignVoucher(BaseModel):
+    """Link existing store vouchers for merchandising display (P5). No discount math here."""
+
+    campaign = models.ForeignKey(
+        Campaign,
+        on_delete=models.CASCADE,
+        related_name="voucher_links",
+        db_column="campaign_id",
+    )
+    voucher = models.ForeignKey(
+        "storeApp.Voucher",
+        on_delete=models.PROTECT,
+        related_name="campaign_links",
+        db_column="voucher_id",
+    )
+    sort_order = models.IntegerField(default=0, db_column="sort_order")
+    is_featured = models.BooleanField(default=True, db_column="is_featured")
+
+    class Meta:
+        db_table = "store_campaign_voucher"
+        ordering = ["sort_order", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campaign", "voucher"],
+                name="campaign_voucher_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["campaign", "sort_order"], name="campaign_voucher_sort_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.campaign_id}:voucher:{self.voucher_id}"

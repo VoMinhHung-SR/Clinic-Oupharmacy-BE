@@ -2,7 +2,7 @@
 
 from rest_framework import serializers
 
-from storeApp.models import Campaign, CampaignPlacement
+from storeApp.models import Campaign, CampaignPlacement, Voucher
 
 
 class CampaignPlacementSerializer(serializers.ModelSerializer):
@@ -35,6 +35,10 @@ class CampaignPlacementSerializer(serializers.ModelSerializer):
 
 class CampaignSerializer(serializers.ModelSerializer):
     placements = CampaignPlacementSerializer(many=True, read_only=True)
+    product_mids = serializers.SerializerMethodField()
+    category_slugs = serializers.SerializerMethodField()
+    voucher_ids = serializers.SerializerMethodField()
+    attributed_order_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Campaign
@@ -54,6 +58,10 @@ class CampaignSerializer(serializers.ModelSerializer):
             "updated_by_id",
             "version",
             "placements",
+            "product_mids",
+            "category_slugs",
+            "voucher_ids",
+            "attributed_order_count",
             "created_date",
             "updated_date",
             "active",
@@ -65,9 +73,37 @@ class CampaignSerializer(serializers.ModelSerializer):
             "updated_by_id",
             "version",
             "placements",
+            "product_mids",
+            "category_slugs",
+            "voucher_ids",
+            "attributed_order_count",
             "created_date",
             "updated_date",
         ]
+
+    def get_product_mids(self, obj):
+        rows = getattr(obj, "products", None)
+        if rows is None:
+            return []
+        return [row.product_mid for row in rows.all()]
+
+    def get_category_slugs(self, obj):
+        rows = getattr(obj, "categories", None)
+        if rows is None:
+            return []
+        return [row.category_slug for row in rows.all()]
+
+    def get_voucher_ids(self, obj):
+        rows = getattr(obj, "voucher_links", None)
+        if rows is None:
+            return []
+        return [row.voucher_id for row in rows.all()]
+
+    def get_attributed_order_count(self, obj):
+        count = getattr(obj, "attributed_order_count", None)
+        if count is not None:
+            return int(count)
+        return obj.orders.count()
 
 
 class CampaignWriteSerializer(serializers.ModelSerializer):
@@ -106,6 +142,75 @@ class CampaignWriteSerializer(serializers.ModelSerializer):
 class CampaignPlacementsReplaceSerializer(serializers.Serializer):
     version = serializers.IntegerField()
     placements = CampaignPlacementSerializer(many=True)
+
+
+class CampaignProductsReplaceSerializer(serializers.Serializer):
+    version = serializers.IntegerField()
+    product_mids = serializers.ListField(
+        child=serializers.CharField(max_length=64, allow_blank=True),
+        allow_empty=True,
+    )
+
+    def validate_product_mids(self, value):
+        cleaned = []
+        seen = set()
+        for raw in value:
+            mid = (raw or "").strip()
+            if not mid or mid in seen:
+                continue
+            seen.add(mid)
+            cleaned.append(mid)
+        return cleaned
+
+
+class CampaignCategoriesReplaceSerializer(serializers.Serializer):
+    version = serializers.IntegerField()
+    category_slugs = serializers.ListField(
+        child=serializers.CharField(max_length=120, allow_blank=True),
+        allow_empty=True,
+    )
+
+    def validate_category_slugs(self, value):
+        cleaned = []
+        seen = set()
+        for raw in value:
+            slug = (raw or "").strip()
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            cleaned.append(slug)
+        return cleaned
+
+
+class CampaignVoucherLinkSerializer(serializers.Serializer):
+    voucher_id = serializers.IntegerField(min_value=1)
+    sort_order = serializers.IntegerField(required=False, default=0)
+    is_featured = serializers.BooleanField(required=False, default=True)
+
+
+class CampaignVouchersReplaceSerializer(serializers.Serializer):
+    version = serializers.IntegerField()
+    vouchers = CampaignVoucherLinkSerializer(many=True)
+
+    def validate_vouchers(self, value):
+        cleaned = []
+        seen = set()
+        for row in value:
+            vid = row["voucher_id"]
+            if vid in seen:
+                continue
+            seen.add(vid)
+            cleaned.append(row)
+        if seen:
+            existing = set(
+                Voucher.objects.filter(id__in=seen).values_list("id", flat=True)
+            )
+            missing = sorted(seen - existing)
+            if missing:
+                raise serializers.ValidationError(
+                    f"Unknown voucher_id(s): {', '.join(str(i) for i in missing)}"
+                )
+        return cleaned
 
 
 class CampaignActionSerializer(serializers.Serializer):
@@ -170,10 +275,18 @@ class PublicCampaignDetailSerializer(serializers.ModelSerializer):
         ]
 
     def get_product_mids(self, obj):
-        return []
+        rows = getattr(obj, "products", None)
+        if rows is None:
+            return []
+        return [row.product_mid for row in rows.all()]
 
     def get_category_slugs(self, obj):
-        return []
+        rows = getattr(obj, "categories", None)
+        if rows is None:
+            return []
+        return [row.category_slug for row in rows.all()]
 
     def get_vouchers(self, obj):
-        return []
+        from storeApp.services.campaign_public import public_voucher_payloads
+
+        return public_voucher_payloads(obj)

@@ -2,15 +2,26 @@
 
 from datetime import timedelta
 
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from storeApp.models import Campaign, CampaignPlacement
+from storeApp.models import (
+    Campaign,
+    CampaignCategory,
+    CampaignPlacement,
+    CampaignProduct,
+    CampaignVoucher,
+    Voucher,
+)
 
 
 class CampaignPublicApiTests(APITestCase):
     databases = {"default", "store"}
     base = "/api/store/campaigns/"
+
+    def setUp(self):
+        cache.clear()
 
     def _create_campaign(self, *, slug, status, priority=0, start_delta=-1, end_delta=48, title=None):
         now = timezone.now()
@@ -46,6 +57,44 @@ class CampaignPublicApiTests(APITestCase):
         self.assertEqual(ok.data["slug"], "live-show")
         self.assertEqual(ok.data["product_mids"], [])
         self.assertEqual(ok.data["vouchers"], [])
+
+    def test_public_detail_includes_scope(self):
+        active = self._create_campaign(slug="scoped-live", status=Campaign.STATUS_ACTIVE)
+        CampaignProduct.objects.create(campaign=active, product_mid="MID100", sort_order=0)
+        CampaignProduct.objects.create(campaign=active, product_mid="MID200", sort_order=1)
+        CampaignCategory.objects.create(
+            campaign=active, category_slug="duoc-my-pham", sort_order=0
+        )
+
+        res = self.client.get(f"{self.base}{active.slug}/")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["product_mids"], ["MID100", "MID200"])
+        self.assertEqual(res.data["category_slugs"], ["duoc-my-pham"])
+
+    def test_public_detail_omits_non_displayable_vouchers(self):
+        active = self._create_campaign(slug="voucher-live", status=Campaign.STATUS_ACTIVE)
+        live = Voucher.objects.create(
+            code="SHOW10",
+            type="PERCENT",
+            value="10.00",
+            description="Show me",
+            is_active=True,
+        )
+        dead = Voucher.objects.create(
+            code="HIDE10",
+            type="PERCENT",
+            value="10.00",
+            is_active=False,
+        )
+        CampaignVoucher.objects.create(campaign=active, voucher=live, sort_order=0, is_featured=True)
+        CampaignVoucher.objects.create(campaign=active, voucher=dead, sort_order=1, is_featured=True)
+
+        res = self.client.get(f"{self.base}{active.slug}/")
+        self.assertEqual(res.status_code, 200, res.data)
+        codes = [row["code"] for row in res.data["vouchers"]]
+        self.assertEqual(codes, ["SHOW10"])
+        self.assertTrue(res.data["vouchers"][0]["is_displayable"])
+        self.assertEqual(res.data["vouchers"][0]["type"], "PERCENT")
 
     def test_placements_winner_by_priority_and_null_slots(self):
         low = self._create_campaign(slug="low-prio", status=Campaign.STATUS_ACTIVE, priority=1)

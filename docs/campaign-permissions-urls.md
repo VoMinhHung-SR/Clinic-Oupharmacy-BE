@@ -26,22 +26,23 @@ Job contract names (from `api.md`) and Django registration target:
 | `store.campaign.view` | `("campaign_view", "Can view store campaigns")` | Admin GET list + detail (any status) |
 | `store.campaign.manage` | `("campaign_manage", "Can manage store campaigns")` | Create/update/actions/replace placements/products/categories/vouchers |
 
-**Runtime checks (P1):**
+**Runtime checks:**
 
-- Prefer custom DRF permission classes that require **staff** + the matching Django permission (same pattern family as other store admin surfaces using `IsAdminUser`, then tighten to codenames when wiring clinic groups).
-- `campaign_manage` **implies** view for action endpoints (do not require both on every write if manage is present).
-- **Anonymous / authenticated customer:** public GETs only (`AllowAny` or equivalent) — no campaign admin permissions.
-- **Operator pause-only (feature role):** still use `campaign_manage` for pause/resume in v1, or soft-stop if product wants a separate `campaign_operate` later (not in current `api.md`).
+- Admin campaign API: **`is_admin` or `is_superuser`** (`is_business_admin`). **Not** Django `is_staff` alone.
+- Jazzmin `/admin/` Campaign CMS (D-18): **`is_superuser` (full site)** or **`is_admin` (Campaign only)**.
+- Clinic FE has **no** campaign CMS. No `UserRole` named `ROLE_ADMIN`.
+- `campaign_manage` **implies** view for action endpoints in v1 (same business-admin gate).
+- **Anonymous / authenticated customer:** public GETs only (`AllowAny`) — no campaign admin permissions.
 
-**Group mapping (ops):**
+**Ops mapping:**
 
-| Clinic / staff intent | Attach permissions |
-|-----------------------|--------------------|
-| Marketer / campaign editor | `storeApp.campaign_view` + `storeApp.campaign_manage` |
-| Read-only campaign auditor | `storeApp.campaign_view` only |
+| Intent | Flags |
+|--------|--------|
+| System super admin (Jazzmin) | `is_superuser` (+ usually `is_staff`, `is_admin`) |
+| Business / campaign editor (Jazzmin Campaign) | `is_admin=True`, `is_staff=False`, `is_superuser=False` |
 | Storefront customer / guest | none |
 
-Exact Group names live in mainApp/auth ops; Campaign does not invent a new auth stack (D-02).
+Codenames `campaign_view` / `campaign_manage` remain on the model for future group split; v1 runtime does not require Django groups.
 
 ---
 
@@ -57,7 +58,7 @@ Base: **`/api/store/`** (already mounted via `mainApp` → `storeApp.urls`).
 | GET | `/api/store/campaigns/placements/` | Public | **Static segment before slug** — register before detail |
 | GET | `/api/store/campaigns/{slug}/` | Public | Active-in-window detail by **slug** |
 
-### Admin (numeric id; staff + permissions)
+### Admin (numeric id; business admin or superuser)
 
 | Method | Full path | Permission | Notes |
 |--------|-----------|------------|-------|

@@ -10,6 +10,11 @@ from storeApp.serializers_campaign import (
     PublicCampaignDetailSerializer,
     PublicCampaignListSerializer,
 )
+from storeApp.services.campaign_cache import (
+    get_cached,
+    record_public_slug_404,
+    set_cached,
+)
 from storeApp.services.campaign_public import (
     PUBLIC_SLOT_KEYS,
     get_public_campaign_by_slug,
@@ -30,15 +35,26 @@ class CampaignPublicViewSet(viewsets.ViewSet):
     lookup_url_kwarg = "slug"
 
     def list(self, request):
+        cached = get_cached("list")
+        if cached is not None:
+            return Response(cached)
         qs = public_visible_queryset().order_by("-priority", "start_at", "id")
-        return Response(PublicCampaignListSerializer(qs, many=True).data)
+        data = PublicCampaignListSerializer(qs, many=True).data
+        set_cached("list", data)
+        return Response(data)
 
     def retrieve(self, request, slug=None):
+        cached = get_cached("detail", extra=slug)
+        if cached is not None:
+            return Response(cached)
         campaign = get_public_campaign_by_slug(slug=slug)
         if campaign is None:
             # Identical 404 for missing / draft / out-of-window (D-06).
+            record_public_slug_404(slug or "")
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(PublicCampaignDetailSerializer(campaign).data)
+        data = PublicCampaignDetailSerializer(campaign).data
+        set_cached("detail", data, extra=slug)
+        return Response(data)
 
     @action(detail=False, methods=["get"], url_path="placements")
     def placements(self, request):
@@ -52,7 +68,11 @@ class CampaignPublicViewSet(viewsets.ViewSet):
                     {"detail": f"Unknown slots: {', '.join(unknown)}"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-        winners = select_placement_winners(slots=slots)
+        extra = tuple(slots) if slots else None
+        winners = get_cached("placements", extra=extra)
+        if winners is None:
+            winners = select_placement_winners(slots=slots)
+            set_cached("placements", winners, extra=extra)
         return Response(
             {
                 "generated_at": timezone.now().isoformat().replace("+00:00", "Z"),

@@ -5,7 +5,10 @@ from django.db.models import F
 from django.utils import timezone
 
 from storeApp.models import Campaign
-
+from storeApp.services.campaign_cache import (
+    invalidate_public_campaign_cache,
+    log_campaign_transition,
+)
 
 class CampaignServiceError(Exception):
     """Base error for campaign lifecycle operations."""
@@ -93,6 +96,28 @@ def _bump_and_save(*, campaign, update_fields, using):
     return campaign
 
 
+def _after_status_change(
+    *,
+    campaign,
+    from_status,
+    actor_user_id=None,
+    source="api",
+    invalidate=True,
+):
+    if from_status == campaign.status:
+        return campaign
+    log_campaign_transition(
+        campaign_id=campaign.id,
+        from_status=from_status,
+        to_status=campaign.status,
+        actor_user_id=actor_user_id,
+        source=source,
+    )
+    if invalidate:
+        invalidate_public_campaign_cache()
+    return campaign
+
+
 def get_campaign(*, campaign_id, using="store", for_update=False):
     qs = Campaign.objects.using(using)
     if for_update:
@@ -113,7 +138,8 @@ def transition_status(
     with transaction.atomic(using=using):
         campaign = get_campaign(campaign_id=campaign_id, using=using, for_update=True)
         _assert_version(campaign=campaign, expected_version=expected_version)
-        _assert_transition(from_status=campaign.status, to_status=to_status)
+        from_status = campaign.status
+        _assert_transition(from_status=from_status, to_status=to_status)
         campaign.status = to_status
         update_fields = ["status"]
         if extra_updates:
@@ -123,7 +149,13 @@ def transition_status(
         if actor_user_id is not None:
             campaign.updated_by_id = actor_user_id
             update_fields.append("updated_by_id")
-        return _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+        saved = _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+        return _after_status_change(
+            campaign=saved,
+            from_status=from_status,
+            actor_user_id=actor_user_id,
+            source="api",
+        )
 
 
 def schedule_campaign(*, campaign_id, expected_version, using="store", actor_user_id=None):
@@ -133,13 +165,20 @@ def schedule_campaign(*, campaign_id, expected_version, using="store", actor_use
         _assert_version(campaign=campaign, expected_version=expected_version)
         now = timezone.now()
         _require_window_for_live(campaign=campaign, now=now)
-        _assert_transition(from_status=campaign.status, to_status=Campaign.STATUS_SCHEDULED)
+        from_status = campaign.status
+        _assert_transition(from_status=from_status, to_status=Campaign.STATUS_SCHEDULED)
         campaign.status = Campaign.STATUS_SCHEDULED
         update_fields = ["status"]
         if actor_user_id is not None:
             campaign.updated_by_id = actor_user_id
             update_fields.append("updated_by_id")
-        return _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+        saved = _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+        return _after_status_change(
+            campaign=saved,
+            from_status=from_status,
+            actor_user_id=actor_user_id,
+            source="api",
+        )
 
 
 def publish_campaign(*, campaign_id, expected_version, using="store", actor_user_id=None):
@@ -163,14 +202,21 @@ def publish_campaign(*, campaign_id, expected_version, using="store", actor_user
         if campaign.end_at <= start_at:
             raise CampaignServiceError("end_at must be after start_at")
 
-        _assert_transition(from_status=campaign.status, to_status=Campaign.STATUS_ACTIVE)
+        from_status = campaign.status
+        _assert_transition(from_status=from_status, to_status=Campaign.STATUS_ACTIVE)
         campaign.status = Campaign.STATUS_ACTIVE
         campaign.start_at = start_at
         update_fields = ["status", "start_at"]
         if actor_user_id is not None:
             campaign.updated_by_id = actor_user_id
             update_fields.append("updated_by_id")
-        return _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+        saved = _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+        return _after_status_change(
+            campaign=saved,
+            from_status=from_status,
+            actor_user_id=actor_user_id,
+            source="api",
+        )
 
 
 def pause_campaign(*, campaign_id, expected_version, using="store", actor_user_id=None):
@@ -188,9 +234,10 @@ def resume_campaign(*, campaign_id, expected_version, using="store", actor_user_
     with transaction.atomic(using=using):
         campaign = get_campaign(campaign_id=campaign_id, using=using, for_update=True)
         _assert_version(campaign=campaign, expected_version=expected_version)
-        if campaign.status != Campaign.STATUS_PAUSED:
+        from_status = campaign.status
+        if from_status != Campaign.STATUS_PAUSED:
             raise CampaignTransitionError(
-                from_status=campaign.status,
+                from_status=from_status,
                 to_status=Campaign.STATUS_ACTIVE,
                 reason="resume only from paused",
             )
@@ -201,14 +248,26 @@ def resume_campaign(*, campaign_id, expected_version, using="store", actor_user_
             if actor_user_id is not None:
                 campaign.updated_by_id = actor_user_id
                 update_fields.append("updated_by_id")
-            return _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+            saved = _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+            return _after_status_change(
+                campaign=saved,
+                from_status=from_status,
+                actor_user_id=actor_user_id,
+                source="api",
+            )
 
         campaign.status = Campaign.STATUS_ACTIVE
         update_fields = ["status"]
         if actor_user_id is not None:
             campaign.updated_by_id = actor_user_id
             update_fields.append("updated_by_id")
-        return _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+        saved = _bump_and_save(campaign=campaign, update_fields=update_fields, using=using)
+        return _after_status_change(
+            campaign=saved,
+            from_status=from_status,
+            actor_user_id=actor_user_id,
+            source="api",
+        )
 
 
 def end_campaign(*, campaign_id, expected_version, using="store", actor_user_id=None):
@@ -250,7 +309,8 @@ def apply_time_expiry(*, campaign_id, using="store", now=None):
     now = now or timezone.now()
     with transaction.atomic(using=using):
         campaign = get_campaign(campaign_id=campaign_id, using=using, for_update=True)
-        if campaign.status not in (
+        from_status = campaign.status
+        if from_status not in (
             Campaign.STATUS_SCHEDULED,
             Campaign.STATUS_ACTIVE,
             Campaign.STATUS_PAUSED,
@@ -259,7 +319,13 @@ def apply_time_expiry(*, campaign_id, using="store", now=None):
         if campaign.end_at is None or now < campaign.end_at:
             return campaign
         campaign.status = Campaign.STATUS_ENDED
-        return _bump_and_save(campaign=campaign, update_fields=["status"], using=using)
+        saved = _bump_and_save(campaign=campaign, update_fields=["status"], using=using)
+        return _after_status_change(
+            campaign=saved,
+            from_status=from_status,
+            source="scheduler",
+            invalidate=False,
+        )
 
 
 def activate_scheduled_campaign(*, campaign_id, using="store", now=None):
@@ -270,14 +336,21 @@ def activate_scheduled_campaign(*, campaign_id, using="store", now=None):
     now = now or timezone.now()
     with transaction.atomic(using=using):
         campaign = get_campaign(campaign_id=campaign_id, using=using, for_update=True)
-        if campaign.status != Campaign.STATUS_SCHEDULED:
+        from_status = campaign.status
+        if from_status != Campaign.STATUS_SCHEDULED:
             return campaign
         if campaign.start_at is None or campaign.end_at is None:
             return campaign
         if now < campaign.start_at or now >= campaign.end_at:
             return campaign
         campaign.status = Campaign.STATUS_ACTIVE
-        return _bump_and_save(campaign=campaign, update_fields=["status"], using=using)
+        saved = _bump_and_save(campaign=campaign, update_fields=["status"], using=using)
+        return _after_status_change(
+            campaign=saved,
+            from_status=from_status,
+            source="scheduler",
+            invalidate=False,
+        )
 
 
 def run_campaign_scheduler(*, now=None, using="store"):
@@ -328,4 +401,24 @@ def run_campaign_scheduler(*, now=None, using="store"):
         if before == Campaign.STATUS_SCHEDULED and after.status == Campaign.STATUS_ACTIVE:
             stats["activated"] += 1
 
+    if stats["activated"] or stats["ended"]:
+        invalidate_public_campaign_cache()
     return stats
+
+
+def resolve_attribution_campaign_id(raw_campaign_id, *, using="store"):
+    """
+    Best-effort attribution (D-10): accept existing campaign ids; ignore invalid/missing.
+    Does not require public-active status — ended campaigns remain attributable.
+    """
+    if raw_campaign_id is None or raw_campaign_id == "":
+        return None
+    try:
+        campaign_id = int(raw_campaign_id)
+    except (TypeError, ValueError):
+        return None
+    if campaign_id <= 0:
+        return None
+    if Campaign.objects.using(using).filter(id=campaign_id).exists():
+        return campaign_id
+    return None

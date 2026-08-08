@@ -93,6 +93,7 @@ class OrderSerializer(ModelSerializer):
             'shipping_method', 'payment_method', 'shipping_address',
             'discount_amount', 'shipping_discount_amount',
             'order_voucher_code', 'shipping_voucher_code',
+            'campaign_id',
             'created_date', 'updated_date'
         ]
         extra_kwargs = {
@@ -102,6 +103,7 @@ class OrderSerializer(ModelSerializer):
             'order_number', 'subtotal', 'shipping_fee', 'total',
             'discount_amount', 'shipping_discount_amount', 'status',
             'order_voucher_code', 'shipping_voucher_code',
+            'campaign_id',
         ]
     
     def create(self, validated_data):

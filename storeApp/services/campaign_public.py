@@ -3,7 +3,7 @@
 from django.db.models import Prefetch
 from django.utils import timezone
 
-from storeApp.models import Campaign, CampaignPlacement
+from storeApp.models import Campaign, CampaignPlacement, CampaignVoucher
 
 PUBLIC_SLOT_KEYS = [choice[0] for choice in CampaignPlacement.SLOT_CHOICES]
 
@@ -26,7 +26,15 @@ def public_visible_queryset(*, now=None, using="store"):
                 queryset=CampaignPlacement.objects.using(using)
                 .filter(is_enabled=True)
                 .order_by("sort_order", "id"),
-            )
+            ),
+            "products",
+            "categories",
+            Prefetch(
+                "voucher_links",
+                queryset=CampaignVoucher.objects.using(using)
+                .select_related("voucher")
+                .order_by("sort_order", "id"),
+            ),
         )
     )
 
@@ -89,3 +97,32 @@ def pick_primary_placement(campaign):
         if placement.slot == CampaignPlacement.SLOT_HOME_HERO:
             return placement
     return placements[0]
+
+
+def is_voucher_displayable(voucher):
+    """Merchandising display: reuse Voucher.is_valid() — no new discount math (D-07 / SC-05)."""
+    if voucher is None:
+        return False
+    return bool(voucher.is_valid())
+
+
+def public_voucher_payloads(campaign):
+    """Omit non-displayable vouchers entirely (D-07)."""
+    links = list(getattr(campaign, "voucher_links").all()) if hasattr(campaign, "voucher_links") else []
+    payloads = []
+    for link in links:
+        voucher = getattr(link, "voucher", None)
+        if not is_voucher_displayable(voucher):
+            continue
+        payloads.append(
+            {
+                "code": voucher.code,
+                "description": voucher.description,
+                "type": voucher.type,
+                "value": str(voucher.value),
+                "scope": voucher.scope,
+                "is_displayable": True,
+                "is_featured": bool(link.is_featured),
+            }
+        )
+    return payloads

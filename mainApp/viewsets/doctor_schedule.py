@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.decorators import action
 
+from mainApp.authz import is_business_admin
 from mainApp.constant import CLINIC_OPEN_WEEKDAYS, CLINIC_SESSIONS, ROLE_NURSE
 from mainApp.models import DoctorSchedule, TimeSlot, User, Examination
 from mainApp.serializers import DoctorScheduleSerializer, TimeSlotSerializer
@@ -19,7 +20,7 @@ from mainApp.services.schedule_cover import (
 def _actor_is_nurse(user):
     if not user or not getattr(user, "is_authenticated", False):
         return False
-    if getattr(user, "is_staff", False) or getattr(user, "is_admin", False):
+    if is_business_admin(user):
         return True
     role = getattr(user, "role", None)
     return bool(role and getattr(role, "name", None) == ROLE_NURSE)

@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 
@@ -27,6 +28,9 @@ def _future_window(*, hours_start=1, hours_end=48):
 
 class CampaignServiceLifecycleTests(TestCase):
     databases = {"default", "store"}
+
+    def setUp(self):
+        cache.clear()
 
     def _draft(self, **kwargs):
         start_at, end_at = _future_window()
