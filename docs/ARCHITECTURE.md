@@ -64,6 +64,7 @@ Locked plan for Job `campaign` (P0-T2): see [`docs/campaign-permissions-urls.md`
 - Public: `/api/store/campaigns/`, `/api/store/campaigns/placements/`, `/api/store/campaigns/{slug}/`
 - Admin: `/api/store/admin/campaigns/...` (numeric id)
 - Jazzmin (`/admin/`): **Campaign CMS SoT UI** (D-18) — CRUD + inlines + `CampaignService` actions. `is_admin` scoped to Campaign only.
+- Preview (D-19): `GET /api/store/campaigns/{slug}/?preview=<TimestampSigner>` (`campaign-preview-v1`, `{pk}:{slug}`, 2h). Valid token + non-public → 200 + `is_preview` (no public cache). Already public → normal retrieve. Bad/empty token → D-06 404. Jazzmin link uses `STOREFRONT_PUBLIC_URL` (not `CLIENT_SERVER`).
 - Permissions: `storeApp.campaign_view` / `storeApp.campaign_manage` (contract names `store.campaign.view` / `store.campaign.manage`)
 - Scheduler: `python manage.py run_campaign_scheduler` (cron every ~5m; public queries still filter by time window if cron is late — D-14)
 - Public cache: `django.core.cache` LocMem (same as search facets); TTL `CAMPAIGN_PUBLIC_CACHE_TTL` default 60s; version bump on lifecycle/mutate (`storeApp.services.campaign_cache`)

@@ -1,8 +1,11 @@
+from datetime import timedelta
+from urllib.parse import quote
+
+from django.conf import settings
 from django.contrib import admin, messages
 from django.db.models import Q
-from django.utils.html import format_html
 from django.utils import timezone
-from datetime import timedelta
+from django.utils.html import format_html
 
 from mainApp.authz import is_business_admin
 from .models import (
@@ -374,6 +377,10 @@ class CampaignAdmin(admin.ModelAdmin):
             {"fields": ("status", "priority", "start_at", "end_at", "in_window_display", "version")},
         ),
         (
+            "Storefront preview",
+            {"fields": ("preview_store_link",)},
+        ),
+        (
             "Audit",
             {"fields": ("created_by_id", "updated_by_id", "created_date", "updated_date")},
         ),
@@ -388,10 +395,25 @@ class CampaignAdmin(admin.ModelAdmin):
             "created_date",
             "updated_date",
             "in_window_display",
+            "preview_store_link",
         ]
         if obj:
             return ["slug", *ro]
         return ro
+
+    @admin.display(description="Preview on store")
+    def preview_store_link(self, obj):
+        if not obj or not obj.pk or not obj.slug:
+            return "—"
+        from storeApp.services.campaign_preview import sign_campaign_preview
+
+        token = sign_campaign_preview(obj)
+        base = getattr(settings, "STOREFRONT_PUBLIC_URL", "http://localhost:3000").rstrip("/")
+        url = f"{base}/khuyen-mai/{obj.slug}?preview={quote(token, safe='')}"
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener">Xem trước trên store</a>',
+            url,
+        )
 
     @admin.display(description="In window", boolean=True)
     def in_window_display(self, obj):
