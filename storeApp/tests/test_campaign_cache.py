@@ -57,15 +57,15 @@ class CampaignPublicCacheTests(APITestCase):
     def test_placements_cache_stale_until_invalidate(self):
         first = self.client.get(f"{self.base}placements/")
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.data["placements"]["HOME_HERO"]["campaign_slug"], "cache-high")
+        self.assertEqual(first.data["placements"]["HOME_HERO"][0]["campaign_slug"], "cache-high")
 
         Campaign.objects.filter(id=self.high.id).update(priority=0)
         stale = self.client.get(f"{self.base}placements/")
-        self.assertEqual(stale.data["placements"]["HOME_HERO"]["campaign_slug"], "cache-high")
+        self.assertEqual(stale.data["placements"]["HOME_HERO"][0]["campaign_slug"], "cache-high")
 
         invalidate_public_campaign_cache()
         fresh = self.client.get(f"{self.base}placements/")
-        self.assertEqual(fresh.data["placements"]["HOME_HERO"]["campaign_slug"], "cache-low")
+        self.assertEqual(fresh.data["placements"]["HOME_HERO"][0]["campaign_slug"], "cache-low")
 
     def test_publish_invalidates_public_list(self):
         now = timezone.now()

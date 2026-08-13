@@ -21,6 +21,7 @@ from storeApp.services.campaign_preview import unsign_campaign_preview
 from storeApp.services.campaign_public import (
     PUBLIC_SLOT_KEYS,
     get_public_campaign_by_slug,
+    normalize_placement_slot,
     public_visible_queryset,
     select_placement_winners,
 )
@@ -112,7 +113,16 @@ class CampaignPublicViewSet(viewsets.ViewSet):
         raw = (request.query_params.get("slots") or "").strip()
         slots = None
         if raw:
-            slots = [part.strip() for part in raw.split(",") if part.strip()]
+            slots = [normalize_placement_slot(part.strip()) for part in raw.split(",") if part.strip()]
+            # Dedupe after alias normalize while keeping order
+            deduped = []
+            seen = set()
+            for s in slots:
+                if s in seen:
+                    continue
+                seen.add(s)
+                deduped.append(s)
+            slots = deduped
             unknown = [s for s in slots if s not in PUBLIC_SLOT_KEYS]
             if unknown:
                 return Response(
@@ -120,10 +130,11 @@ class CampaignPublicViewSet(viewsets.ViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         extra = tuple(slots) if slots else None
-        winners = get_cached("placements", extra=extra)
+        # P9 shape bump — avoid serving pre-D-22 cached objects as arrays.
+        winners = get_cached("placements_p9", extra=extra)
         if winners is None:
             winners = select_placement_winners(slots=slots)
-            set_cached("placements", winners, extra=extra)
+            set_cached("placements_p9", winners, extra=extra)
         return Response(
             {
                 "generated_at": timezone.now().isoformat().replace("+00:00", "Z"),

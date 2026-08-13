@@ -114,7 +114,7 @@ class CampaignPublicApiTests(APITestCase):
         # Enabled promo only on low — still wins that slot.
         CampaignPlacement.objects.create(
             campaign=low,
-            slot=CampaignPlacement.SLOT_HOME_PROMO_LEFT,
+            slot=CampaignPlacement.SLOT_HOME_SECONDARY,
             title="Promo",
             is_enabled=True,
         )
@@ -122,16 +122,42 @@ class CampaignPublicApiTests(APITestCase):
         res = self.client.get(f"{self.base}placements/")
         self.assertEqual(res.status_code, 200, res.data)
         placements = res.data["placements"]
-        self.assertEqual(placements["HOME_HERO"]["campaign_slug"], "high-prio")
-        self.assertEqual(placements["HOME_HERO"]["title"], "High hero")
-        self.assertEqual(placements["HOME_PROMO_LEFT"]["campaign_slug"], "low-prio")
-        self.assertIsNone(placements["HOME_PROMO_RIGHT"])
+        self.assertIsInstance(placements["HOME_HERO"], list)
+        self.assertEqual(len(placements["HOME_HERO"]), 1)
+        self.assertEqual(placements["HOME_HERO"][0]["campaign_slug"], "high-prio")
+        self.assertEqual(placements["HOME_HERO"][0]["title"], "High hero")
+        self.assertIsInstance(placements["HOME_SECONDARY"], list)
+        self.assertEqual(placements["HOME_SECONDARY"][0]["campaign_slug"], "low-prio")
+        self.assertIsNone(placements["HOME_NOTICE_BOTTOM"])
+        self.assertNotIn("HOME_PROMO_LEFT", placements)
         self.assertIn("generated_at", res.data)
 
-        filtered = self.client.get(f"{self.base}placements/", {"slots": "HOME_HERO,HOME_STRIP"})
+        filtered = self.client.get(
+            f"{self.base}placements/", {"slots": "HOME_HERO,HOME_STRIP"}
+        )
         self.assertEqual(filtered.status_code, 200)
-        self.assertEqual(set(filtered.data["placements"].keys()), {"HOME_HERO", "HOME_STRIP"})
-        self.assertIsNone(filtered.data["placements"]["HOME_STRIP"])
+        self.assertEqual(
+            set(filtered.data["placements"].keys()),
+            {"HOME_HERO", "HOME_NOTICE_TOP"},
+        )
+        self.assertIsNone(filtered.data["placements"]["HOME_NOTICE_TOP"])
+
+    def test_placements_hero_slides_same_campaign_capped(self):
+        camp = self._create_campaign(slug="hero-slides", status=Campaign.STATUS_ACTIVE, priority=50)
+        for i in range(4):
+            CampaignPlacement.objects.create(
+                campaign=camp,
+                slot=CampaignPlacement.SLOT_HOME_HERO,
+                title=f"Slide {i}",
+                sort_order=i,
+                is_enabled=True,
+            )
+        res = self.client.get(f"{self.base}placements/", {"slots": "HOME_HERO"})
+        self.assertEqual(res.status_code, 200, res.data)
+        slides = res.data["placements"]["HOME_HERO"]
+        self.assertEqual(len(slides), 3)
+        self.assertEqual([s["title"] for s in slides], ["Slide 0", "Slide 1", "Slide 2"])
+        self.assertTrue(all(s["campaign_slug"] == "hero-slides" for s in slides))
 
     def test_out_of_window_active_not_visible(self):
         self._create_campaign(
