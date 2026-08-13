@@ -128,7 +128,7 @@ class Command(BaseCommand):
             self.stdout.write(f"~ pause legacy {legacy.slug} id={legacy.id}")
             if not dry_run:
                 legacy.status = Campaign.STATUS_PAUSED
-                legacy.save(using=db, update_fields=["status", "updated_at"])
+                legacy.save(using=db, update_fields=["status"])
 
         if campaign is None:
             self.stdout.write(f"+ campaign {SLUG}")
