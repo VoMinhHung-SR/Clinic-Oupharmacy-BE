@@ -44,33 +44,33 @@ PLACEMENTS = [
         "Combo chăm sóc da mùa mới",
     ),
     (
-        CampaignPlacement.SLOT_HOME_HERO,
-        2,
+        CampaignPlacement.SLOT_HOME_SECONDARY,
+        0,
         "Tư vấn trực tuyến cùng Dược sĩ chuyên sâu 24/7",
         "Giải đáp mọi thắc mắc về liều dùng, triệu chứng bệnh và đơn thuốc an toàn.",
         "Kết nối ngay",
         "/tu-van-duoc-si",
-        "hero-main-3.png",
+        "secondary-1.png",
         "Tư vấn dược sĩ trực tuyến",
     ),
     (
         CampaignPlacement.SLOT_HOME_SECONDARY,
-        0,
+        1,
         "Sữa dinh dưỡng cao cấp & Vitamin thiết yếu",
         "Tăng cường sức đề kháng, bảo vệ thể chất toàn diện mỗi ngày. Giảm đến 30% khi mua kèm đơn hàng đầu tiên.",
         "Mua ngay",
         "/tim-kiem?q=vitamin",
-        "secondary-1.png",
+        "secondary-2.png",
         "Sữa dinh dưỡng và vitamin",
     ),
     (
         CampaignPlacement.SLOT_HOME_SECONDARY,
-        1,
+        2,
         "Đặc quyền thành viên OUPharmacy",
         "Miễn phí vận chuyển toàn quốc cho đơn hàng từ 300K kèm tích điểm đổi quà. Nhập mã FREESHIP30K.",
         "Lấy mã ngay",
         "/khuyen-mai/dac-quyen-thanh-vien",
-        "secondary-2.png",
+        "secondary-3.png",
         "Đặc quyền thành viên FREESHIP30K",
     ),
     (
@@ -122,13 +122,17 @@ class Command(BaseCommand):
         end = now + timedelta(days=90)
 
         campaign = Campaign.objects.using(db).filter(slug=SLUG).first()
-        # Soft-retire older p8 demo so it does not compete on the same slots.
-        legacy = Campaign.objects.using(db).filter(slug="home-cms-p8-demo").first()
-        if legacy and legacy.status == Campaign.STATUS_ACTIVE:
-            self.stdout.write(f"~ pause legacy {legacy.slug} id={legacy.id}")
+        # Only this pack should win home slots — pause every other active campaign.
+        others = (
+            Campaign.objects.using(db)
+            .exclude(slug=SLUG)
+            .filter(status=Campaign.STATUS_ACTIVE)
+        )
+        for other in others:
+            self.stdout.write(f"~ pause other campaign {other.slug} id={other.id}")
             if not dry_run:
-                legacy.status = Campaign.STATUS_PAUSED
-                legacy.save(using=db, update_fields=["status"])
+                other.status = Campaign.STATUS_PAUSED
+                other.save(using=db, update_fields=["status"])
 
         if campaign is None:
             self.stdout.write(f"+ campaign {SLUG}")
@@ -137,7 +141,7 @@ class Command(BaseCommand):
                     name="Homepage CMS P9 demo",
                     slug=SLUG,
                     title="OUPharmacy — Homepage content pack",
-                    subtitle="Hero 3 + Secondary 2 + Notices 2",
+                    subtitle="Hero 2 + Secondary 3 + Notices 2",
                     status=Campaign.STATUS_ACTIVE,
                     priority=priority,
                     start_at=start,
@@ -149,7 +153,7 @@ class Command(BaseCommand):
             if not dry_run:
                 campaign.name = "Homepage CMS P9 demo"
                 campaign.title = "OUPharmacy — Homepage content pack"
-                campaign.subtitle = "Hero 3 + Secondary 2 + Notices 2"
+                campaign.subtitle = "Hero 2 + Secondary 3 + Notices 2"
                 campaign.status = Campaign.STATUS_ACTIVE
                 campaign.priority = priority
                 campaign.start_at = start
