@@ -56,7 +56,7 @@ Base: **`/api/store/`** (already mounted via `mainApp` → `storeApp.urls`).
 |--------|-----------|------|-------|
 | GET | `/api/store/campaigns/` | Public | Active-in-window list only |
 | GET | `/api/store/campaigns/placements/` | Public | **Static segment before slug** — register before detail |
-| GET | `/api/store/campaigns/{slug}/` | Public | Active-in-window detail by **slug** |
+| GET | `/api/store/campaigns/{slug}/` | Public | Active-in-window detail by **slug**. Optional `?preview=<signed>` (D-19, `AllowAny`): unlocks non-public detail + `is_preview`; invalid/empty → same 404; already-public ignores flag. `list` / `placements` ignore `preview`. |
 
 ### Admin (numeric id; business admin or superuser)
 
@@ -111,5 +111,5 @@ Copy into P1 PR description:
 ## Cross-links
 
 - Contract detail: `jobs/campaign/api.md`
-- Decisions: `jobs/campaign/decisions.md` (D-02, D-06, D-09)
+- Decisions: `jobs/campaign/decisions.md` (D-02, D-06, D-09, D-19)
 - Architecture pointer: `docs/ARCHITECTURE.md` § Campaign

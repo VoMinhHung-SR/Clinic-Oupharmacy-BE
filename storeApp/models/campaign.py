@@ -84,20 +84,32 @@ class Campaign(BaseModel):
 
 
 class CampaignPlacement(BaseModel):
+    # D-21 taxonomy (P9). Legacy LEFT/STRIP/RIGHT removed from choices after data migration.
     SLOT_HOME_HERO = "HOME_HERO"
-    SLOT_HOME_PROMO_LEFT = "HOME_PROMO_LEFT"
-    SLOT_HOME_PROMO_RIGHT = "HOME_PROMO_RIGHT"
-    SLOT_HOME_STRIP = "HOME_STRIP"
+    SLOT_HOME_SECONDARY = "HOME_SECONDARY"
+    SLOT_HOME_NOTICE_TOP = "HOME_NOTICE_TOP"
+    SLOT_HOME_NOTICE_BOTTOM = "HOME_NOTICE_BOTTOM"
     SLOT_CATEGORY_BANNER = "CATEGORY_BANNER"
     SLOT_SEARCH_BANNER = "SEARCH_BANNER"
+    # Read aliases for one-release safety / incoming query params (D-21).
+    SLOT_LEGACY_ALIASES = {
+        "HOME_PROMO_LEFT": SLOT_HOME_SECONDARY,
+        "HOME_STRIP": SLOT_HOME_NOTICE_TOP,
+        "HOME_PROMO_RIGHT": SLOT_HOME_NOTICE_BOTTOM,
+    }
     SLOT_CHOICES = [
-        (SLOT_HOME_HERO, "Home hero"),
-        (SLOT_HOME_PROMO_LEFT, "Home promo left"),
-        (SLOT_HOME_PROMO_RIGHT, "Home promo right"),
-        (SLOT_HOME_STRIP, "Home strip"),
+        (SLOT_HOME_HERO, "Banner chính (Hero)"),
+        (SLOT_HOME_SECONDARY, "Banner phụ (Secondary)"),
+        (SLOT_HOME_NOTICE_TOP, "Thông báo phải — trên"),
+        (SLOT_HOME_NOTICE_BOTTOM, "Thông báo phải — dưới"),
         (SLOT_CATEGORY_BANNER, "Category banner"),
         (SLOT_SEARCH_BANNER, "Search banner"),
     ]
+    CAROUSEL_SLOTS = frozenset({SLOT_HOME_HERO, SLOT_HOME_SECONDARY})
+    SLOT_SLIDE_CAPS = {
+        SLOT_HOME_HERO: 3,
+        SLOT_HOME_SECONDARY: 5,
+    }
 
     campaign = models.ForeignKey(
         Campaign,

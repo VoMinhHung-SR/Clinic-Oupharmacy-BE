@@ -1,4 +1,4 @@
-"""Public campaign visibility + placement winner selection (P2-T1)."""
+"""Public campaign visibility + placement winner selection (P2-T1; P9 D-21/D-22)."""
 
 from django.db.models import Prefetch
 from django.utils import timezone
@@ -6,6 +6,13 @@ from django.utils import timezone
 from storeApp.models import Campaign, CampaignPlacement, CampaignVoucher
 
 PUBLIC_SLOT_KEYS = [choice[0] for choice in CampaignPlacement.SLOT_CHOICES]
+
+
+def normalize_placement_slot(slot: str) -> str:
+    """Map legacy LEFT/STRIP/RIGHT query keys to D-21 names."""
+    if not slot:
+        return slot
+    return CampaignPlacement.SLOT_LEGACY_ALIASES.get(slot, slot)
 
 
 def public_visible_queryset(*, now=None, using="store"):
@@ -45,18 +52,44 @@ def get_public_campaign_by_slug(*, slug, now=None, using="store"):
 
 
 def _placement_rank_key(campaign, placement):
-    # Winner: higher priority → earlier start_at → lower campaign id (D-03 / EC-01).
+    # Winner campaign: higher priority → earlier start_at → lower campaign id (D-03 / EC-01).
     start_at = campaign.start_at
     return (-campaign.priority, start_at, campaign.id, placement.sort_order, placement.id)
 
 
+def _subject_payload(campaign, placement):
+    return {
+        "campaign_id": campaign.id,
+        "campaign_slug": campaign.slug,
+        "title": placement.title,
+        "subtitle": placement.subtitle,
+        "cta_label": placement.cta_label,
+        "cta_url": placement.cta_url,
+        "image_desktop_url": placement.image_desktop_url,
+        "image_mobile_url": placement.image_mobile_url,
+        "image_alt": placement.image_alt,
+        "sort_order": placement.sort_order,
+    }
+
+
 def select_placement_winners(*, now=None, slots=None, using="store"):
     """
-    Return dict slot -> winning placement payload or None.
-    If slots is None, include every known slot key.
+    Return dict slot -> payload.
+
+    D-22: HOME_HERO / HOME_SECONDARY → Subject[] | null (slides of winning campaign).
+    Other slots → Subject | null.
     """
     now = now or timezone.now()
-    slot_list = list(slots) if slots else list(PUBLIC_SLOT_KEYS)
+    raw_slots = list(slots) if slots else list(PUBLIC_SLOT_KEYS)
+    # Preserve request order; emit only canonical keys (D-21).
+    slot_list = []
+    seen = set()
+    for raw in raw_slots:
+        key = normalize_placement_slot(raw)
+        if key in seen:
+            continue
+        seen.add(key)
+        slot_list.append(key)
     slot_set = set(slot_list)
 
     candidates = {slot: [] for slot in slot_list}
@@ -73,18 +106,20 @@ def select_placement_winners(*, now=None, slots=None, using="store"):
         if not rows:
             winners[slot] = None
             continue
-        campaign, placement = min(rows, key=lambda pair: _placement_rank_key(pair[0], pair[1]))
-        winners[slot] = {
-            "campaign_id": campaign.id,
-            "campaign_slug": campaign.slug,
-            "title": placement.title,
-            "subtitle": placement.subtitle,
-            "cta_label": placement.cta_label,
-            "cta_url": placement.cta_url,
-            "image_desktop_url": placement.image_desktop_url,
-            "image_mobile_url": placement.image_mobile_url,
-            "image_alt": placement.image_alt,
-        }
+        campaign, _placement = min(rows, key=lambda pair: _placement_rank_key(pair[0], pair[1]))
+        if slot in CampaignPlacement.CAROUSEL_SLOTS:
+            slides = [p for p in campaign.placements.all() if p.slot == slot]
+            cap = CampaignPlacement.SLOT_SLIDE_CAPS.get(slot, 5)
+            payloads = [_subject_payload(campaign, p) for p in slides[:cap]]
+            winners[slot] = payloads if payloads else None
+        else:
+            # Single notice / banner: best-ranked placement of winning campaign for this slot.
+            same = [p for p in campaign.placements.all() if p.slot == slot]
+            if not same:
+                winners[slot] = None
+                continue
+            best = min(same, key=lambda p: (p.sort_order, p.id))
+            winners[slot] = _subject_payload(campaign, best)
     return winners
 
 
