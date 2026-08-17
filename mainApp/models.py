@@ -107,6 +107,7 @@ class User(AbstractUser):
     # ex: (1:ROLE_USER; 2:ROLE_DOCTOR; 3:ROLE_NURSE)
     role = models.ForeignKey(UserRole, on_delete=models.SET_NULL, null=True)
     objects = UserManager()
+    # Business admin: Clinic FE ops + Jazzmin Campaign (D-18). Full Jazzmin remains is_superuser.
     is_admin = models.BooleanField(default=False)
     # Social Authentication fields
     social_id = models.CharField(max_length=255, blank=True, null=True, unique=True)
@@ -116,7 +117,12 @@ class User(AbstractUser):
     REQUIRED_FIELDS = []
 
     def has_perm(self, perm, obj=None):
-        return self.is_admin
+        """Django perms for Jazzmin. Business dashboard uses is_admin, not this hook."""
+        if not self.is_active:
+            return False
+        if self.is_superuser:
+            return True
+        return super().has_perm(perm, obj)
 
     def __str__(self):
         return f"{self.title} {self.first_name} {self.last_name} ({self.email})"

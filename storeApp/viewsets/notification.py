@@ -1,7 +1,8 @@
 from rest_framework import viewsets, generics
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated
+from mainApp.permissions import IsBusinessAdmin
 from storeApp.models import Notification
 from storeApp.serializers import NotificationSerializer
 
@@ -14,12 +15,12 @@ class NotificationViewSet(viewsets.ViewSet, generics.ListAPIView, generics.Retri
     def get_permissions(self):
         """
         - list, retrieve, mark_as_read, unread: IsAuthenticated (user)
-        - create, update, destroy: IsAdminUser (admin)
+        - create, update, destroy: IsBusinessAdmin
         """
         if self.action in ['list', 'retrieve', 'mark_as_read', 'unread']:
             permission_classes = [IsAuthenticated]
         else:
-            permission_classes = [IsAdminUser]
+            permission_classes = [IsBusinessAdmin]
         return [permission() for permission in permission_classes]
     
     @action(methods=['post'], detail=True, url_path='mark-as-read')

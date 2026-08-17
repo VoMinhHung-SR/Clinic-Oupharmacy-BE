@@ -138,6 +138,9 @@ CLIENT_SERVER = os.getenv('CLIENT_SERVER', '').strip().rstrip('/')
 PASSWORD_RESET_FRONTEND_PATH = '/dat-lai-mat-khau'
 PASSWORD_RESET_FRONTEND_URL = f'{CLIENT_SERVER}{PASSWORD_RESET_FRONTEND_PATH}' if CLIENT_SERVER else ''
 
+# Store Next.js origin for Jazzmin campaign preview links (D-19). Not CLIENT_SERVER (clinic Vite).
+STOREFRONT_PUBLIC_URL = os.getenv('STOREFRONT_PUBLIC_URL', 'http://localhost:3000').strip().rstrip('/')
+
 # import pymysql
 # pymysql.install_as_MySQLdb()
 # Database
@@ -362,6 +365,7 @@ JAZZMIN_SETTINGS = {
         "storeApp.ShippingMethod": "fas fa-truck",
         "storeApp.Notification": "fas fa-bell",
         "storeApp.SearchKeyword": "fas fa-search",
+        "storeApp.Campaign": "fas fa-bullhorn",
         "oauth2_provider": "fas fa-key",
         "oauth2_provider.Application": "fas fa-id-badge",
         "oauth2_provider.AccessToken": "fas fa-unlock-alt",

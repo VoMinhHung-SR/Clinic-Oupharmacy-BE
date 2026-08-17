@@ -1,4 +1,5 @@
 from django.http import JsonResponse, HttpResponseForbidden, HttpResponseServerError
+from mainApp.authz import is_system_superadmin
 from django.db.models import Count, Sum
 from django.db.models.functions import TruncMonth
 from datetime import date
@@ -7,7 +8,7 @@ from .models import Order
 
 def get_store_revenue_stats(request):
     """Thống kê doanh thu đơn hàng online theo tháng"""
-    if request.user.is_anonymous or not request.user.is_staff:
+    if not is_system_superadmin(request.user):
         return HttpResponseForbidden()
     try:
         quarter = request.GET.get('quarter', '0')
@@ -42,7 +43,7 @@ def get_store_revenue_stats(request):
 
 def get_store_orders_stats(request):
     """Thống kê số lượng đơn hàng theo tháng"""
-    if request.user.is_anonymous or not request.user.is_staff:
+    if not is_system_superadmin(request.user):
         return HttpResponseForbidden()
     try:
         quarter = request.GET.get('quarter', '0')
@@ -78,7 +79,7 @@ def get_store_orders_stats(request):
 
 def get_store_payment_methods_stats(request):
     """Thống kê đơn hàng theo phương thức thanh toán"""
-    if request.user.is_anonymous or not request.user.is_staff:
+    if not is_system_superadmin(request.user):
         return HttpResponseForbidden()
     try:
         quarter = request.GET.get('quarter', '0')
@@ -120,7 +121,7 @@ def get_store_payment_methods_stats(request):
 
 def get_store_shipping_methods_stats(request):
     """Thống kê đơn hàng theo phương thức vận chuyển"""
-    if request.user.is_anonymous or not request.user.is_staff:
+    if not is_system_superadmin(request.user):
         return HttpResponseForbidden()
     try:
         quarter = request.GET.get('quarter', '0')
@@ -162,7 +163,7 @@ def get_store_shipping_methods_stats(request):
 
 def get_store_order_status_stats(request):
     """Thống kê đơn hàng theo trạng thái"""
-    if request.user.is_anonymous or not request.user.is_staff:
+    if not is_system_superadmin(request.user):
         return HttpResponseForbidden()
     try:
         quarter = request.GET.get('quarter', '0')

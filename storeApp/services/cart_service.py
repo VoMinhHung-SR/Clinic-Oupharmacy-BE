@@ -471,8 +471,12 @@ def checkout_cart(
     using="store",
     expected_version=None,
     checkout_item_ids=None,
+    campaign_id=None,
 ):
     from storeApp.models import Order, OrderItem
+    from storeApp.services.campaign_service import resolve_attribution_campaign_id
+
+    attributed_campaign_id = resolve_attribution_campaign_id(campaign_id, using=using)
 
     with transaction.atomic(using=using):
         locked_cart = (
@@ -520,6 +524,7 @@ def checkout_cart(
             shipping_voucher=voucher_result["shipping_voucher"],
             discount_amount=voucher_result["order_discount_amount"],
             shipping_discount_amount=voucher_result["shipping_discount_amount"],
+            campaign_id=attributed_campaign_id,
         )
 
         for item in items:

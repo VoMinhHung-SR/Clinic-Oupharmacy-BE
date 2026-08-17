@@ -156,6 +156,15 @@ class Order(BaseModel):
         db_column="shipping_discount_amount",
         help_text="Số tiền giảm từ voucher giảm phí ship",
     )
+    campaign = models.ForeignKey(
+        "Campaign",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orders",
+        db_column="campaign_id",
+        help_text="Best-effort marketing attribution (D-10)",
+    )
 
     def save(self, *args, **kwargs):
         if self.order_number:

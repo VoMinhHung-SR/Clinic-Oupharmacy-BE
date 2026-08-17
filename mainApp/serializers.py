@@ -165,13 +165,14 @@ class UserSerializer(ModelSerializer):
         model = User
         fields = ["id", "first_name", "last_name", "password",
                   "email", "phone_number", "date_of_birth", "addresses", "defaultAddress",
-                  "date_joined", "gender", "avatar_path", "avatar", "is_admin", "role"]
+                  "date_joined", "gender", "avatar_path", "avatar", "is_admin", "is_superuser", "role"]
         extra_kwargs = {
             'password': {'write_only': 'true'},
             'avatar_path': {'read_only': 'true'},
             'addresses': {'read_only': 'true'},
             'defaultAddress': {'read_only': 'true'},
-            'avatar': {'write_only': 'true'}
+            'avatar': {'write_only': 'true'},
+            'is_superuser': {'read_only': 'true'},
         }
 
 class UserDisplaySerializer(serializers.ModelSerializer):
