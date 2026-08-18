@@ -29,7 +29,14 @@ def _variant_image_url(variant):
 class CabinetSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cabinet
-        fields = ["id", "name", "created_date", "updated_date"]
+        fields = [
+            "id",
+            "name",
+            "reminder_enabled",
+            "expiring_soon_days",
+            "created_date",
+            "updated_date",
+        ]
         read_only_fields = ["id", "created_date", "updated_date"]
 
     def create(self, validated_data):
@@ -63,6 +70,9 @@ class CabinetItemSerializer(serializers.ModelSerializer):
             "product_variant_unit_id",
             "quantity",
             "expiration_date",
+            "lot_number",
+            "low_stock_threshold",
+            "on_refill_list",
             "expiration_status",
             "days_until_expiry",
             "inventory_status",
@@ -120,6 +130,11 @@ class CabinetItemSerializer(serializers.ModelSerializer):
         except Exception:
             return None
 
+    def validate_lot_number(self, value):
+        if value == "":
+            return None
+        return value
+
     def validate(self, attrs):
         request = self.context["request"]
         cabinet = attrs.get("cabinet")
@@ -147,8 +162,8 @@ class CabinetItemSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-def apply_expiration_status_filter(queryset, status):
-    gte, lt = expiration_date_range(status)
+def apply_expiration_status_filter(queryset, status, soon_days=None):
+    gte, lt = expiration_date_range(status, soon_days=soon_days)
     if status not in ("EXPIRED", "EXPIRING_SOON", "EXPIRING", "SAFE"):
         return queryset
     if gte is not None:

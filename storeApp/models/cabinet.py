@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -17,18 +17,22 @@ EXPIRING = "EXPIRING"
 SAFE = "SAFE"
 
 IN_STOCK = "IN_STOCK"
+LOW_STOCK = "LOW_STOCK"
 OUT_OF_STOCK = "OUT_OF_STOCK"
 
+DEFAULT_LOW_STOCK_THRESHOLD = 5
 
-def expiration_status_for(expiration_date, today=None):
+
+def expiration_status_for(expiration_date, today=None, soon_days=None):
     """Compute expiry bucket from a date. Not stored on the row."""
     if expiration_date is None:
         return SAFE
     today = today or timezone.now().date()
+    soon = EXPIRING_SOON_DAYS if soon_days is None else int(soon_days)
     days = (expiration_date - today).days
     if days < 0:
         return EXPIRED
-    if days < EXPIRING_SOON_DAYS:
+    if days < soon:
         return EXPIRING_SOON
     if days < EXPIRING_DAYS:
         return EXPIRING
@@ -42,15 +46,16 @@ def days_until_expiry_for(expiration_date, today=None):
     return (expiration_date - today).days
 
 
-def expiration_date_range(status, today=None):
+def expiration_date_range(status, today=None, soon_days=None):
     """Map a status filter to (gte, lt) dates. Exclusive upper bound."""
     today = today or timezone.now().date()
+    soon = EXPIRING_SOON_DAYS if soon_days is None else int(soon_days)
     if status == EXPIRED:
         return None, today
     if status == EXPIRING_SOON:
-        return today, today + timedelta(days=EXPIRING_SOON_DAYS)
+        return today, today + timedelta(days=soon)
     if status == EXPIRING:
-        return today + timedelta(days=EXPIRING_SOON_DAYS), today + timedelta(days=EXPIRING_DAYS)
+        return today + timedelta(days=soon), today + timedelta(days=EXPIRING_DAYS)
     if status == SAFE:
         return today + timedelta(days=EXPIRING_DAYS), None
     return None, None
@@ -59,6 +64,12 @@ def expiration_date_range(status, today=None):
 class Cabinet(BaseModel):
     user_id = models.BigIntegerField(db_column="user_id", db_index=True)
     name = models.CharField(max_length=120, db_column="name")
+    reminder_enabled = models.BooleanField(default=True, db_column="reminder_enabled")
+    expiring_soon_days = models.PositiveIntegerField(
+        default=EXPIRING_SOON_DAYS,
+        db_column="expiring_soon_days",
+        validators=[MinValueValidator(1), MaxValueValidator(365)],
+    )
 
     class Meta:
         db_table = "store_cabinet"
@@ -91,6 +102,14 @@ class CabinetItem(BaseModel):
         validators=[MinValueValidator(0)],
     )
     expiration_date = models.DateField(db_column="expiration_date")
+    lot_number = models.CharField(max_length=80, null=True, blank=True, db_column="lot_number")
+    low_stock_threshold = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_column="low_stock_threshold",
+        validators=[MinValueValidator(0)],
+    )
+    on_refill_list = models.BooleanField(default=False, db_column="on_refill_list")
 
     class Meta:
         db_table = "store_cabinet_item"
@@ -99,12 +118,20 @@ class CabinetItem(BaseModel):
         ]
 
     def expiration_status(self, today=None):
-        return expiration_status_for(self.expiration_date, today=today)
+        soon = getattr(self.cabinet, "expiring_soon_days", None) or EXPIRING_SOON_DAYS
+        return expiration_status_for(self.expiration_date, today=today, soon_days=soon)
 
     def days_until_expiry(self, today=None):
         return days_until_expiry_for(self.expiration_date, today=today)
 
+    def effective_low_stock_threshold(self):
+        if self.low_stock_threshold is not None:
+            return self.low_stock_threshold
+        return DEFAULT_LOW_STOCK_THRESHOLD
+
     def inventory_status(self):
         if self.quantity <= 0:
             return OUT_OF_STOCK
+        if self.quantity <= self.effective_low_stock_threshold():
+            return LOW_STOCK
         return IN_STOCK

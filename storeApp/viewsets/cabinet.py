@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from storeApp.models import Cabinet, CabinetItem
-from storeApp.models.cabinet import DEFAULT_CABINET_NAME, EXPIRED, EXPIRING, EXPIRING_SOON
+from storeApp.models.cabinet import DEFAULT_CABINET_NAME, EXPIRED, EXPIRING, EXPIRING_SOON, LOW_STOCK
 from storeApp.serializers_cabinet import (
     CabinetItemSerializer,
     CabinetSerializer,
@@ -50,6 +50,7 @@ class CabinetViewSet(viewsets.ModelViewSet):
         cabinet = self.get_object()
         items = list(
             cabinet.items.select_related(
+                "cabinet",
                 "product_variant__product",
                 "product_variant_unit",
             ).order_by("expiration_date", "id")
@@ -58,6 +59,8 @@ class CabinetViewSet(viewsets.ModelViewSet):
         expired = [row for row in serialized if row["expiration_status"] == EXPIRED]
         soon = [row for row in serialized if row["expiration_status"] == EXPIRING_SOON]
         expiring = [row for row in serialized if row["expiration_status"] == EXPIRING]
+        low_stock = [row for row in serialized if row["inventory_status"] == LOW_STOCK]
+        refill = [row for row in serialized if row.get("on_refill_list")]
         out_of_stock = sum(1 for row in serialized if row["inventory_status"] == "OUT_OF_STOCK")
         return Response(
             {
@@ -67,11 +70,15 @@ class CabinetViewSet(viewsets.ModelViewSet):
                     "expired": len(expired),
                     "expiring_soon": len(soon),
                     "expiring": len(expiring),
+                    "low_stock": len(low_stock),
                     "in_stock": len(serialized) - out_of_stock,
                     "out_of_stock": out_of_stock,
+                    "on_refill_list": len(refill),
                 },
                 "expired": expired[:OVERVIEW_LIST_CAP],
                 "expiring_soon": soon[:OVERVIEW_LIST_CAP],
+                "low_stock": low_stock[:OVERVIEW_LIST_CAP],
+                "refill_list": refill[:OVERVIEW_LIST_CAP],
             }
         )
 
@@ -93,7 +100,14 @@ class CabinetItemViewSet(viewsets.ModelViewSet):
             qs = qs.filter(cabinet_id=cabinet_id)
         status_filter = self.request.query_params.get("expiration_status")
         if status_filter:
-            qs = apply_expiration_status_filter(qs, status_filter)
+            soon_days = None
+            if cabinet_id:
+                soon_days = (
+                    Cabinet.objects.filter(pk=cabinet_id, user_id=self.request.user.id)
+                    .values_list("expiring_soon_days", flat=True)
+                    .first()
+                )
+            qs = apply_expiration_status_filter(qs, status_filter, soon_days=soon_days)
         return qs.order_by("expiration_date", "id")
 
     def get_object(self):

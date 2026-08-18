@@ -11,6 +11,7 @@ from storeApp.models.cabinet import (
     EXPIRING,
     EXPIRING_SOON,
     IN_STOCK,
+    LOW_STOCK,
     OUT_OF_STOCK,
     SAFE,
 )
@@ -137,7 +138,7 @@ class CabinetApiTests(APITestCase):
     def test_add_item_and_qty_zero_out_of_stock(self):
         cabinet_id = self.client.get("/api/store/cabinets/").data[0]["id"]
         today = timezone.now().date()
-        created = self._add_item(cabinet_id, today + timedelta(days=200), quantity=5)
+        created = self._add_item(cabinet_id, today + timedelta(days=200), quantity=10)
         self.assertEqual(created.status_code, 201)
         self.assertEqual(created.data["inventory_status"], IN_STOCK)
         self.assertEqual(created.data["expiration_status"], SAFE)
@@ -218,3 +219,93 @@ class CabinetApiTests(APITestCase):
         response = self._add_item(cabinet_id, today + timedelta(days=90), quantity=1)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(CabinetItem.objects.count(), 0)
+
+    def test_low_stock_default_and_custom_threshold(self):
+        cabinet_id = self.client.get("/api/store/cabinets/").data[0]["id"]
+        today = timezone.now().date()
+        default_low = self._add_item(cabinet_id, today + timedelta(days=200), quantity=5)
+        in_stock = self._add_item(cabinet_id, today + timedelta(days=200), quantity=6)
+        self.assertEqual(default_low.data["inventory_status"], LOW_STOCK)
+        self.assertEqual(in_stock.data["inventory_status"], IN_STOCK)
+
+        custom = self.client.post(
+            "/api/store/cabinet-items/",
+            {
+                "cabinet": cabinet_id,
+                "product_variant_id": self.variant.id,
+                "product_variant_unit_id": self.unit.id,
+                "quantity": 8,
+                "expiration_date": (today + timedelta(days=200)).isoformat(),
+                "low_stock_threshold": 10,
+            },
+            format="json",
+        )
+        self.assertEqual(custom.status_code, 201)
+        self.assertEqual(custom.data["inventory_status"], LOW_STOCK)
+        self.assertEqual(custom.data["low_stock_threshold"], 10)
+
+        overview = self.client.get(f"/api/store/cabinets/{cabinet_id}/overview/")
+        self.assertEqual(overview.status_code, 200)
+        self.assertEqual(overview.data["counts"]["low_stock"], 2)
+        self.assertEqual(len(overview.data["low_stock"]), 2)
+
+    def test_lot_and_refill_list(self):
+        cabinet_id = self.client.get("/api/store/cabinets/").data[0]["id"]
+        today = timezone.now().date()
+        created = self.client.post(
+            "/api/store/cabinet-items/",
+            {
+                "cabinet": cabinet_id,
+                "product_variant_id": self.variant.id,
+                "product_variant_unit_id": self.unit.id,
+                "quantity": 10,
+                "expiration_date": (today + timedelta(days=200)).isoformat(),
+                "lot_number": "LOT-A1",
+                "on_refill_list": True,
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data["lot_number"], "LOT-A1")
+        self.assertTrue(created.data["on_refill_list"])
+
+        overview = self.client.get(f"/api/store/cabinets/{cabinet_id}/overview/")
+        self.assertEqual(overview.data["counts"]["on_refill_list"], 1)
+        self.assertEqual(overview.data["refill_list"][0]["id"], created.data["id"])
+
+        cleared = self.client.patch(
+            f"/api/store/cabinet-items/{created.data['id']}/",
+            {"lot_number": "", "on_refill_list": False},
+            format="json",
+        )
+        self.assertEqual(cleared.status_code, 200)
+        self.assertIsNone(cleared.data["lot_number"])
+        self.assertFalse(cleared.data["on_refill_list"])
+
+    def test_settings_change_soon_bucket_and_keep_alerts_visible(self):
+        cabinet_id = self.client.get("/api/store/cabinets/").data[0]["id"]
+        today = timezone.now().date()
+        item = self._add_item(cabinet_id, today + timedelta(days=20), quantity=10)
+        self.assertEqual(item.data["expiration_status"], EXPIRING_SOON)
+
+        patched = self.client.patch(
+            f"/api/store/cabinets/{cabinet_id}/",
+            {"reminder_enabled": False, "expiring_soon_days": 7},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, 200)
+        self.assertFalse(patched.data["reminder_enabled"])
+        self.assertEqual(patched.data["expiring_soon_days"], 7)
+
+        listed = self.client.get(f"/api/store/cabinet-items/?cabinet={cabinet_id}")
+        self.assertEqual(listed.data[0]["expiration_status"], EXPIRING)
+
+        overview = self.client.get(f"/api/store/cabinets/{cabinet_id}/overview/")
+        self.assertEqual(overview.status_code, 200)
+        self.assertFalse(overview.data["cabinet"]["reminder_enabled"])
+        self.assertEqual(overview.data["counts"]["expiring"], 1)
+        self.assertEqual(len(overview.data["expired"]), 0)
+        self.assertEqual(len(overview.data["expiring_soon"]), 0)
+        self.assertIn("low_stock", overview.data)
+        self.assertIn("refill_list", overview.data)
+
