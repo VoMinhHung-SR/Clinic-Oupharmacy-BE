@@ -15,6 +15,7 @@ from .viewsets import (
     CartViewSet,
     CabinetViewSet,
     CabinetItemViewSet,
+    CabinetAlertViewSet,
     CampaignAdminViewSet,
     CampaignPublicViewSet,
 )
@@ -39,6 +40,7 @@ router.register("search-terms", SearchTermsViewSet, basename="search-terms")
 router.register("carts", CartViewSet, basename="cart")
 router.register("cabinets", CabinetViewSet, basename="cabinet")
 router.register("cabinet-items", CabinetItemViewSet, basename="cabinet-item")
+router.register("cabinet-alerts", CabinetAlertViewSet, basename="cabinet-alert")
 router.register("admin/campaigns", CampaignAdminViewSet, basename="admin-campaign")
 router.register("campaigns", CampaignPublicViewSet, basename="campaign-public")
 
@@ -55,7 +57,7 @@ urlpatterns = [
     # Trailing slash là optional (/?)
     # Exclude các API endpoint names để tránh conflict
     re_path(
-        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|notifications|search-terms|search|resolve-path|admin|carts|cabinets|cabinet-items|campaigns)(?P<category_slug>[\w\-/]+)/?$',
+        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|notifications|search-terms|search|resolve-path|admin|carts|cabinets|cabinet-items|cabinet-alerts|campaigns)(?P<category_slug>[\w\-/]+)/?$',
         products_by_category_slug, 
         name='products-by-category-slug'
     ),

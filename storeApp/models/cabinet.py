@@ -135,3 +135,54 @@ class CabinetItem(BaseModel):
         if self.quantity <= self.effective_low_stock_threshold():
             return LOW_STOCK
         return IN_STOCK
+
+
+ALERT_EXPIRED = "EXPIRED"
+ALERT_EXPIRING_SOON = "EXPIRING_SOON"
+
+CABINET_ALERT_KIND_CHOICES = [
+    (ALERT_EXPIRED, "Expired"),
+    (ALERT_EXPIRING_SOON, "Expiring soon"),
+]
+
+DEFAULT_ALERT_DEDUPE_DAYS = 7
+
+
+class CabinetAlert(BaseModel):
+    """User-scoped cabinet HSD reminder. Not warehouse Notification / MedicineBatch."""
+
+    user_id = models.BigIntegerField(db_column="user_id", db_index=True)
+    cabinet_item = models.ForeignKey(
+        CabinetItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alerts",
+        db_column="cabinet_item_id",
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=CABINET_ALERT_KIND_CHOICES,
+        db_column="kind",
+    )
+    title = models.CharField(max_length=255, db_column="title")
+    body = models.TextField(db_column="body")
+    is_read = models.BooleanField(default=False, db_column="is_read")
+    read_at = models.DateTimeField(null=True, blank=True, db_column="read_at")
+
+    class Meta:
+        db_table = "store_cabinet_alert"
+        indexes = [
+            models.Index(fields=["user_id", "is_read"]),
+            models.Index(fields=["cabinet_item", "kind", "created_date"]),
+        ]
+
+    def mark_as_read(self):
+        if self.is_read:
+            return
+        self.is_read = True
+        self.read_at = timezone.now()
+        self.save(update_fields=["is_read", "read_at", "updated_date"])
+
+    def __str__(self):
+        return f"{self.kind}: {self.title} ({self.user_id})"
