@@ -25,6 +25,7 @@ from .views import (
     search_products,
     resolve_store_path_view,
 )
+from .viewsets.cabinet_prescription import CabinetPrescriptionLinesView
 
 router = routers.DefaultRouter()
 router.register("products", ProductViewSet, basename="product")
@@ -48,6 +49,11 @@ urlpatterns = [
     # Router URLs (các routes khác như /products/, /categories/, etc.)
     # Phải đặt router trước regex route để các API endpoints được match đúng
     path('', include(router.urls)),
+    path(
+        'cabinet-prescription-lines/',
+        CabinetPrescriptionLinesView.as_view(),
+        name='cabinet-prescription-lines',
+    ),
     path('search/', search_products, name='search-products'),
     path('resolve-path/<path:path_slug>/', resolve_store_path_view, name='resolve-store-path'),
     path('search/suggest/', SearchSuggestViewSet.as_view({'get': 'list'}), name='search-suggest'),
@@ -57,7 +63,7 @@ urlpatterns = [
     # Trailing slash là optional (/?)
     # Exclude các API endpoint names để tránh conflict
     re_path(
-        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|notifications|search-terms|search|resolve-path|admin|carts|cabinets|cabinet-items|cabinet-alerts|campaigns)(?P<category_slug>[\w\-/]+)/?$',
+        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|notifications|search-terms|search|resolve-path|admin|carts|cabinets|cabinet-items|cabinet-alerts|cabinet-prescription-lines|campaigns)(?P<category_slug>[\w\-/]+)/?$',
         products_by_category_slug, 
         name='products-by-category-slug'
     ),

@@ -4,7 +4,7 @@ from storeApp.models import Cabinet, CabinetItem, ProductVariant, ProductVariant
 from storeApp.models.cabinet import expiration_date_range
 
 
-def _variant_image_url(variant):
+def variant_image_url(variant):
     try:
         if variant and variant.image:
             from mainApp import cloud_context
@@ -24,6 +24,10 @@ def _variant_image_url(variant):
     except Exception:
         return None
     return None
+
+
+# Back-compat alias for older imports
+_variant_image_url = variant_image_url
 
 
 class CabinetSerializer(serializers.ModelSerializer):
@@ -126,7 +130,7 @@ class CabinetItemSerializer(serializers.ModelSerializer):
 
     def get_image_url(self, obj):
         try:
-            return _variant_image_url(obj.product_variant)
+            return variant_image_url(obj.product_variant)
         except Exception:
             return None
 

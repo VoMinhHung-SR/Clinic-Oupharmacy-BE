@@ -42,8 +42,11 @@ class CabinetAlertViewSet(
 
     @action(detail=False, methods=["post"], url_path="mark-all-read")
     def mark_all_read(self, request):
-        updated = 0
-        for alert in self.get_queryset().filter(is_read=False):
-            alert.mark_as_read()
-            updated += 1
+        from django.utils import timezone
+
+        updated = (
+            self.get_queryset()
+            .filter(is_read=False)
+            .update(is_read=True, read_at=timezone.now())
+        )
         return Response({"updated": updated}, status=status.HTTP_200_OK)

@@ -39,7 +39,7 @@ flowchart LR
   - `storeApp/models/order.py`: order, order item, shipping/payment method.
   - `storeApp/models/voucher.py`: voucher và redemption.
   - `storeApp/models/cart.py`: placeholder cho cart domain.
-  - `storeApp/models/cabinet.py`: tủ thuốc user (`user_id`, qty/HSD; P2 low-stock/refill/lot/reminder) — không phải kho `MedicineBatch`.
+  - `storeApp/models/cabinet.py`: tủ thuốc user (`user_id`, qty/HSD; P2 low-stock/refill/lot/reminder) — **không** phải kho `MedicineBatch`. Adjacent (Done): `CabinetAlert` inbox HSD (`0020`, `scan_cabinet_expiry_alerts`); seed toa `GET /cabinet-prescription-lines/`. Plans: `PersonalProject/plans/[Done] smart-medicine-cabinet.plan.md`, `[Done] smart-cabinet-adjacent-domains.plan.md`.
 - `storeApp/models/__init__.py` re-export model để giữ tương thích import cũ (`from storeApp.models import ...`).
 
 Cập nhật file này khi thêm app Django mới, đổi mount URL gốc, hoặc tách/hợp store API.

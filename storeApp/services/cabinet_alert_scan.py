@@ -35,15 +35,6 @@ def _build_copy(kind, item, days):
     return title, body
 
 
-def recent_alert_exists(*, item_id: int, kind: str, since) -> bool:
-    return CabinetAlert.objects.filter(
-        cabinet_item_id=item_id,
-        kind=kind,
-        created_date__gte=since,
-        active=True,
-    ).exists()
-
-
 def scan_cabinet_expiry_alerts(*, today=None, dedupe_days: int = DEFAULT_ALERT_DEDUPE_DAYS) -> dict:
     """
     Create EXPIRING_SOON / EXPIRED alerts for cabinets with reminder_enabled.
@@ -52,19 +43,28 @@ def scan_cabinet_expiry_alerts(*, today=None, dedupe_days: int = DEFAULT_ALERT_D
     today = today or timezone.now().date()
     since = timezone.now() - timedelta(days=max(1, int(dedupe_days)))
 
-    items = (
+    items = list(
         CabinetItem.objects.filter(active=True, cabinet__active=True, cabinet__reminder_enabled=True)
         .select_related("cabinet", "product_variant__product")
         .order_by("id")
     )
 
+    recent_keys = set()
+    if items:
+        recent_keys = set(
+            CabinetAlert.objects.filter(
+                cabinet_item_id__in=[item.id for item in items],
+                kind__in=[ALERT_EXPIRED, ALERT_EXPIRING_SOON],
+                created_date__gte=since,
+                active=True,
+            ).values_list("cabinet_item_id", "kind")
+        )
+
     created = 0
     skipped_dedupe = 0
     skipped_status = 0
-    scanned = 0
 
-    for item in items.iterator(chunk_size=200):
-        scanned += 1
+    for item in items:
         status = item.expiration_status(today=today)
         if status == EXPIRED:
             kind = ALERT_EXPIRED
@@ -74,7 +74,7 @@ def scan_cabinet_expiry_alerts(*, today=None, dedupe_days: int = DEFAULT_ALERT_D
             skipped_status += 1
             continue
 
-        if recent_alert_exists(item_id=item.id, kind=kind, since=since):
+        if (item.id, kind) in recent_keys:
             skipped_dedupe += 1
             continue
 
@@ -87,13 +87,14 @@ def scan_cabinet_expiry_alerts(*, today=None, dedupe_days: int = DEFAULT_ALERT_D
             body=body,
             is_read=False,
         )
+        recent_keys.add((item.id, kind))
         created += 1
 
     return {
         "created": created,
         "skipped_dedupe": skipped_dedupe,
         "skipped_status": skipped_status,
-        "scanned": scanned,
+        "scanned": len(items),
         "dedupe_days": dedupe_days,
         "today": today.isoformat(),
     }
