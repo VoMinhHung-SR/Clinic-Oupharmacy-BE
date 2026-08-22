@@ -13,6 +13,9 @@ from .viewsets import (
     SearchTermsViewSet,
     SearchSuggestViewSet,
     CartViewSet,
+    CabinetViewSet,
+    CabinetItemViewSet,
+    CabinetAlertViewSet,
     CampaignAdminViewSet,
     CampaignPublicViewSet,
 )
@@ -22,6 +25,7 @@ from .views import (
     search_products,
     resolve_store_path_view,
 )
+from .viewsets.cabinet_prescription import CabinetPrescriptionLinesView
 
 router = routers.DefaultRouter()
 router.register("products", ProductViewSet, basename="product")
@@ -35,6 +39,9 @@ router.register("medicine-batches", MedicineBatchViewSet, basename="medicine-bat
 router.register("notifications", NotificationViewSet, basename="notification")
 router.register("search-terms", SearchTermsViewSet, basename="search-terms")
 router.register("carts", CartViewSet, basename="cart")
+router.register("cabinets", CabinetViewSet, basename="cabinet")
+router.register("cabinet-items", CabinetItemViewSet, basename="cabinet-item")
+router.register("cabinet-alerts", CabinetAlertViewSet, basename="cabinet-alert")
 router.register("admin/campaigns", CampaignAdminViewSet, basename="admin-campaign")
 router.register("campaigns", CampaignPublicViewSet, basename="campaign-public")
 
@@ -42,6 +49,11 @@ urlpatterns = [
     # Router URLs (các routes khác như /products/, /categories/, etc.)
     # Phải đặt router trước regex route để các API endpoints được match đúng
     path('', include(router.urls)),
+    path(
+        'cabinet-prescription-lines/',
+        CabinetPrescriptionLinesView.as_view(),
+        name='cabinet-prescription-lines',
+    ),
     path('search/', search_products, name='search-products'),
     path('resolve-path/<path:path_slug>/', resolve_store_path_view, name='resolve-store-path'),
     path('search/suggest/', SearchSuggestViewSet.as_view({'get': 'list'}), name='search-suggest'),
@@ -51,7 +63,7 @@ urlpatterns = [
     # Trailing slash là optional (/?)
     # Exclude các API endpoint names để tránh conflict
     re_path(
-        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|notifications|search-terms|search|resolve-path|admin|carts|campaigns)(?P<category_slug>[\w\-/]+)/?$',
+        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|notifications|search-terms|search|resolve-path|admin|carts|cabinets|cabinet-items|cabinet-alerts|cabinet-prescription-lines|campaigns)(?P<category_slug>[\w\-/]+)/?$',
         products_by_category_slug, 
         name='products-by-category-slug'
     ),

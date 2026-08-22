@@ -10,6 +10,8 @@ from .category import CategoryViewSet
 from .search_terms import SearchTermsViewSet
 from .search_suggest import SearchSuggestViewSet
 from .cart import CartViewSet
+from .cabinet import CabinetItemViewSet, CabinetViewSet
+from .cabinet_alert import CabinetAlertViewSet
 from .campaign_admin import CampaignAdminViewSet
 from .campaign_public import CampaignPublicViewSet
 
@@ -26,6 +28,9 @@ __all__ = [
     'SearchTermsViewSet',
     'SearchSuggestViewSet',
     'CartViewSet',
+    'CabinetViewSet',
+    'CabinetItemViewSet',
+    'CabinetAlertViewSet',
     'CampaignAdminViewSet',
     'CampaignPublicViewSet',
 ]
