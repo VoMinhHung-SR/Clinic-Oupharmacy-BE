@@ -27,6 +27,7 @@
 | Model / migration               | App tương ứng (`mainApp`, `storeApp`, …)                                     |
 | Khoa vs Chuyên khoa (doctor)    | `docs/ARCHITECTURE.md` § Doctor taxonomy; `SpecializationTag` / `DoctorProfile` |
 | Campaign permissions & URL plan | `docs/campaign-permissions-urls.md` (+ `docs/ARCHITECTURE.md` § Campaign) |
+| Smart Medicine Cabinet (storeApp) | `docs/smart-medicine-cabinet-api.md` (+ `docs/ARCHITECTURE.md` § storeApp models) |
 
 
 ## Lệnh thường dùng
