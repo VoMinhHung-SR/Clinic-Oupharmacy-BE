@@ -1,3 +1,4 @@
+from .cabinet import *  # noqa: F401,F403
 from .campaign import *  # noqa: F401,F403
 from .cart import *  # noqa: F401,F403
 from .catalog_attributes import *  # noqa: F401,F403
