@@ -15,11 +15,14 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from storeApp.constants import STORE_DATABASE_ALIAS
-from storeApp.models import Campaign, CampaignPlacement
+from storeApp.models import Campaign, CampaignPlacement, CampaignVoucher, Voucher
 from storeApp.services.campaign_cache import invalidate_public_campaign_cache
 
 SLUG = "home-cms-p9-demo"
 IMG = "/mocks/home-cms"
+
+# Percent tiers for homepage hot-sale rail (must exist via store_import_vouchers).
+HOT_SALE_VOUCHER_CODES = ("SALE20", "SALE25", "SALE30")
 
 # (slot, sort_order, title, subtitle, cta_label, cta_url, image_file, image_alt)
 PLACEMENTS = [
@@ -184,6 +187,24 @@ class Command(BaseCommand):
                 is_enabled=True,
             )
             self.stdout.write(f"+ {slot}#{sort_order} → {cta_url}")
+
+        # Hot-sale voucher strip: SALE20 / SALE25 / SALE30 on this home campaign
+        for sort_order, code in enumerate(HOT_SALE_VOUCHER_CODES):
+            voucher = Voucher.objects.using(db).filter(code=code).first()
+            if voucher is None:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"! missing voucher {code} — run: python manage.py store_import_vouchers"
+                    )
+                )
+                continue
+            link, created = CampaignVoucher.objects.using(db).update_or_create(
+                campaign=campaign,
+                voucher=voucher,
+                defaults={"sort_order": sort_order, "is_featured": True},
+            )
+            mark = "+" if created else "="
+            self.stdout.write(f"{mark} campaign voucher {code} sort={sort_order}")
 
         invalidate_public_campaign_cache()
         self.stdout.write(self.style.SUCCESS(f"seed_home_cms_demo done: {SLUG} id={campaign.id}"))

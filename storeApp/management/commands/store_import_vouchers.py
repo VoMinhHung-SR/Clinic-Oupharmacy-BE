@@ -171,6 +171,43 @@ def _voucher_definitions() -> list[dict]:
             "per_user_limit": 1,
             "days_active": 180,
         },
+        # Hot-sale homepage merch tiers (display on «Sản phẩm bán chạy»)
+        {
+            "code": "SALE20",
+            "type": "PERCENT",
+            "scope": Voucher.ORDER_DISCOUNT,
+            "value": Decimal("20"),
+            "max_discount": Decimal("100000"),
+            "min_order_value": Decimal("200000"),
+            "description": "Giảm 20% (tối đa 100k) cho đơn từ 200k",
+            "usage_limit": 500,
+            "per_user_limit": 2,
+            "days_active": 90,
+        },
+        {
+            "code": "SALE25",
+            "type": "PERCENT",
+            "scope": Voucher.ORDER_DISCOUNT,
+            "value": Decimal("25"),
+            "max_discount": Decimal("120000"),
+            "min_order_value": Decimal("300000"),
+            "description": "Giảm 25% (tối đa 120k) cho đơn từ 300k",
+            "usage_limit": 300,
+            "per_user_limit": 2,
+            "days_active": 60,
+        },
+        {
+            "code": "SALE30",
+            "type": "PERCENT",
+            "scope": Voucher.ORDER_DISCOUNT,
+            "value": Decimal("30"),
+            "max_discount": Decimal("150000"),
+            "min_order_value": Decimal("500000"),
+            "description": "Giảm 30% (tối đa 150k) cho đơn từ 500k",
+            "usage_limit": 200,
+            "per_user_limit": 1,
+            "days_active": 45,
+        },
     ]
 
 
