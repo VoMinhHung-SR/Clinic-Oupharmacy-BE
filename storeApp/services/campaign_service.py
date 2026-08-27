@@ -9,6 +9,7 @@ from storeApp.services.campaign_cache import (
     invalidate_public_campaign_cache,
     log_campaign_transition,
 )
+from storeApp.services.product_promotion import revert_expired_unit_promotions
 
 class CampaignServiceError(Exception):
     """Base error for campaign lifecycle operations."""
@@ -358,10 +359,18 @@ def run_campaign_scheduler(*, now=None, using="store"):
     Converge statuses by clock (D-14):
     1) end scheduled|active|paused when now >= end_at
     2) activate scheduled when start_at <= now < end_at
+    3) revert expired ProductUnitPromotion rows (P1b)
     Idempotent. Public APIs still filter by window if cron is late.
     """
     now = now or timezone.now()
-    stats = {"activated": 0, "ended": 0, "scanned_end": 0, "scanned_activate": 0}
+    stats = {
+        "activated": 0,
+        "ended": 0,
+        "scanned_end": 0,
+        "scanned_activate": 0,
+        "promo_scanned": 0,
+        "promo_reverted": 0,
+    }
 
     end_ids = list(
         Campaign.objects.using(using)
@@ -403,6 +412,10 @@ def run_campaign_scheduler(*, now=None, using="store"):
 
     if stats["activated"] or stats["ended"]:
         invalidate_public_campaign_cache()
+
+    promo_stats = revert_expired_unit_promotions(now=now, using=using)
+    stats["promo_scanned"] = promo_stats["scanned"]
+    stats["promo_reverted"] = promo_stats["reverted"]
     return stats
 
 

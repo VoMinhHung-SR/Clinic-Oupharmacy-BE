@@ -3,7 +3,20 @@
 Tài liệu chuẩn cho luồng **giỏ hàng → đặt hàng** (Store API + `oupharmacy-store`).  
 Source of truth code: `storeApp/services/cart_service.py`, `storeApp/viewsets/cart.py`, FE `src/lib/services/carts.ts`, `src/contexts/CartContext.tsx`, `src/app/don-hang/page.tsx`.
 
-> Cập nhật: 2026-05. Khi đổi contract checkout, sửa file này cùng lúc với view/serializer.
+> Cập nhật: 2026-08-28. Pricing ADR: [`../../docs/product-pricing-promotions.md`](../../docs/product-pricing-promotions.md) (D-PRC). Khi đổi contract checkout, sửa file này cùng lúc với view/serializer.
+
+---
+
+## 0. Pricing vs voucher (D-PRC — Option 1)
+
+| Layer | BE today | Target (plan) |
+|-------|----------|---------------|
+| Line price / subtotal | `unit_price_snapshot` (= catalog `price_value` at add) | Same |
+| Catalog direct savings | **Not exposed** on cart API | P2: `catalog_direct_savings_total` |
+| Order voucher | `voucher_engine` → `discount_amount`, `shipping_discount_amount` | Same |
+
+**Rules:** Client never sends `original_price` or `%` on cart/checkout (D-PRC-01).  
+FE `/gio-hang` banner assumes catalog sale is in line price; **Giảm giá trực tiếp** UI fix = P3 (see ADR).
 
 ---
 
@@ -13,7 +26,7 @@ Source of truth code: `storeApp/services/cart_service.py`, `storeApp/viewsets/ca
 |----------|------------|---------|
 | Cart-first API (`/carts/*`) | **Live** | `CartViewSet`, `IsAuthenticated` |
 | Optimistic lock `expected_version` | **Live** | Mutate + checkout; `409` khi stale |
-| Pricing / voucher trên cart | **Live** | 2 slot: `order_voucher`, `shipping_voucher` |
+| Pricing / voucher trên cart | **Live** | Voucher: 2 slot (`order_voucher`, `shipping_voucher`). Catalog direct savings API = **P2 backlog** |
 | Miễn phí vận chuyển (đơn ≥ 300k) | **Live** | `store_constants.FREE_SHIPPING_ORDER_SUBTOTAL`; BE tính `shipping_fee` — FE không gửi flag |
 | Checkout `delivery` (orderer / recipient / address) | **Live** | `checkout_delivery.py` → `Order.shipping_address` |
 | Partial checkout `cart_item_ids` | **Live** | BE + FE `/don-hang`; cart có thể còn ACTIVE |
@@ -209,7 +222,8 @@ Base path: `/api/store/carts/` (alias DB `store`).
 |---|------|
 | 1 | Một user chỉ một cart `ACTIVE` (`store_cart_one_active_per_user`). |
 | 2 | Checkout cần `shipping_method` trên cart. |
-| 3 | Giá trên order = `CartItem.unit_price_snapshot` (không tự lấy giá live khi checkout). |
+| 3 | Giá trên order = `CartItem.unit_price_snapshot` (catalog **sale** `price_value` at add; không gửi % từ FE). |
+| 3b | `compare_at_price` = list reference for display; **must not** reverse-compute without lowering sale price (D-PRC-04). |
 | 4 | Tồn kho: tổng `quantity × quantity_in_base` theo variant; so với batch còn lại. |
 | 5 | Voucher: validate theo `subtotal`, `product_mids`, `category_slugs` tại thời điểm checkout. |
 | 6 | Partial checkout: chỉ xóa dòng đã thanh toán; recalculate cart còn lại. |
@@ -264,6 +278,7 @@ Base path: `/api/store/carts/` (alias DB `store`).
 
 ## 11. Liên kết
 
+- [`../../docs/product-pricing-promotions.md`](../../docs/product-pricing-promotions.md) — D-PRC catalog + cart economics.
 - `storeApp/guidelines/models-overview.md` — Product / Variant / PVU / batch.  
 - `plans/[UnDone] cart-packaging-switch-full-workflow.plan.md`  
 - `plans/[UnDone] product-multi-category-m2m.plan.md`

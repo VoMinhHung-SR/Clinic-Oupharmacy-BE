@@ -512,17 +512,12 @@ class ProductVariantSerializer(ModelSerializer):
         return None
 
     def get_discount_percent(self, obj):
+        from storeApp.services.product_pricing import discount_percent_from_prices
+
         unit = self._get_default_unit(obj)
-        if unit is None or unit.compare_at_price is None or unit.price_value is None:
+        if unit is None:
             return 0
-        try:
-            compare = float(unit.compare_at_price)
-            price = float(unit.price_value)
-        except (TypeError, ValueError):
-            return 0
-        if compare <= price or compare <= 0:
-            return 0
-        return int(round((compare - price) / compare * 100))
+        return discount_percent_from_prices(unit.price_value, unit.compare_at_price)
 
     def get_default_unit_id(self, obj):
         unit = self._get_default_unit(obj)

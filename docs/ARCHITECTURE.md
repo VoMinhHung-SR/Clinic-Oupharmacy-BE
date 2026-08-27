@@ -69,6 +69,20 @@ Locked plan for Job `campaign` (P0-T2): see [`docs/campaign-permissions-urls.md`
 - Permissions: `storeApp.campaign_view` / `storeApp.campaign_manage` (contract names `store.campaign.view` / `store.campaign.manage`)
 - Scheduler: `python manage.py run_campaign_scheduler` (cron every ~5m; public queries still filter by time window if cron is late — D-14)
 - Public cache: `django.core.cache` LocMem (same as search facets); TTL `CAMPAIGN_PUBLIC_CACHE_TTL` default 60s; version bump on lifecycle/mutate (`storeApp.services.campaign_cache`)
+- **Hot-sale campaign seed:** `python manage.py seed_hot_sale_campaign` — P1: hạ `price_value` + `compare_at` = list (tier 30/25/20); manual `--revert-promo`. **P1b:** auto revert qua `run_campaign_scheduler` (~5m cron). Xem [`docs/product-pricing-promotions.md`](product-pricing-promotions.md).
+
+## Product pricing & promotions (Option 1)
+
+ADR + contract: [`docs/product-pricing-promotions.md`](product-pricing-promotions.md) (D-PRC-01…05).
+
+| Khái niệm | SoT | Ghi chú |
+|-----------|-----|---------|
+| Giá bán / checkout | `ProductVariantUnit.price_value` → `CartItem.unit_price_snapshot` | Khách trả theo sale price |
+| Giá niêm yết / gạch | `compare_at_price` | Phải có provenance; **cấm** tính ngược khi không hạ giá |
+| Giảm giá SP (cart UI) | `catalog_direct_savings` | **P2+** — hiện chưa có field API |
+| Giảm giá voucher | `voucher_engine` | `discount_amount`, `shipping_discount_amount` |
+
+Plan triển khai: `PersonalProject/plans/[UnDone] catalog-pricing-direct-discount-refactor.plan.md`.
 
 ## Doctor taxonomy — Khoa vs Chuyên khoa (SoT)
 

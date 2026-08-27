@@ -231,3 +231,54 @@ class CampaignVoucher(BaseModel):
 
     def __str__(self):
         return f"{self.campaign_id}:voucher:{self.voucher_id}"
+
+
+class ProductUnitPromotion(BaseModel):
+    """
+    Snapshot of a catalog tier promotion on one sale unit (P1 / D-PRC).
+    Enables revert to previous_price_value + previous_compare_at_price.
+    """
+
+    SOURCE_HOT_SALE = "hot_sale"
+    SOURCE_CMS = "cms"
+    SOURCE_FLASH_SALE = "flash_sale"
+
+    campaign = models.ForeignKey(
+        Campaign,
+        on_delete=models.CASCADE,
+        related_name="unit_promotions",
+        db_column="campaign_id",
+    )
+    product_variant_unit = models.ForeignKey(
+        "storeApp.ProductVariantUnit",
+        on_delete=models.CASCADE,
+        related_name="promotions",
+        db_column="product_variant_unit_id",
+    )
+    source = models.CharField(max_length=32, default=SOURCE_HOT_SALE, db_column="source")
+    tier_percent = models.PositiveSmallIntegerField(db_column="tier_percent")
+    list_price = models.DecimalField(max_digits=12, decimal_places=2, db_column="list_price")
+    sale_price = models.DecimalField(max_digits=12, decimal_places=2, db_column="sale_price")
+    previous_price_value = models.DecimalField(max_digits=12, decimal_places=2, db_column="previous_price_value")
+    previous_compare_at_price = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True, db_column="previous_compare_at_price"
+    )
+    starts_at = models.DateTimeField(null=True, blank=True, db_column="starts_at")
+    ends_at = models.DateTimeField(null=True, blank=True, db_column="ends_at")
+    is_active = models.BooleanField(default=True, db_column="is_active", db_index=True)
+
+    class Meta:
+        db_table = "store_product_unit_promotion"
+        ordering = ["-id"]
+        indexes = [
+            models.Index(fields=["campaign", "is_active"], name="unit_promo_campaign_active_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campaign", "product_variant_unit"],
+                name="unit_promo_campaign_unit_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"promo:{self.campaign_id}:unit:{self.product_variant_unit_id}:{self.tier_percent}%"
