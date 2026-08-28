@@ -12,7 +12,7 @@ Source of truth code: `storeApp/services/cart_service.py`, `storeApp/viewsets/ca
 | Layer | BE today | Target (plan) |
 |-------|----------|---------------|
 | Line price / subtotal | `unit_price_snapshot` (= catalog `price_value` at add) | Same |
-| Catalog direct savings | **Not exposed** on cart API | P2: `catalog_direct_savings_total` |
+| Catalog direct savings | `catalog_direct_savings_total` on cart API (P2 ✅) | Same — informational, not subtracted from subtotal |
 | Order voucher | `voucher_engine` → `discount_amount`, `shipping_discount_amount` | Same |
 
 **Rules:** Client never sends `original_price` or `%` on cart/checkout (D-PRC-01).  
@@ -26,7 +26,7 @@ FE `/gio-hang` banner assumes catalog sale is in line price; **Giảm giá trự
 |----------|------------|---------|
 | Cart-first API (`/carts/*`) | **Live** | `CartViewSet`, `IsAuthenticated` |
 | Optimistic lock `expected_version` | **Live** | Mutate + checkout; `409` khi stale |
-| Pricing / voucher trên cart | **Live** | Voucher: 2 slot (`order_voucher`, `shipping_voucher`). Catalog direct savings API = **P2 backlog** |
+| Pricing / voucher trên cart | **Live** | Voucher: 2 slot. Catalog `catalog_direct_savings_total` + line `list_price_snapshot` (P2) |
 | Miễn phí vận chuyển (đơn ≥ 300k) | **Live** | `store_constants.FREE_SHIPPING_ORDER_SUBTOTAL`; BE tính `shipping_fee` — FE không gửi flag |
 | Checkout `delivery` (orderer / recipient / address) | **Live** | `checkout_delivery.py` → `Order.shipping_address` |
 | Partial checkout `cart_item_ids` | **Live** | BE + FE `/don-hang`; cart có thể còn ACTIVE |
@@ -112,7 +112,9 @@ User ──1 ACTIVE── Cart ──< CartItem >── ProductVariant
 |---------------|------------------|
 | `Cart.version` | Optimistic locking |
 | `CartItem.product_variant_unit` | Đơn vị bán; snapshot giá |
-| `CartItem.unit_price_snapshot` | Giá tại thời điểm thêm/cập nhật |
+| `CartItem.unit_price_snapshot` | Giá sale tại thời điểm thêm/cập nhật |
+| `CartItem.list_price_snapshot` | Giá niêm yết (compare_at) khi add nếu > sale; null = không có giảm SP |
+| `Cart.catalog_direct_savings_total` | Σ max(0, list − sale) × qty — informational (D-PRC-05) |
 | `CartItem.quantity` | Số đơn vị bán (Hộp/Vỉ/…) |
 | `ProductVariantUnit.quantity_in_base` | Quy đổi sang base unit khi trừ tồn |
 | `Product.mid` | Voucher `applicable_products` |
