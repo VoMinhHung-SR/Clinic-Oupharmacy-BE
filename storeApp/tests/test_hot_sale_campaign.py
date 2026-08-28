@@ -117,3 +117,48 @@ class HotSaleCampaignServiceTests(TestCase):
         unit.refresh_from_db()
         line_total = unit.price_value * 2
         self.assertEqual(line_total, Decimal("140000"))
+
+    def test_hot_sale_applies_tier_to_all_published_units(self):
+        product = Product.objects.create(
+            name="Multi unit",
+            slug="multi-unit-hot",
+            mid="MID-MU",
+            category=self.category,
+        )
+        variant = ProductVariant.objects.create(
+            product=product,
+            packing="Thùng",
+            is_published=True,
+            in_stock=50,
+            product_ranking=200,
+        )
+        thung = ProductVariantUnit.objects.create(
+            variant=variant,
+            unit_name="Thùng",
+            quantity_in_base=12,
+            price_value=Decimal("606000"),
+            is_default=True,
+            is_published=True,
+        )
+        chai = ProductVariantUnit.objects.create(
+            variant=variant,
+            unit_name="Chai",
+            quantity_in_base=1,
+            price_value=Decimal("50500"),
+            is_default=False,
+            is_published=True,
+        )
+
+        plans = plan_hot_sale_rows([variant], page_size=1)
+        upsert_hot_sale_campaign(plans, using="store")
+
+        thung.refresh_from_db()
+        chai.refresh_from_db()
+        self.assertEqual(thung.price_value, Decimal("424200"))
+        self.assertEqual(thung.compare_at_price, Decimal("606000"))
+        self.assertEqual(chai.price_value, Decimal("35350"))
+        self.assertEqual(chai.compare_at_price, Decimal("50500"))
+        self.assertEqual(
+            ProductUnitPromotion.objects.filter(product_variant_unit__variant=variant, is_active=True).count(),
+            2,
+        )

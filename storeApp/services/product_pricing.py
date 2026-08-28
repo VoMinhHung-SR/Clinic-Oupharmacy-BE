@@ -88,3 +88,30 @@ def tier_promo_prices(unit, tier_percent: int) -> TierPromoPrices | None:
         sale_price=sale_price,
         discount_percent=discount_percent_from_prices(sale_price, list_price),
     )
+
+
+def list_price_snapshot_from_unit(unit, sale_price: Decimal) -> Decimal | None:
+    """List reference at add-to-cart when compare_at is above sale (D-PRC-05)."""
+    compare = getattr(unit, "compare_at_price", None)
+    if compare is None:
+        return None
+    compare_dec = Decimal(compare)
+    sale = Decimal(sale_price)
+    if compare_dec > sale:
+        return compare_dec
+    return None
+
+
+def catalog_direct_savings_line(
+    *,
+    list_price_snapshot: Decimal | None,
+    sale_price_snapshot: Decimal,
+    quantity: int,
+) -> Decimal:
+    """Informational catalog savings for one cart/order line (not subtracted again from subtotal)."""
+    if list_price_snapshot is None:
+        return Decimal("0")
+    delta = Decimal(list_price_snapshot) - Decimal(sale_price_snapshot)
+    if delta <= 0:
+        return Decimal("0")
+    return delta * int(quantity)

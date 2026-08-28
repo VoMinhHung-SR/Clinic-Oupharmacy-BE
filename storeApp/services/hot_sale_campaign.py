@@ -70,6 +70,48 @@ def get_default_unit(variant: ProductVariant) -> ProductVariantUnit | None:
     return units[0] if units else None
 
 
+def iter_published_priced_units(variant: ProductVariant) -> list[ProductVariantUnit]:
+    """All published sale units on a variant (hot-sale applies per unit, same tier %)."""
+    units = getattr(variant, "prefetched_units", None)
+    if units is None:
+        units = list(variant.units.filter(is_published=True).order_by("unit_order", "id"))
+    return [u for u in units if is_priced_for_hot_sale(u, u.price_value)]
+
+
+def apply_hot_sale_tier_to_variant(
+    campaign: Campaign,
+    variant: ProductVariant,
+    tier_percent: int,
+    *,
+    starts_at=None,
+    ends_at=None,
+    dry_run: bool = False,
+    using: str = "store",
+) -> int:
+    """
+    Apply one tier % to every published priced unit on the variant (D-PRC / multi-unitsale).
+    Default unit drives hot-sale ranking; sibling units (Chai/Thùng) get proportional list/sale.
+    """
+    applied = 0
+    for unit in iter_published_priced_units(variant):
+        promo = tier_promo_prices(unit, tier_percent)
+        if promo is None:
+            continue
+        apply_unit_promotion(
+            campaign=campaign,
+            unit=unit,
+            promo=promo,
+            tier_percent=tier_percent,
+            source=ProductUnitPromotion.SOURCE_HOT_SALE,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            dry_run=dry_run,
+            using=using,
+        )
+        applied += 1
+    return applied
+
+
 def fetch_popular_variants_for_hot_sale(
     using: str,
     *,
@@ -191,12 +233,12 @@ def upsert_hot_sale_campaign(
     )
 
     for plan in plans:
-        apply_hot_sale_plan_row(
+        apply_hot_sale_tier_to_variant(
             campaign,
-            plan,
+            plan.variant,
+            plan.tier_percent,
             starts_at=start_at,
             ends_at=end_at,
-            dry_run=False,
             using=using,
         )
 
