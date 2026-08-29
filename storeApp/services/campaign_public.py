@@ -161,3 +161,22 @@ def public_voucher_payloads(campaign):
             }
         )
     return payloads
+
+
+def published_displayable_vouchers(*, scopes=None, now=None, using="store"):
+    """
+    Vouchers linked to a publicly visible campaign and passing is_voucher_displayable().
+
+    Reuses campaign merchandising rules — no separate publish flag on Voucher.
+    """
+    now = now or timezone.now()
+    by_id = {}
+    for campaign in public_visible_queryset(now=now, using=using):
+        for link in campaign.voucher_links.all():
+            voucher = getattr(link, "voucher", None)
+            if not is_voucher_displayable(voucher):
+                continue
+            if scopes and voucher.scope not in scopes:
+                continue
+            by_id[voucher.id] = voucher
+    return list(by_id.values())

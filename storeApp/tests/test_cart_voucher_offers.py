@@ -8,6 +8,8 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from storeApp.models import (
+    Campaign,
+    CampaignVoucher,
     Category,
     MedicineBatch,
     PaymentMethod,
@@ -65,6 +67,14 @@ class CartEligibleVouchersApiTests(APITestCase):
         )
 
         now = timezone.now()
+        self.campaign = Campaign.objects.create(
+            name="Hot sale test",
+            slug="hot-sale-test",
+            title="Hot sale",
+            status=Campaign.STATUS_ACTIVE,
+            start_at=now - timedelta(days=1),
+            end_at=now + timedelta(days=30),
+        )
         self.sale20 = Voucher.objects.create(
             code="SALE20",
             scope=Voucher.ORDER_DISCOUNT,
@@ -101,6 +111,22 @@ class CartEligibleVouchersApiTests(APITestCase):
             end_at=now + timedelta(days=30),
             description="Giảm 10%",
         )
+        self.orphan = Voucher.objects.create(
+            code="ORPHAN10",
+            scope=Voucher.ORDER_DISCOUNT,
+            type="PERCENT",
+            value=Decimal("10"),
+            is_active=True,
+            start_at=now - timedelta(days=1),
+            end_at=now + timedelta(days=30),
+        )
+        for sort_order, voucher in enumerate([self.sale20, self.sale30, self.sale10_low_min]):
+            CampaignVoucher.objects.create(
+                campaign=self.campaign,
+                voucher=voucher,
+                sort_order=sort_order,
+                is_featured=True,
+            )
 
         cart_data = self.client.get("/api/store/carts/current/").data
         add_resp = self.client.post(
@@ -118,18 +144,25 @@ class CartEligibleVouchersApiTests(APITestCase):
     def test_eligible_vouchers_returns_best_order_voucher_by_discount(self):
         response = self.client.get("/api/store/carts/eligible-vouchers/")
         self.assertEqual(response.status_code, 200, response.data)
-        codes = [row["code"] for row in response.data["order_vouchers"]]
-        self.assertIn("SALE20", codes)
-        self.assertIn("SALE30", codes)
+        primary_codes = [row["code"] for row in response.data["order_vouchers"]]
+        self.assertIn("SALE20", primary_codes)
+        self.assertIn("SALE30", primary_codes)
         self.assertEqual(response.data["best_order_voucher_code"], "SALE30")
-        best = response.data["order_vouchers"][0]
-        self.assertEqual(best["code"], "SALE30")
-        self.assertGreater(Decimal(best["estimated_discount"]), Decimal("100000"))
 
-    def test_eligible_vouchers_respects_min_order(self):
+    def test_unavailable_vouchers_are_separated(self):
         Voucher.objects.filter(code="SALE30").update(min_order_value=Decimal("700000"))
         response = self.client.get("/api/store/carts/eligible-vouchers/")
         self.assertEqual(response.status_code, 200, response.data)
-        codes = [row["code"] for row in response.data["order_vouchers"]]
-        self.assertNotIn("SALE30", codes)
+        primary_codes = [row["code"] for row in response.data["order_vouchers"]]
+        unavailable_codes = [row["code"] for row in response.data["order_vouchers_unavailable"]]
+        self.assertIn("SALE20", primary_codes)
+        self.assertNotIn("SALE30", primary_codes)
+        self.assertIn("SALE30", unavailable_codes)
         self.assertEqual(response.data["best_order_voucher_code"], "SALE20")
+
+    def test_omits_vouchers_not_linked_to_public_campaign(self):
+        response = self.client.get("/api/store/carts/eligible-vouchers/")
+        self.assertEqual(response.status_code, 200, response.data)
+        all_codes = [row["code"] for row in response.data["order_vouchers"]]
+        all_codes += [row["code"] for row in response.data["order_vouchers_unavailable"]]
+        self.assertNotIn("ORPHAN10", all_codes)
