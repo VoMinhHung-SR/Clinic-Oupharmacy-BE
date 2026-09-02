@@ -21,6 +21,7 @@ from storeApp.services.cart_service import (
     set_cart_shipping_method,
     update_item,
 )
+from storeApp.services.cart_voucher_offers import list_cart_voucher_offers
 from storeApp.services.checkout_delivery import resolve_checkout_shipping_address
 from storeApp.services.guest_session import guest_session_id_from_request, new_guest_session_id
 from storeApp.services.voucher_engine import VoucherEngineError
@@ -305,6 +306,27 @@ class CartViewSet(viewsets.ViewSet):
         except VoucherEngineError as exc:
             return Response({"error": "Validation failed", "details": exc.to_detail()}, status=status.HTTP_400_BAD_REQUEST)
         return Response(CartSerializer(cart).data)
+
+    @action(methods=["get"], detail=False, url_path="eligible-vouchers")
+    def eligible_vouchers(self, request):
+        try:
+            cart = self._active_cart(request)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        raw_item_ids = request.query_params.get("cart_item_ids")
+        item_ids = None
+        if raw_item_ids:
+            try:
+                item_ids = [int(part.strip()) for part in raw_item_ids.split(",") if part.strip()]
+            except (TypeError, ValueError):
+                return Response({"error": "cart_item_ids must be a comma-separated list of integers"}, status=status.HTTP_400_BAD_REQUEST)
+        user = getattr(request, "user", None)
+        user_id = user.id if user is not None and user.is_authenticated else None
+        try:
+            payload = list_cart_voucher_offers(cart=cart, user_id=user_id, using="store", item_ids=item_ids)
+        except CartServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
 
     @action(methods=["post"], detail=False, url_path="remove-voucher")
     def remove_voucher(self, request):
