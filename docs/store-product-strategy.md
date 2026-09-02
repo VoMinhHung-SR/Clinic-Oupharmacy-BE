@@ -50,6 +50,21 @@ Helper: `storeApp/services/variant_listing.py` → `one_variant_per_product` (li
 
 Hot-sale seed: `python manage.py seed_hot_sale_campaign` — campaign `san-pham-ban-chay`, 12 SP popular.
 
+### 3.1 Campaign × SKU — bao nhiêu campaign cùng lúc?
+
+SoT chi tiết: [`product-pricing-promotions.md`](product-pricing-promotions.md) **D-PRC-06**.
+
+| Rule | Ý nghĩa ngắn |
+|------|----------------|
+| **P1 — Pricing exclusivity** | Mỗi **sale unit** tối đa **1** promo giá catalog effective (`price_value` + `compare_at` từ `ProductUnitPromotion`). |
+| **M1 — Merch non-exclusive** | Cùng SKU có thể nằm **nhiều** campaign **trưng bày** (flash slot, hot rail, landing) — **không** đổi giá thêm. |
+| **V1 — Voucher** | Nhiều campaign publish voucher; giỏ áp **một** mã / scope qua `voucher_engine`. |
+| **UX1 — Hiển thị** | Card / PDP / giỏ = giá API; flash upcoming chỉ **mask** (`-xx%`, `xxx.nnnđ`), không tạo giá thứ hai. |
+
+**Case hay gặp (Long Châu-style):** tab flash *“Sắp diễn ra”* nhưng PDP đã **−20%** → promo **pricing (P1)** đã chạy; tab flash chỉ là **merch slot (M1)** chưa mở — không nhất thiếu là bug.
+
+**Overlap pricing (ops):** tránh gán hai campaign cùng hạ giá một unit; BE P1b nếu lỡ overlap → `campaign.priority` quyết định giá effective.
+
 ---
 
 ## 4. Sơ đồ nhanh

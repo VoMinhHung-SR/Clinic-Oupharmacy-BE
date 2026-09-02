@@ -73,8 +73,8 @@ Locked plan for Job `campaign` (P0-T2): see [`docs/campaign-permissions-urls.md`
 
 ## Product pricing & promotions (Option 1)
 
-ADR + contract: [`docs/product-pricing-promotions.md`](product-pricing-promotions.md) (D-PRC-01…05).  
-**Catalog model (Product / Variant / Unit):** [`docs/store-product-strategy.md`](store-product-strategy.md).
+ADR + contract: [`docs/product-pricing-promotions.md`](product-pricing-promotions.md) (D-PRC-01…06).  
+**Catalog model (Product / Variant / Unit):** [`docs/store-product-strategy.md`](store-product-strategy.md) — §3.1 campaign × SKU (P1/M1/V1/UX1).
 
 | Khái niệm | SoT | Ghi chú |
 |-----------|-----|---------|

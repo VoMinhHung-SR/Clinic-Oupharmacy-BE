@@ -92,6 +92,55 @@ Receipt copy trên trang giỏ (`/gio-hang`):
 
 **Current gap (post-P4 code):** Prod ops must run `rollout_catalog_pricing` + manual UAT per env. Flash sale still FE-only.
 
+### D-PRC-06 — Campaign membership & display (P1 / M1 / V1 / UX1)
+
+**Accepted:** 2026-08-30 — giải thích case “flash tab Sắp diễn ra nhưng PDP đã −20%”: thường do **lớp pricing đã live** trong khi **lớp merch flash** chưa mở slot (hoặc cùng chiến dịch, phase giá trước / trưng bày sau).
+
+Ba **lớp** tách biệt (không gộp một nút on/off):
+
+| Lớp | Vai trò | Rule |
+|-----|---------|------|
+| **Pricing (catalog)** | `price_value`, `compare_at_price`, `ProductUnitPromotion` | **P1 — Pricing exclusivity** |
+| **Merchandising** | Flash rail, hot tab, placement, countdown, mask `-xx%` | **M1 — Merch non-exclusive** |
+| **Voucher** | `ORDER_DISCOUNT` / `SHIPPING_DISCOUNT` qua `voucher_engine` | **V1 — Voucher** |
+
+#### P1 — Pricing exclusivity
+
+> Mỗi **published** `ProductVariantUnit`: tối đa **một** catalog price promotion **effective** tại thời điểm `now` (compare_at + sale từ campaign tier / scheduler / `apply_unit_promotion`).
+
+- **Ops target:** không gán hai chương trình **cùng hạ** `price_value` trên cùng unit cùng lúc.
+- **BE today (P1b):** nếu lỡ overlap, nhiều `ProductUnitPromotion` active → giá effective = promo của campaign **`priority` cao nhất**; revert một campaign giữ winner còn lại (`product_promotion.py`). **Không** coi overlap là happy path — ưu tiên validate lúc publish/seed.
+- **CampaignProduct scope** (merch landing) **≠** pricing apply — chỉ khi command/service gọi `apply_unit_promotion` mới đổi catalog.
+
+#### M1 — Merch non-exclusive
+
+> Một SKU / variant có thể thuộc **nhiều campaign merchandising** đồng thời (hot rail + flash window + brand landing + placement).
+
+- Campaign **không** được dùng để ghi đè giá Product trực tiếp (D-01, `jobs/campaign/requirements.md` EC dynamic price overwrite).
+- Flash / hot **upcoming** = mask UI; **live** = reveal cùng SoT pricing (P1), không tạo giá thứ hai.
+
+#### V1 — Voucher
+
+> Nhiều campaign có thể **publish / link** voucher; checkout vẫn một engine.
+
+- `published_displayable_vouchers` / eligible-vouchers: union voucher từ campaign public + voucher đang gắn giỏ.
+- Giỏ: user chọn **một** mã theo scope (order vs shipping); engine chọn **best eligible** khi auto-apply — **không** stack hai mã cùng scope.
+- Voucher **không** thay `price_value`; tách cột receipt với **Giảm giá trực tiếp** (D-PRC-02).
+
+#### UX1 — Hiển thị (FE)
+
+> PDP / giỏ / checkout line **luôn** theo SoT pricing (API catalog + cart snapshot). Flash upcoming **chỉ** mask/reveal — **không** synth giá checkout.
+
+| Surface | Pricing (P1) | Merch (M1) |
+|---------|--------------|------------|
+| PDP / card / giỏ | `price_value`, `compare_at`, `catalog_direct_savings_total` | Badge corner, rail slot, countdown |
+| Flash **upcoming** | Nếu catalog promo **đã** live → PDP có thể show % thật; rail có thể mask `-xx%` / `xxx.nnnđ` | Tab “Sắp diễn ra” = **slot trưng bày**, không nhất thiếu promo catalog |
+| Flash **live** | Cùng % / sale như SoT (hoặc BE apply qua P1b) | Bỏ mask |
+
+**Copy gợi ý khi catalog live + flash slot chưa mở:** *“Giá ưu đãi đang áp dụng — flash [HH:MM]”* (optional FE).
+
+**Cross-ref:** FE `oupharmacy-store/docs/ARCHITECTURE.md` § Catalog pricing; model đơn giản `store-product-strategy.md` §3.
+
 ---
 
 ## Implementation map
@@ -125,7 +174,8 @@ Receipt copy trên trang giỏ (`/gio-hang`):
 
 ## Related decisions (unchanged)
 
-- **D-01:** Home merch display ≠ checkout price engine (flash upcoming `-xx%` still display-only until follow-up).
+- **D-01:** Home merch display ≠ checkout price engine (flash upcoming `-xx%` still display-only until BE apply — then P1b + P1).
+- **D-PRC-06:** Campaign membership — P1 pricing exclusivity, M1 merch overlap OK, V1 voucher layer, UX1 FE SoT (see above).
 - **D-07 / SC-05:** Campaign voucher list = display; checkout uses `voucher_engine`.
 - **Cart-first:** `unit_price_snapshot` at add time; checkout does not re-fetch live catalog price silently.
 
@@ -246,6 +296,7 @@ Dùng **một SP có promo** (vd. Cồn 70° −30%) và **một SP không promo
 
 | Date | Change |
 |------|--------|
+| 2026-08-30 | D-PRC-06: P1 / M1 / V1 / UX1 campaign membership & display rules |
 | 2026-08-28 | P4: `rollout_catalog_pricing`, legacy compare_at audit/cleanup, E2E test |
 | 2026-08-28 | P2: cart `catalog_direct_savings_total`, `list_price_snapshot` on CartItem/OrderItem |
 | 2026-08-28 | P1b: `product_promotion.py`, auto revert in `run_campaign_scheduler`, overlap by campaign priority |
