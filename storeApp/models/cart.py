@@ -60,6 +60,13 @@ class Cart(BaseModel):
     shipping_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     shipping_discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    catalog_direct_savings_total = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text="Sum of (list_snapshot - sale_snapshot) x qty — informational (D-PRC-05)",
+    )
     total = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     version = models.PositiveIntegerField(default=1)
 
@@ -109,6 +116,14 @@ class CartItem(BaseModel):
     )
     quantity = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     unit_price_snapshot = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    list_price_snapshot = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="Compare-at / list at add-to-cart when above sale snapshot",
+    )
 
     class Meta:
         db_table = "store_cart_item"

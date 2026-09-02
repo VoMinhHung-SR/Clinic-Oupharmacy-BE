@@ -7,6 +7,7 @@ from storeApp.services.guest_session import guest_session_uuid
 
 from storeApp.models import Cart, CartItem, ProductVariant, ProductVariantUnit
 from storeApp.services.cart_cache import get_cart_cache_gateway
+from storeApp.services.product_pricing import catalog_direct_savings_line, list_price_snapshot_from_unit
 from storeApp.services.stock import get_available_stock, deduct_stock
 from storeApp.services.voucher_engine import VoucherEngineError, resolve_voucher_discounts, consume_vouchers
 
@@ -172,6 +173,7 @@ def add_or_update_item(
     )
 
     unit_price = _to_decimal(unit.price_value)
+    list_snapshot = list_price_snapshot_from_unit(unit, unit_price)
     required_base_quantity = int(quantity) * int(unit.quantity_in_base)
     total_available = get_available_stock(product_variant.id)
     if total_available < required_base_quantity:
@@ -186,6 +188,7 @@ def add_or_update_item(
         defaults={
             "quantity": int(quantity),
             "unit_price_snapshot": unit_price,
+            "list_price_snapshot": list_snapshot,
         },
     )
     _invalidate_cart_related_cache(
@@ -261,10 +264,12 @@ def update_item(
         )
 
     unit_price = _to_decimal(next_unit.price_value)
+    list_snapshot = list_price_snapshot_from_unit(next_unit, unit_price)
     if existing_same_unit:
         existing_same_unit.quantity = final_quantity
         existing_same_unit.unit_price_snapshot = unit_price
-        existing_same_unit.save(update_fields=["quantity", "unit_price_snapshot"])
+        existing_same_unit.list_price_snapshot = list_snapshot
+        existing_same_unit.save(update_fields=["quantity", "unit_price_snapshot", "list_price_snapshot"])
         item.delete()
         updated_item = existing_same_unit
     else:
@@ -278,6 +283,10 @@ def update_item(
         if _to_decimal(item.unit_price_snapshot) != unit_price:
             item.unit_price_snapshot = unit_price
             update_fields.append("unit_price_snapshot")
+        next_list = list_snapshot
+        if item.list_price_snapshot != next_list:
+            item.list_price_snapshot = next_list
+            update_fields.append("list_price_snapshot")
         if update_fields:
             item.save(update_fields=update_fields)
         updated_item = item
@@ -323,12 +332,21 @@ def _build_context(*, cart, using="store", item_ids=None):
     else:
         items = list(qs.all())
     subtotal = Decimal("0")
+    catalog_direct_savings_total = Decimal("0")
     product_mids = set()
     category_slugs = set()
 
     for item in items:
         unit_price = _to_decimal(item.unit_price_snapshot or item.product_variant_unit.price_value)
         subtotal += unit_price * item.quantity
+        list_snapshot = item.list_price_snapshot
+        if list_snapshot is not None:
+            list_snapshot = _to_decimal(list_snapshot)
+        catalog_direct_savings_total += catalog_direct_savings_line(
+            list_price_snapshot=list_snapshot,
+            sale_price_snapshot=unit_price,
+            quantity=item.quantity,
+        )
         product = item.product_variant.product
         if product and product.mid:
             product_mids.add(str(product.mid))
@@ -344,7 +362,7 @@ def _build_context(*, cart, using="store", item_ids=None):
     from storeApp.services.store_constants import apply_free_shipping_base
 
     shipping_fee_base = apply_free_shipping_base(subtotal, shipping_fee_base)
-    return items, subtotal, shipping_fee_base, product_mids, category_slugs
+    return items, subtotal, shipping_fee_base, product_mids, category_slugs, catalog_direct_savings_total
 
 
 def _item_required_base_quantity(item) -> int:
@@ -373,7 +391,9 @@ def _assert_checkout_stock(*, items, using="store"):
 def recalculate_cart(*, cart, using="store", expected_version=None, check_version=True):
     if check_version:
         _assert_cart_version(cart=cart, expected_version=expected_version)
-    items, subtotal, shipping_fee_base, product_mids, category_slugs = _build_context(cart=cart, using=using)
+    items, subtotal, shipping_fee_base, product_mids, category_slugs, catalog_direct_savings_total = _build_context(
+        cart=cart, using=using
+    )
     if not items:
         zero = Decimal("0")
         if (
@@ -381,6 +401,7 @@ def recalculate_cart(*, cart, using="store", expected_version=None, check_versio
             and cart.shipping_fee == zero
             and cart.discount_amount == zero
             and cart.shipping_discount_amount == zero
+            and cart.catalog_direct_savings_total == zero
             and cart.total == zero
         ):
             return cart
@@ -388,6 +409,7 @@ def recalculate_cart(*, cart, using="store", expected_version=None, check_versio
         cart.shipping_fee = zero
         cart.discount_amount = zero
         cart.shipping_discount_amount = zero
+        cart.catalog_direct_savings_total = zero
         cart.total = zero
         cart.version = F("version") + 1
         cart.save(
@@ -396,6 +418,7 @@ def recalculate_cart(*, cart, using="store", expected_version=None, check_versio
                 "shipping_fee",
                 "discount_amount",
                 "shipping_discount_amount",
+                "catalog_direct_savings_total",
                 "total",
                 "version",
             ]
@@ -424,6 +447,7 @@ def recalculate_cart(*, cart, using="store", expected_version=None, check_versio
         and cart.shipping_fee == new_shipping_fee
         and cart.discount_amount == new_discount
         and cart.shipping_discount_amount == new_shipping_discount
+        and cart.catalog_direct_savings_total == catalog_direct_savings_total
         and cart.total == new_total
     ):
         return cart
@@ -431,6 +455,7 @@ def recalculate_cart(*, cart, using="store", expected_version=None, check_versio
     cart.shipping_fee = new_shipping_fee
     cart.discount_amount = new_discount
     cart.shipping_discount_amount = new_shipping_discount
+    cart.catalog_direct_savings_total = catalog_direct_savings_total
     cart.total = new_total
     cart.version = F("version") + 1
     cart.save(
@@ -439,6 +464,7 @@ def recalculate_cart(*, cart, using="store", expected_version=None, check_versio
             "shipping_fee",
             "discount_amount",
             "shipping_discount_amount",
+            "catalog_direct_savings_total",
             "total",
             "version",
         ]
@@ -491,7 +517,7 @@ def checkout_cart(
         if not locked_cart.shipping_method:
             raise CartServiceError("Shipping method is required before checkout")
 
-        items, subtotal, shipping_fee_base, product_mids, category_slugs = _build_context(
+        items, subtotal, shipping_fee_base, product_mids, category_slugs, catalog_direct_savings_total = _build_context(
             cart=locked_cart, using=using, item_ids=checkout_item_ids
         )
         if not items:
@@ -534,6 +560,7 @@ def checkout_cart(
                 product_variant_unit=item.product_variant_unit,
                 quantity=item.quantity,
                 price=item.unit_price_snapshot,
+                list_price_snapshot=item.list_price_snapshot,
             )
             required_base_quantity = _item_required_base_quantity(item)
             try:
@@ -567,6 +594,7 @@ def checkout_cart(
             locked_cart.shipping_fee = voucher_result["final_shipping_fee"]
             locked_cart.discount_amount = voucher_result["order_discount_amount"]
             locked_cart.shipping_discount_amount = voucher_result["shipping_discount_amount"]
+            locked_cart.catalog_direct_savings_total = catalog_direct_savings_total
             locked_cart.total = voucher_result["final_total"]
             locked_cart.save(
                 update_fields=[
@@ -576,6 +604,7 @@ def checkout_cart(
                     "shipping_fee",
                     "discount_amount",
                     "shipping_discount_amount",
+                    "catalog_direct_savings_total",
                     "total",
                 ]
             )

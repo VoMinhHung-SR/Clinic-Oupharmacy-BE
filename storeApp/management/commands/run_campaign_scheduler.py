@@ -1,5 +1,6 @@
 """
-Converge Campaign statuses by wall clock (scheduled→active, *→ended).
+Converge Campaign statuses by wall clock (scheduled→active, *→ended)
+and revert expired catalog unit promotions (P1b).
 
   python manage.py run_campaign_scheduler
 
@@ -47,6 +48,7 @@ class Command(BaseCommand):
                 "campaign scheduler ok "
                 f"activated={stats['activated']} ended={stats['ended']} "
                 f"scanned_activate={stats['scanned_activate']} scanned_end={stats['scanned_end']} "
+                f"promo_reverted={stats.get('promo_reverted', 0)} "
                 f"now={now.isoformat()}"
             )
         )

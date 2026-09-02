@@ -231,6 +231,15 @@ class OrderItem(BaseModel):
         db_column="price",
         help_text="Đơn giá snapshot theo đơn vị đã chọn (ProductVariantUnit)",
     )
+    list_price_snapshot = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        db_column="list_price_snapshot",
+        help_text="Giá niêm yết snapshot tại checkout (compare_at khi add)",
+    )
 
     @property
     def subtotal(self):

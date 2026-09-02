@@ -49,7 +49,7 @@ class OrderItemSerializer(ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'product_variant', 'product_variant_unit', 'quantity', 'price', 'subtotal', 'name', 'image_url', 'created_date', 'updated_date']
+        fields = ['id', 'product_variant', 'product_variant_unit', 'quantity', 'price', 'list_price_snapshot', 'subtotal', 'name', 'image_url', 'created_date', 'updated_date']
         read_only_fields = ['subtotal', 'name', 'image_url']
 
     def get_name(self, obj):
@@ -139,6 +139,7 @@ class CartItemSerializer(ModelSerializer):
     image_url = serializers.SerializerMethodField()
     packing = serializers.SerializerMethodField()
     unit_options = serializers.SerializerMethodField()
+    catalog_savings = serializers.SerializerMethodField()
 
     class Meta:
         model = CartItem
@@ -148,6 +149,8 @@ class CartItemSerializer(ModelSerializer):
             "product_variant_unit",
             "quantity",
             "unit_price_snapshot",
+            "list_price_snapshot",
+            "catalog_savings",
             "name",
             "packing",
             "unit_options",
@@ -155,6 +158,19 @@ class CartItemSerializer(ModelSerializer):
             "created_date",
             "updated_date",
         ]
+
+    def get_catalog_savings(self, obj):
+        from storeApp.services.product_pricing import catalog_direct_savings_line
+
+        sale = obj.unit_price_snapshot
+        if sale is None:
+            return "0.00"
+        savings = catalog_direct_savings_line(
+            list_price_snapshot=obj.list_price_snapshot,
+            sale_price_snapshot=sale,
+            quantity=obj.quantity,
+        )
+        return f"{savings:.2f}"
 
     def get_name(self, obj):
         try:
@@ -236,6 +252,7 @@ class CartSerializer(ModelSerializer):
             "shipping_fee",
             "discount_amount",
             "shipping_discount_amount",
+            "catalog_direct_savings_total",
             "total",
             "version",
             "order_voucher_code",
@@ -512,17 +529,12 @@ class ProductVariantSerializer(ModelSerializer):
         return None
 
     def get_discount_percent(self, obj):
+        from storeApp.services.product_pricing import discount_percent_from_prices
+
         unit = self._get_default_unit(obj)
-        if unit is None or unit.compare_at_price is None or unit.price_value is None:
+        if unit is None:
             return 0
-        try:
-            compare = float(unit.compare_at_price)
-            price = float(unit.price_value)
-        except (TypeError, ValueError):
-            return 0
-        if compare <= price or compare <= 0:
-            return 0
-        return int(round((compare - price) / compare * 100))
+        return discount_percent_from_prices(unit.price_value, unit.compare_at_price)
 
     def get_default_unit_id(self, obj):
         unit = self._get_default_unit(obj)
