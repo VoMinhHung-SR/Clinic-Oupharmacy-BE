@@ -304,10 +304,11 @@ class ContactSupportRequestSerializer(serializers.Serializer):
         ('support', 'Hỗ trợ kỹ thuật'),
         ('policy', 'Chính sách'),
         ('other', 'Khác'),
+        ('medicine', 'Cần mua thuốc'),
     ]
 
     name = serializers.CharField(max_length=120, allow_blank=False, trim_whitespace=True)
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_blank=True)
     phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
     subject = serializers.CharField(max_length=200, required=False, allow_blank=True, trim_whitespace=True)
     message = serializers.CharField(allow_blank=False, trim_whitespace=True)
@@ -316,6 +317,17 @@ class ContactSupportRequestSerializer(serializers.Serializer):
         required=False,
         default='support',
     )
+
+    def validate(self, attrs):
+        request_type = attrs.get('request_type') or 'support'
+        phone = (attrs.get('phone') or '').strip()
+        email = (attrs.get('email') or '').strip()
+        if request_type == 'medicine':
+            if not phone:
+                raise serializers.ValidationError({'phone': 'Số điện thoại là bắt buộc.'})
+        elif not email:
+            raise serializers.ValidationError({'email': 'Email là bắt buộc.'})
+        return attrs
 
 
 class SearchKeywordSerializer(ModelSerializer):

@@ -645,6 +645,7 @@ def contact_support_request(request):
         'support': 'Hỗ trợ kỹ thuật',
         'policy': 'Chính sách',
         'other': 'Khác',
+        'medicine': 'Cần mua thuốc',
     }
     request_type_label = request_type_map.get(data.get('request_type', 'support'), 'Hỗ trợ kỹ thuật')
     subject = data.get('subject') or f'Yêu cầu {request_type_label} từ website'
@@ -652,8 +653,10 @@ def contact_support_request(request):
     contact_lines = [
         f"Loại yêu cầu: {request_type_label}",
         f"Họ tên: {data.get('name', '').strip()}",
-        f"Email: {data.get('email', '').strip()}",
     ]
+    email = (data.get('email') or '').strip()
+    if email:
+        contact_lines.append(f"Email: {email}")
     phone = (data.get('phone') or '').strip()
     if phone:
         contact_lines.append(f"Điện thoại: {phone}")
