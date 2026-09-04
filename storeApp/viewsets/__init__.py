@@ -4,6 +4,7 @@ from .payment_method import PaymentMethodViewSet
 from .order import OrderViewSet
 from .order_item import OrderItemViewSet
 from .medicine_batch import MedicineBatchViewSet
+from .medicine_request import MedicineRequestViewSet
 from .notification import NotificationViewSet
 from .product import ProductViewSet
 from .category import CategoryViewSet
@@ -22,6 +23,7 @@ __all__ = [
     'OrderViewSet',
     'OrderItemViewSet',
     'MedicineBatchViewSet',
+    'MedicineRequestViewSet',
     'NotificationViewSet',
     'ProductViewSet',
     'CategoryViewSet',

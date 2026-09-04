@@ -1,7 +1,7 @@
 """POST /api/store/contact/ — support vs medicine lead."""
 from rest_framework.test import APITestCase
 
-from storeApp.models import Notification
+from storeApp.models import MedicineRequest, Notification
 
 
 class ContactSupportRequestApiTests(APITestCase):
@@ -29,11 +29,12 @@ class ContactSupportRequestApiTests(APITestCase):
             format="json",
         )
         self.assertEqual(res.status_code, 201)
+        lead = MedicineRequest.objects.get(id=res.data["medicine_request_id"])
+        self.assertEqual(lead.phone, "0901234567")
         note = Notification.objects.get(id=res.data["notification_id"])
         self.assertEqual(note.notification_type, Notification.ADMIN_SUPPORT)
-        self.assertIn("Can mua thuoc", note.title)
+        self.assertIn("Binh", note.title)
         self.assertIn("0901234567", note.message)
-        self.assertNotIn("Email:", note.message)
 
     def test_medicine_rejects_missing_phone(self):
         res = self.client.post(
