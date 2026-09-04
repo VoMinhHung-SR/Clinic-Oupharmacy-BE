@@ -1,0 +1,66 @@
+{# Medicine consult queue body — swapped via AJAX #}
+<div class="table-responsive">
+    <table class="table table-sm table-hover oup-expiry-table mb-0">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th>Items</th>
+                <th>Rx</th>
+                <th>Created</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in medicine_request_rows %}
+            <tr>
+                <td>#{{ row.id }}</td>
+                <td>{{ row.full_name }}</td>
+                <td>{{ row.phone }}</td>
+                <td><span class="oup-badge oup-badge-mr-{{ row.status|lower }}">{{ row.status_label }}</span></td>
+                <td>{{ row.item_count }}</td>
+                <td>
+                    {% if row.image_url %}
+                        <a href="{{ row.image_url }}" target="_blank" rel="noopener">
+                            <img src="{{ row.image_url }}" alt="" class="oup-mr-thumb">
+                        </a>
+                    {% else %}
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>{{ row.created_date|date:"d/m H:i" }}</td>
+                <td>
+                    {% if row.url %}
+                        <a class="btn btn-xs btn-outline-primary" href="{{ row.url }}">Open</a>
+                    {% endif %}
+                </td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="8" class="text-center text-muted py-3">No leads for this filter.</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% if medicine_request_page_obj.paginator.num_pages > 1 %}
+<div class="oup-dash-pager px-3 py-2">
+    <span class="text-muted">
+        {{ medicine_request_page_obj.paginator.count }} · p.{{ medicine_request_page_obj.number }}/{{ medicine_request_page_obj.paginator.num_pages }}
+    </span>
+    <div class="oup-dash-pager-links">
+        {% if medicine_request_page_obj.has_previous %}
+            <button type="button" class="btn btn-xs btn-outline-secondary"
+                    data-oup-page="{{ medicine_request_page_obj.previous_page_number }}"
+                    data-oup-page-key="mr_page">Prev</button>
+        {% endif %}
+        {% if medicine_request_page_obj.has_next %}
+            <button type="button" class="btn btn-xs btn-outline-secondary"
+                    data-oup-page="{{ medicine_request_page_obj.next_page_number }}"
+                    data-oup-page-key="mr_page">Next</button>
+        {% endif %}
+    </div>
+</div>
+{% endif %}

@@ -1,22 +1,25 @@
 from django.contrib import admin
 from django.contrib.admin.forms import AdminAuthenticationForm
 from django.core.exceptions import ValidationError
-
-from django.utils.html import format_html
-from django.shortcuts import redirect, render
-from . import cloud_context
-from django.urls import path
-from django.utils.safestring import mark_safe
-from django.utils import timezone
-from .authz import is_business_admin, is_system_superadmin
-from .models import *
-from django.template.response import TemplateResponse
+from django.core.paginator import Paginator
 from django.db.models import Count, Sum
 from django.db.models.functions import TruncMonth
+from django.http import HttpResponse, HttpResponseBadRequest
+from django.shortcuts import redirect, render
+from django.template.loader import render_to_string
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils import timezone
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 from datetime import timedelta
-from django.urls import reverse
-from storeApp.models import ProductVariant, OrderItem, Order, MedicineBatch
+from functools import update_wrapper
 import json
+
+from . import cloud_context
+from .authz import is_business_admin, is_system_superadmin
+from .models import *
+from storeApp.models import ProductVariant, OrderItem, Order, MedicineBatch, MedicineRequest
 
 
 def _month_series(rows, value_key, year_len=12):
@@ -38,6 +41,193 @@ def _expiry_severity(days_left):
     if days_left <= 30:
         return "warning"
     return "watch"
+
+
+def _safe_int(value, default, allowed=None):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    if allowed is not None and parsed not in allowed:
+        return default
+    return parsed
+
+
+def _medicine_request_image_url(lead):
+    try:
+        if not lead.prescription_image:
+            return None
+        return f"{cloud_context}{lead.prescription_image}"
+    except Exception:
+        return None
+
+
+def _paginate(items, page, page_size=10):
+    paginator = Paginator(items, page_size)
+    page_obj = paginator.get_page(page)
+    return page_obj, list(page_obj)
+
+
+def _admin_reverse(site_name, viewname, args=None):
+    try:
+        return reverse(f"{site_name}:{viewname}", args=args or [])
+    except Exception:
+        try:
+            return reverse(f"admin:{viewname}", args=args or [])
+        except Exception:
+            return ""
+
+
+def _build_quick_links(site_name):
+    specs = [
+        ("Medicine requests", "storeApp_medicinerequest_changelist"),
+        ("Medicine batches", "storeApp_medicinebatch_changelist"),
+        ("Orders", "storeApp_order_changelist"),
+        ("Examinations", "mainApp_examination_changelist"),
+        ("Variants", "storeApp_productvariant_changelist"),
+        ("Patients", "mainApp_patient_changelist"),
+        ("Bills", "mainApp_bill_changelist"),
+        ("Users", "mainApp_user_changelist"),
+    ]
+    links = []
+    for label, viewname in specs:
+        url = _admin_reverse(site_name, viewname)
+        if url:
+            links.append({"label": label, "url": url})
+    return links
+
+
+MR_STATUS_OPTIONS = [
+    (MedicineRequest.PENDING, "Chờ xử lý"),
+    (MedicineRequest.IN_PROGRESS, "Đang xử lý"),
+    (MedicineRequest.CONTACTED, "Đã liên hệ"),
+    (MedicineRequest.CLOSED, "Đã đóng"),
+    ("ALL", "Tất cả"),
+]
+
+
+def _parse_dash_filters(request):
+    expiry_days = _safe_int(request.GET.get("expiry_days", 30), 30, allowed=(7, 30, 60, 90))
+    expiry_page = max(1, _safe_int(request.GET.get("expiry_page", 1), 1))
+    mr_page = max(1, _safe_int(request.GET.get("mr_page", 1), 1))
+    mr_status = (request.GET.get("mr_status") or "PENDING").upper()
+    allowed = {opt[0] for opt in MR_STATUS_OPTIONS}
+    if mr_status not in allowed:
+        mr_status = MedicineRequest.PENDING
+    return expiry_days, expiry_page, mr_status, mr_page
+
+
+def _near_expiry_queue(site_name, expiry_days, expiry_page, page_size=5):
+    today = timezone.localdate()
+    near_batches = list(
+        MedicineBatch.objects.filter(
+            active=True,
+            remaining_quantity__gt=0,
+            expiry_date__gte=today,
+            expiry_date__lte=today + timedelta(days=expiry_days),
+        )
+        .select_related("product_variant", "product_variant__product")
+        .order_by("expiry_date")[:120]
+    )
+    expired_batches = list(
+        MedicineBatch.objects.filter(
+            active=True,
+            remaining_quantity__gt=0,
+            expiry_date__lt=today,
+        )
+        .select_related("product_variant", "product_variant__product")
+        .order_by("expiry_date")[:80]
+    )
+
+    def _batch_url(pk):
+        return _admin_reverse(site_name, "storeApp_medicinebatch_change", args=[pk])
+
+    def _rows(batches, include_expired=False):
+        rows = []
+        for b in batches:
+            days = b.days_until_expiry
+            if not include_expired and days < 0:
+                continue
+            pv = b.product_variant
+            product_name = (
+                pv.product.name if pv and getattr(pv, "product", None) else "—"
+            )
+            rows.append(
+                {
+                    "id": b.pk,
+                    "batch_number": b.batch_number,
+                    "product": product_name,
+                    "sku": getattr(pv, "sku", "") or "—",
+                    "packing": getattr(pv, "packing", "") or "—",
+                    "expiry_date": b.expiry_date,
+                    "days_left": days,
+                    "remaining": b.remaining_quantity,
+                    "severity": _expiry_severity(days),
+                    "url": _batch_url(b.pk),
+                }
+            )
+        return rows
+
+    near_expiry_rows = _rows(expired_batches, include_expired=True) + _rows(near_batches)
+    seen = set()
+    deduped = []
+    for row in near_expiry_rows:
+        if row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        deduped.append(row)
+    page_obj, rows = _paginate(deduped, expiry_page, page_size=page_size)
+    return {
+        "expiry_days": expiry_days,
+        "expiry_day_options": [7, 30, 60, 90],
+        "near_expiry_rows": rows,
+        "near_expiry_page_obj": page_obj,
+        "near_expiry_total": page_obj.paginator.count,
+        "batch_changelist_url": (
+            _admin_reverse(site_name, "storeApp_medicinebatch_changelist")
+            or "/admin/storeApp/medicinebatch/"
+        ),
+    }
+
+
+def _medicine_request_queue(site_name, mr_status, mr_page, page_size=5):
+    mr_qs = MedicineRequest.objects.filter(active=True).order_by("-created_date", "-id")
+    pending_count = mr_qs.filter(status=MedicineRequest.PENDING).count()
+    filtered = mr_qs if mr_status == "ALL" else mr_qs.filter(status=mr_status)
+    page_obj = Paginator(filtered, page_size).get_page(mr_page)
+    rows = []
+    for lead in page_obj:
+        rows.append(
+            {
+                "id": lead.pk,
+                "full_name": lead.full_name,
+                "phone": lead.phone,
+                "status": lead.status,
+                "status_label": lead.get_status_display(),
+                "item_count": (
+                    len(lead.items_json or [])
+                    if isinstance(lead.items_json, list)
+                    else 0
+                ),
+                "has_image": bool(lead.prescription_image),
+                "image_url": _medicine_request_image_url(lead),
+                "created_date": lead.created_date,
+                "url": _admin_reverse(
+                    site_name, "storeApp_medicinerequest_change", args=[lead.pk]
+                ),
+            }
+        )
+    return {
+        "medicine_request_pending_count": pending_count,
+        "medicine_request_rows": rows,
+        "medicine_request_page_obj": page_obj,
+        "medicine_request_status": mr_status,
+        "medicine_request_status_options": MR_STATUS_OPTIONS,
+        "medicine_request_changelist_url": (
+            _admin_reverse(site_name, "storeApp_medicinerequest_changelist")
+            or "/admin/storeApp/medicinerequest/"
+        ),
+    }
 
 from django_celery_beat.admin import ClockedScheduleAdmin, CrontabScheduleAdmin, \
     PeriodicTaskAdmin
@@ -84,6 +274,42 @@ class MainAppAdminSite(admin.AdminSite):
         """Jazzmin: superuser (full site) or is_admin (Campaign-scoped via ModelAdmin)."""
         return is_business_admin(request.user)
 
+    def get_urls(self):
+        def wrap(view):
+            def wrapper(*args, **kwargs):
+                return self.admin_view(view)(*args, **kwargs)
+
+            return update_wrapper(wrapper, view)
+
+        urls = super().get_urls()
+        custom = [
+            path(
+                "dashboard/queue/<str:panel>/",
+                wrap(self.dashboard_queue_partial),
+                name="dashboard_queue_partial",
+            ),
+        ]
+        return custom + urls
+
+    def dashboard_queue_partial(self, request, panel):
+        """HTML fragment for one dashboard queue panel (AJAX — no full page reload)."""
+        if not self.has_permission(request):
+            return HttpResponse("Forbidden", status=403)
+
+        expiry_days, expiry_page, mr_status, mr_page = _parse_dash_filters(request)
+
+        if panel == "leads":
+            ctx = _medicine_request_queue(self.name, mr_status, mr_page)
+            template = "admin/partials/dash_mr_body.html"
+        elif panel == "stock":
+            ctx = _near_expiry_queue(self.name, expiry_days, expiry_page)
+            template = "admin/partials/dash_stock_body.html"
+        else:
+            return HttpResponseBadRequest("Unknown panel")
+
+        html = render_to_string(template, ctx, request=request)
+        return HttpResponse(html)
+
     def index(self, request, extra_context=None):
         if is_business_admin(request.user) and not is_system_superadmin(request.user):
             return redirect(reverse(f"{self.name}:storeApp_campaign_changelist"))
@@ -91,12 +317,7 @@ class MainAppAdminSite(admin.AdminSite):
         app_list = self.get_app_list(request)
         today = timezone.localdate()
         year = today.year
-        try:
-            expiry_days = int(request.GET.get("expiry_days", 30))
-        except (TypeError, ValueError):
-            expiry_days = 30
-        if expiry_days not in (7, 30, 60, 90):
-            expiry_days = 30
+        expiry_days, expiry_page, mr_status, mr_page = _parse_dash_filters(request)
 
         patients = Patient.objects.filter(active=True).count()
         medicine_units = ProductVariant.objects.filter(active=True).count()
@@ -113,8 +334,9 @@ class MainAppAdminSite(admin.AdminSite):
         status_rows = (
             exams_qs.values("status").annotate(count=Count("id")).order_by("status")
         )
-        status_labels = [r["status"] or "unknown" for r in status_rows]
-        status_counts = [r["count"] for r in status_rows]
+        visit_status_items = [
+            {"label": r["status"] or "unknown", "count": r["count"]} for r in status_rows
+        ]
 
         bills_qs = Bill.objects.filter(created_date__year=year)
         revenue_ytd = bills_qs.aggregate(total=Sum("amount"))["total"] or 0
@@ -143,19 +365,24 @@ class MainAppAdminSite(admin.AdminSite):
         order_status_rows = (
             orders_qs.values("status").annotate(count=Count("id")).order_by("status")
         )
-        order_status_labels = [r["status"] or "unknown" for r in order_status_rows]
-        order_status_counts = [r["count"] for r in order_status_rows]
+        order_status_items = [
+            {"label": r["status"] or "unknown", "count": r["count"]}
+            for r in order_status_rows
+        ]
 
         medicines = (
             OrderItem.objects.filter(active=True)
             .values("product_variant__product__name")
             .annotate(count=Count("id"))
-            .order_by("-count")[:8]
+            .order_by("-count")[:5]
         )
-        data_medicine_labels = [
-            m["product_variant__product__name"] or "—" for m in medicines
+        top_product_items = [
+            {
+                "label": m["product_variant__product__name"] or "—",
+                "count": m["count"],
+            }
+            for m in medicines
         ]
-        data_medicine_quantity = [m["count"] for m in medicines]
 
         stock_qs = MedicineBatch.objects.filter(active=True, remaining_quantity__gt=0)
         expired_stock = stock_qs.filter(expiry_date__lt=today).count()
@@ -167,88 +394,8 @@ class MainAppAdminSite(admin.AdminSite):
             expiry_date__lte=today + timedelta(days=30),
         ).count()
 
-        near_batches = list(
-            MedicineBatch.objects.filter(
-                active=True,
-                remaining_quantity__gt=0,
-                expiry_date__gte=today,
-                expiry_date__lte=today + timedelta(days=expiry_days),
-            )
-            .select_related("product_variant", "product_variant__product")
-            .order_by("expiry_date")[:40]
-        )
-        # Include expired with remaining stock when viewing ≤90 horizon
-        expired_batches = list(
-            MedicineBatch.objects.filter(
-                active=True,
-                remaining_quantity__gt=0,
-                expiry_date__lt=today,
-            )
-            .select_related("product_variant", "product_variant__product")
-            .order_by("expiry_date")[:15]
-        )
-
-        def _batch_url(pk):
-            try:
-                return reverse(
-                    f"{self.name}:storeApp_medicinebatch_change", args=[pk]
-                )
-            except Exception:
-                try:
-                    return reverse("admin:storeApp_medicinebatch_change", args=[pk])
-                except Exception:
-                    return ""
-
-        def _rows(batches, include_expired=False):
-            rows = []
-            for b in batches:
-                days = b.days_until_expiry
-                if not include_expired and days < 0:
-                    continue
-                pv = b.product_variant
-                product_name = (
-                    pv.product.name if pv and getattr(pv, "product", None) else "—"
-                )
-                rows.append(
-                    {
-                        "id": b.pk,
-                        "batch_number": b.batch_number,
-                        "product": product_name,
-                        "sku": getattr(pv, "sku", "") or "—",
-                        "packing": getattr(pv, "packing", "") or "—",
-                        "expiry_date": b.expiry_date,
-                        "days_left": days,
-                        "remaining": b.remaining_quantity,
-                        "severity": _expiry_severity(days),
-                        "url": _batch_url(b.pk),
-                    }
-                )
-            return rows
-
-        near_expiry_rows = _rows(expired_batches, include_expired=True) + _rows(
-            near_batches
-        )
-        # de-dupe by id, keep earliest expiry first
-        seen = set()
-        deduped = []
-        for row in near_expiry_rows:
-            if row["id"] in seen:
-                continue
-            seen.add(row["id"])
-            deduped.append(row)
-        near_expiry_rows = deduped[:50]
-
-        try:
-            batch_changelist_url = reverse(
-                f"{self.name}:storeApp_medicinebatch_changelist"
-            )
-        except Exception:
-            try:
-                batch_changelist_url = reverse(
-                    "admin:storeApp_medicinebatch_changelist"
-                )
-            except Exception:
-                batch_changelist_url = "/admin/storeApp/medicinebatch/"
+        stock_ctx = _near_expiry_queue(self.name, expiry_days, expiry_page)
+        leads_ctx = _medicine_request_queue(self.name, mr_status, mr_page)
 
         context = {
             **self.each_context(request),
@@ -265,26 +412,22 @@ class MainAppAdminSite(admin.AdminSite):
             "medicineUnits": medicine_units,
             "near_expiry_count": urgent_stock + warning_stock,
             "expired_stock_count": expired_stock,
-            "expiry_days": expiry_days,
-            "expiry_day_options": [7, 30, 60, 90],
-            "near_expiry_rows": near_expiry_rows,
-            "batch_changelist_url": batch_changelist_url,
+            **stock_ctx,
+            **leads_ctx,
+            "visit_status_items": visit_status_items,
+            "order_status_items": order_status_items,
+            "top_product_items": top_product_items,
+            "quick_links": _build_quick_links(self.name),
+            "dash_queue_leads_url": reverse(
+                f"{self.name}:dashboard_queue_partial", kwargs={"panel": "leads"}
+            ),
+            "dash_queue_stock_url": reverse(
+                f"{self.name}:dashboard_queue_partial", kwargs={"panel": "stock"}
+            ),
             "chart_examination_json": mark_safe(json.dumps(data_examination)),
             "chart_clinic_revenue_json": mark_safe(json.dumps(data_clinic_revenue)),
             "chart_store_orders_json": mark_safe(json.dumps(data_store_orders)),
             "chart_store_revenue_json": mark_safe(json.dumps(data_store_revenue)),
-            "chart_status_labels_json": mark_safe(json.dumps(status_labels)),
-            "chart_status_counts_json": mark_safe(json.dumps(status_counts)),
-            "chart_order_status_labels_json": mark_safe(
-                json.dumps(order_status_labels)
-            ),
-            "chart_order_status_counts_json": mark_safe(
-                json.dumps(order_status_counts)
-            ),
-            "chart_medicine_labels_json": mark_safe(json.dumps(data_medicine_labels)),
-            "chart_medicine_quantity_json": mark_safe(
-                json.dumps(data_medicine_quantity)
-            ),
             **(extra_context or {}),
         }
 
