@@ -15,6 +15,7 @@ from .models import (
     Order,
     OrderItem,
     MedicineBatch,
+    MedicineRequest,
     Notification,
     SearchKeyword,
     Product,
@@ -220,6 +221,38 @@ class NotificationAdmin(admin.ModelAdmin):
     search_fields = ['title', 'message']
     list_editable = ['is_read']
     readonly_fields = ['created_date', 'updated_date']
+
+
+class MedicineRequestAdmin(admin.ModelAdmin):
+    list_display = [
+        'id',
+        'full_name',
+        'phone',
+        'status',
+        'user_id',
+        'has_prescription_image',
+        'created_date',
+    ]
+    list_filter = ['status', 'created_date']
+    search_fields = ['full_name', 'phone', 'email', 'note']
+    list_editable = ['status']
+    readonly_fields = ['created_date', 'updated_date', 'prescription_image_preview', 'items_json']
+
+    @admin.display(boolean=True, description='Ảnh đơn')
+    def has_prescription_image(self, obj):
+        return bool(obj.prescription_image)
+
+    @admin.display(description='Preview ảnh đơn')
+    def prescription_image_preview(self, obj):
+        if not obj.prescription_image:
+            return '—'
+        try:
+            from mainApp import cloud_context
+
+            url = f'{cloud_context}{obj.prescription_image}'
+            return format_html('<img src="{}" style="max-height:160px;" />', url)
+        except Exception:
+            return str(obj.prescription_image)
 
 
 class SearchKeywordAdmin(admin.ModelAdmin):
@@ -535,6 +568,7 @@ admin_site.register(Order, OrderAdmin)
 admin_site.register(OrderItem)
 admin_site.register(MedicineBatch, MedicineBatchAdmin)
 admin_site.register(Notification, NotificationAdmin)
+admin_site.register(MedicineRequest, MedicineRequestAdmin)
 admin_site.register(SearchKeyword, SearchKeywordAdmin)
 admin_site.register(Category, CategoryAdmin)
 admin_site.register(Product, ProductAdmin)

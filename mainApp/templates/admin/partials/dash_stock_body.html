@@ -1,0 +1,60 @@
+{# Near-expiry stock queue body — swapped via AJAX #}
+<div class="table-responsive">
+    <table class="table table-sm table-hover oup-expiry-table mb-0">
+        <thead>
+            <tr>
+                <th>Sev</th>
+                <th>Product</th>
+                <th>SKU</th>
+                <th>Batch</th>
+                <th>Expiry</th>
+                <th>Days</th>
+                <th>Qty</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in near_expiry_rows %}
+            <tr class="oup-sev-{{ row.severity }}">
+                <td><span class="oup-badge oup-badge-{{ row.severity }}">{{ row.severity }}</span></td>
+                <td>{{ row.product }}</td>
+                <td><code>{{ row.sku }}</code></td>
+                <td>{{ row.batch_number }}</td>
+                <td>{{ row.expiry_date }}</td>
+                <td class="font-weight-bold">{{ row.days_left }}</td>
+                <td>{{ row.remaining }}</td>
+                <td>
+                    {% if row.url %}
+                        <a class="btn btn-xs btn-outline-primary" href="{{ row.url }}">Edit</a>
+                    {% endif %}
+                </td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="8" class="text-center text-muted py-3">
+                    No batches in {{ expiry_days }}d horizon.
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% if near_expiry_page_obj.paginator.num_pages > 1 %}
+<div class="oup-dash-pager px-3 py-2">
+    <span class="text-muted">
+        {{ near_expiry_total }} · p.{{ near_expiry_page_obj.number }}/{{ near_expiry_page_obj.paginator.num_pages }}
+    </span>
+    <div class="oup-dash-pager-links">
+        {% if near_expiry_page_obj.has_previous %}
+            <button type="button" class="btn btn-xs btn-outline-secondary"
+                    data-oup-page="{{ near_expiry_page_obj.previous_page_number }}"
+                    data-oup-page-key="expiry_page">Prev</button>
+        {% endif %}
+        {% if near_expiry_page_obj.has_next %}
+            <button type="button" class="btn btn-xs btn-outline-secondary"
+                    data-oup-page="{{ near_expiry_page_obj.next_page_number }}"
+                    data-oup-page-key="expiry_page">Next</button>
+        {% endif %}
+    </div>
+</div>
+{% endif %}

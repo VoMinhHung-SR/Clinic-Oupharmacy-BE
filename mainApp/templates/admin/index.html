@@ -21,17 +21,17 @@
 {% endblock %}
 
 {% block content %}
-<div class="oup-dash col-12 mb-3">
-    <h2 class="oup-dash-title">Operations overview · {{ current_year }}</h2>
+<div class="oup-dash col-12"
+     id="oup-dash-root"
+     data-queue-leads-url="{{ dash_queue_leads_url }}"
+     data-queue-stock-url="{{ dash_queue_stock_url }}"
+     data-mr-status="{{ medicine_request_status }}"
+     data-mr-page="{{ medicine_request_page_obj.number }}"
+     data-expiry-days="{{ expiry_days }}"
+     data-expiry-page="{{ near_expiry_page_obj.number }}">
+    <h2 class="oup-dash-title">Operations · {{ current_year }}</h2>
+
     <div class="oup-kpi-row">
-        <div class="oup-kpi">
-            <div class="label">Users</div>
-            <div class="value">{{ users }}</div>
-        </div>
-        <div class="oup-kpi">
-            <div class="label">Patients</div>
-            <div class="value">{{ patients }}</div>
-        </div>
         <div class="oup-kpi">
             <div class="label">Clinic exams</div>
             <div class="value">{{ exam_count_ytd }}</div>
@@ -42,219 +42,157 @@
             <div class="value">{{ store_orders_ytd }}</div>
             <div class="hint">YTD · {{ store_revenue_ytd|floatformat:0 }}</div>
         </div>
-        <div class="oup-kpi {% if near_expiry_count %}oup-kpi-warn{% endif %}">
+        <a class="oup-kpi oup-kpi-link {% if near_expiry_count or expired_stock_count %}oup-kpi-warn{% endif %}" href="#oup-queue-stock">
             <div class="label">Near expiry</div>
             <div class="value">{{ near_expiry_count }}</div>
             <div class="hint">≤30d · expired {{ expired_stock_count }}</div>
-        </div>
-        <div class="oup-kpi">
-            <div class="label">Variants</div>
-            <div class="value">{{ medicineUnits }}</div>
-        </div>
+        </a>
+        <a class="oup-kpi oup-kpi-link {% if medicine_request_pending_count %}oup-kpi-warn{% endif %}" href="#oup-queue-leads">
+            <div class="label">Medicine leads</div>
+            <div class="value">{{ medicine_request_pending_count }}</div>
+            <div class="hint">Pending consult</div>
+        </a>
     </div>
+    <p class="oup-kpi-meta text-muted">
+        {{ users }} users · {{ patients }} patients · {{ medicineUnits }} variants
+    </p>
 
-    {# Complex dual-system chart #}
-    <div class="oup-chart-card oup-chart-wide mb-3">
-        <h3>Clinic ↔ Store activity (dual axis)</h3>
-        <p class="oup-chart-hint">Bars = examinations · Line = store orders · same months for cross-system control</p>
-        <canvas id="chart-ops-combo" height="300"></canvas>
-    </div>
-
-    <div class="oup-chart-grid">
-        <div class="oup-chart-card">
-            <h3>Revenue: clinic bills vs store orders</h3>
-            <canvas id="chart-dual-revenue" height="260"></canvas>
-        </div>
-        <div class="oup-chart-card">
-            <h3>Visit status (clinic)</h3>
-            <canvas id="chart-status" height="240"></canvas>
-        </div>
-        <div class="oup-chart-card">
-            <h3>Order status (store)</h3>
-            <canvas id="chart-order-status" height="240"></canvas>
-        </div>
-        <div class="oup-chart-card">
-            <h3>Top products (orders)</h3>
-            <canvas id="chart-medicines" height="240"></canvas>
-        </div>
-    </div>
-
-    {# Near-expiry management table #}
-    <div class="oup-expiry-panel card card-outline card-warning">
-        <div class="card-header d-flex flex-wrap align-items-center justify-content-between">
-            <h3 class="card-title mb-0">
-                <i class="fas fa-exclamation-triangle"></i>
-                Near-expiry / expired stock
-            </h3>
-            <div class="oup-expiry-toolbar">
-                <form method="get" class="form-inline oup-expiry-filter">
-                    <label class="mr-2 mb-0" for="expiry_days">Horizon</label>
-                    <select name="expiry_days" id="expiry_days" class="form-control form-control-sm mr-2" onchange="this.form.submit()">
-                        {% for d in expiry_day_options %}
-                            <option value="{{ d }}" {% if d == expiry_days %}selected{% endif %}>{{ d }} days</option>
-                        {% endfor %}
-                    </select>
-                </form>
-                <a class="btn btn-sm btn-outline-secondary" href="{{ batch_changelist_url }}?expiry_risk=urgent">
-                    Urgent in admin
-                </a>
-                <a class="btn btn-sm btn-outline-danger" href="{{ batch_changelist_url }}?expiry_risk=expired">
-                    Expired in admin
-                </a>
-                <a class="btn btn-sm btn-primary" href="{{ batch_changelist_url }}">
-                    All batches
-                </a>
-            </div>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-sm table-hover oup-expiry-table mb-0">
-                    <thead>
-                        <tr>
-                            <th>Severity</th>
-                            <th>Product</th>
-                            <th>SKU / packing</th>
-                            <th>Batch</th>
-                            <th>Expiry</th>
-                            <th>Days left</th>
-                            <th>Remaining</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    {% for row in near_expiry_rows %}
-                        <tr class="oup-sev-{{ row.severity }}">
-                            <td><span class="oup-badge oup-badge-{{ row.severity }}">{{ row.severity }}</span></td>
-                            <td>{{ row.product }}</td>
-                            <td><code>{{ row.sku }}</code><br><small class="text-muted">{{ row.packing }}</small></td>
-                            <td>{{ row.batch_number }}</td>
-                            <td>{{ row.expiry_date }}</td>
-                            <td class="font-weight-bold">{{ row.days_left }}</td>
-                            <td>{{ row.remaining }}</td>
-                            <td>
-                                {% if row.url %}
-                                    <a class="btn btn-xs btn-outline-primary" href="{{ row.url }}">Edit</a>
-                                {% endif %}
-                            </td>
-                        </tr>
-                    {% empty %}
-                        <tr>
-                            <td colspan="8" class="text-center text-muted py-4">
-                                No batches in the selected horizon ({{ expiry_days }} days).
-                            </td>
-                        </tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <p class="oup-expiry-help px-3 py-2 mb-0 text-muted">
-                Use list actions on Medicine Batches to <strong>deactivate</strong> or <strong>write off remaining qty</strong>.
-                Filter by Expiry risk in the changelist for bulk work.
-            </p>
-        </div>
-    </div>
-</div>
-
-{% get_side_menu using="app_list" as dashboard_list %}
-{% if dashboard_list %}
-    {% widthratio dashboard_list|length 2 1 as middle %}
-{% endif %}
-
-<div class="col-lg-9 col-12">
-    <div class="row">
-        <div class="col-md-6 col-sm-12">
-            {% for app in dashboard_list %}
-                <div class="card card-primary card-outline">
-                    <div class="card-header">
-                        <h5 class="m-0">{{ app.name }}</h5>
-                    </div>
-                    <div class="card-body">
-                        <table class="table table-sm">
-                            <tbody>
-                            {% for model in app.models %}
-                                <tr>
-                                    <td>
-                                        {% if model.url %}<a href="{{ model.url }}">{{ model.name }}</a>{% else %}{{ model.name }}{% endif %}
-                                    </td>
-                                    <td>
-                                        <div class="btn-group float-right">
-                                            {% if model.add_url %}
-                                                <a href="{{ model.add_url }}" class="btn btn-sm {{ jazzmin_ui.button_classes.success }} btn-flat addlink">{% trans 'Add' %}</a>
-                                            {% endif %}
-                                            {% if model.url %}
-                                                {% if model.view_only %}
-                                                    <a href="{{ model.url }}" class="btn btn-sm {{ jazzmin_ui.button_classes.info }} btn-flat viewlink">{% trans 'View' %}</a>
-                                                {% else %}
-                                                    <a href="{{ model.url }}" class="btn btn-sm {{ jazzmin_ui.button_classes.info }} btn-flat changelink">{% if model.custom %}{% trans 'Go' %}{% else %}{% trans 'Change' %}{% endif %}</a>
-                                                {% endif %}
-                                            {% endif %}
-                                        </div>
-                                    </td>
-                                </tr>
+    <div class="oup-attention-grid">
+        <div id="oup-queue-leads" class="oup-expiry-panel oup-mr-panel card card-outline card-info" data-oup-panel="leads">
+            <div class="card-header">
+                <h3 class="card-title mb-0">
+                    <i class="fas fa-notes-medical"></i>
+                    Medicine consult
+                </h3>
+                <div class="oup-expiry-toolbar">
+                    <div class="form-inline oup-expiry-filter">
+                        <label class="mb-0" for="mr_status">Status</label>
+                        <select id="mr_status" class="form-control form-control-sm"
+                                data-oup-filter="mr_status" data-oup-panel="leads">
+                            {% for value, label in medicine_request_status_options %}
+                                <option value="{{ value }}" {% if value == medicine_request_status %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
-                            </tbody>
-                        </table>
+                        </select>
                     </div>
+                    <a class="btn btn-sm btn-primary" href="{{ medicine_request_changelist_url }}">All leads</a>
                 </div>
+            </div>
+            <div class="card-body p-0 oup-panel-body" id="oup-leads-body">
+                {% include "admin/partials/dash_mr_body.html" %}
+            </div>
+        </div>
 
-                {% if forloop.counter == middle|add:"0" %}
+        <div id="oup-queue-stock" class="oup-expiry-panel oup-stock-panel card card-outline card-warning" data-oup-panel="stock">
+            <div class="card-header">
+                <h3 class="card-title mb-0">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Near-expiry stock
+                </h3>
+                <div class="oup-expiry-toolbar">
+                    <div class="form-inline oup-expiry-filter">
+                        <label class="mb-0" for="expiry_days">Horizon</label>
+                        <select id="expiry_days" class="form-control form-control-sm"
+                                data-oup-filter="expiry_days" data-oup-panel="stock">
+                            {% for d in expiry_day_options %}
+                                <option value="{{ d }}" {% if d == expiry_days %}selected{% endif %}>{{ d }}d</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <a class="btn btn-sm btn-primary" href="{{ batch_changelist_url }}">All batches</a>
                 </div>
-                <div class="col-md-6 col-sm-12">
-                {% endif %}
-            {% endfor %}
+            </div>
+            <div class="card-body p-0 oup-panel-body" id="oup-stock-body">
+                {% include "admin/partials/dash_stock_body.html" %}
+            </div>
         </div>
     </div>
-</div>
 
-<div class="col-lg-3 col-12">
-    <div id="content-related">
-        <div class="module" id="recent-actions-module">
+    <section class="oup-insights">
+        <div class="oup-insights-charts">
+            <div class="oup-chart-card">
+                <h3>Activity this year</h3>
+                <p class="oup-chart-hint">Bars = clinic exams · Line = store orders</p>
+                <div class="oup-chart-canvas-wrap">
+                    <canvas id="chart-ops-combo" height="240"></canvas>
+                </div>
+            </div>
+            <div class="oup-chart-card">
+                <h3>Revenue this year</h3>
+                <p class="oup-chart-hint">Clinic bills vs store order GMV</p>
+                <div class="oup-chart-canvas-wrap">
+                    <canvas id="chart-dual-revenue" height="240"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="oup-insights-side">
+            <div class="oup-insight-block">
+                <h4>Visit status</h4>
+                <ul class="oup-status-list">
+                    {% for item in visit_status_items %}
+                        <li><span class="oup-status-label">{{ item.label }}</span><span class="oup-status-count">{{ item.count }}</span></li>
+                    {% empty %}
+                        <li class="text-muted">No data</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="oup-insight-block">
+                <h4>Order status</h4>
+                <ul class="oup-status-list">
+                    {% for item in order_status_items %}
+                        <li><span class="oup-status-label">{{ item.label }}</span><span class="oup-status-count">{{ item.count }}</span></li>
+                    {% empty %}
+                        <li class="text-muted">No data</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="oup-insight-block">
+                <h4>Top products</h4>
+                <ol class="oup-rank-list">
+                    {% for item in top_product_items %}
+                        <li>
+                            <span class="oup-rank-name" title="{{ item.label }}">{{ item.label }}</span>
+                            <span class="oup-rank-count">{{ item.count }}</span>
+                        </li>
+                    {% empty %}
+                        <li class="text-muted">No data</li>
+                    {% endfor %}
+                </ol>
+            </div>
+        </div>
+    </section>
+
+    <div class="oup-dash-footer">
+        <div class="oup-quick-links-card">
+            <h3>Quick links</h3>
+            <div class="oup-quick-links">
+                {% for link in quick_links %}
+                    <a class="oup-quick-link" href="{{ link.url }}">{{ link.label }}</a>
+                {% empty %}
+                    <span class="text-muted">No links</span>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="oup-recent-card" id="content-related">
             <h3>{% trans 'Recent actions' %}</h3>
             {% get_admin_log 6 as admin_log for_user user %}
             {% if not admin_log %}
-                <p>{% trans 'None available' %}</p>
+                <p class="text-muted mb-0">{% trans 'None available' %}</p>
             {% else %}
-                <div class="timeline">
+                <ul class="oup-recent-list">
                     {% for entry in admin_log %}
-                        <div>
-                            {% if entry.is_change %}
-                                <i class="fas fa-edit bg-blue"></i>
-                            {% elif entry.is_deletion %}
-                                <i class="fas fa-trash bg-danger"></i>
-                            {% elif entry.is_addition %}
-                                <i class="fas fa-plus-circle bg-success"></i>
+                        <li>
+                            <span class="oup-recent-time">{{ entry.action_time|timesince }} ago</span>
+                            {% if entry.is_deletion or not entry.get_admin_url %}
+                                <span class="oup-recent-obj">{{ entry.object_repr }}</span>
+                            {% else %}
+                                <a class="oup-recent-obj" href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>
                             {% endif %}
-                            <div class="timeline-item">
-                                <span class="time"><i class="fas fa-clock"></i> {% blocktrans with timesince=entry.action_time|timesince %}{{ timesince }} ago{% endblocktrans %}</span>
-                                <h3 class="timeline-header no-border">
-                                    {% if entry.is_deletion or not entry.get_admin_url %}
-                                        {{ entry.object_repr }}
-                                    {% else %}
-                                        <a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>
-                                    {% endif %}
-                                    {% if entry.model %}
-                                        <span class="mini quiet">{% filter capfirst %}{{ entry.model }}{% endfilter %}</span>
-                                    {% endif %}
-                                </h3>
-                                {% if not entry.is_deletion %}
-                                    <div class="timeline-body">
-                                        {% if entry.is_addition %}
-                                            {{ entry }}
-                                        {% else %}
-                                            <ul style="list-style: none; padding: 0;">
-                                                {% action_message_to_list entry as action_message_list %}
-                                                {% for action_message in action_message_list %}
-                                                    <li>{{ action_message.msg|style_bold_first_word }}</li>
-                                                {% endfor %}
-                                            </ul>
-                                        {% endif %}
-                                    </div>
-                                {% endif %}
-                            </div>
-                        </div>
+                            {% if entry.model %}
+                                <span class="oup-recent-model">{% filter capfirst %}{{ entry.model }}{% endfilter %}</span>
+                            {% endif %}
+                        </li>
                     {% endfor %}
-                    <div><i class="fa fa-clock bg-gray"></i></div>
-                </div>
+                </ul>
             {% endif %}
         </div>
     </div>
@@ -265,19 +203,107 @@
 {{ block.super }}
 <script>
 (function () {
-    const months = ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'];
-    const palette = ['#1e5f8a','#2a9d8f','#e9c46a','#f4a261','#e76f51','#6c757d','#457b9d','#264653'];
+    const root = document.getElementById('oup-dash-root');
+    if (!root) return;
 
+    const state = {
+        mr_status: root.dataset.mrStatus || 'PENDING',
+        mr_page: parseInt(root.dataset.mrPage || '1', 10) || 1,
+        expiry_days: parseInt(root.dataset.expiryDays || '30', 10) || 30,
+        expiry_page: parseInt(root.dataset.expiryPage || '1', 10) || 1,
+    };
+
+    const urls = {
+        leads: root.dataset.queueLeadsUrl,
+        stock: root.dataset.queueStockUrl,
+    };
+
+    const bodies = {
+        leads: document.getElementById('oup-leads-body'),
+        stock: document.getElementById('oup-stock-body'),
+    };
+
+    function queryString() {
+        const p = new URLSearchParams();
+        p.set('mr_status', state.mr_status);
+        p.set('mr_page', String(state.mr_page));
+        p.set('expiry_days', String(state.expiry_days));
+        p.set('expiry_page', String(state.expiry_page));
+        return p.toString();
+    }
+
+    function syncUrl() {
+        const next = window.location.pathname + '?' + queryString();
+        window.history.replaceState({}, '', next);
+    }
+
+    function setLoading(panel, on) {
+        const body = bodies[panel];
+        if (!body) return;
+        body.classList.toggle('oup-panel-loading', !!on);
+    }
+
+    function loadPanel(panel) {
+        const url = urls[panel];
+        const body = bodies[panel];
+        if (!url || !body) return Promise.resolve();
+
+        setLoading(panel, true);
+        return fetch(url + '?' + queryString(), {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin',
+        })
+            .then(function (res) {
+                if (!res.ok) throw new Error('Queue load failed');
+                return res.text();
+            })
+            .then(function (html) {
+                body.innerHTML = html;
+            })
+            .catch(function () {
+                body.innerHTML = '<p class="text-danger text-center py-3 mb-0">Could not refresh panel.</p>';
+            })
+            .finally(function () {
+                setLoading(panel, false);
+            });
+    }
+
+    root.addEventListener('change', function (e) {
+        const el = e.target;
+        if (!el || !el.matches || !el.matches('[data-oup-filter]')) return;
+
+        const key = el.getAttribute('data-oup-filter');
+        const panel = el.getAttribute('data-oup-panel');
+        if (key === 'mr_status') {
+            state.mr_status = el.value;
+            state.mr_page = 1;
+        } else if (key === 'expiry_days') {
+            state.expiry_days = parseInt(el.value, 10) || 30;
+            state.expiry_page = 1;
+        }
+        syncUrl();
+        loadPanel(panel);
+    });
+
+    root.addEventListener('click', function (e) {
+        const btn = e.target.closest('[data-oup-page]');
+        if (!btn || !root.contains(btn)) return;
+        e.preventDefault();
+        const key = btn.getAttribute('data-oup-page-key');
+        const page = parseInt(btn.getAttribute('data-oup-page'), 10);
+        if (!key || !page) return;
+        state[key] = page;
+        const panel = key === 'mr_page' ? 'leads' : 'stock';
+        syncUrl();
+        loadPanel(panel);
+    });
+
+    /* Charts */
+    const months = ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'];
     const examData = {{ chart_examination_json }};
     const clinicRev = {{ chart_clinic_revenue_json }};
     const storeOrders = {{ chart_store_orders_json }};
     const storeRev = {{ chart_store_revenue_json }};
-    const statusLabels = {{ chart_status_labels_json }};
-    const statusCounts = {{ chart_status_counts_json }};
-    const orderStatusLabels = {{ chart_order_status_labels_json }};
-    const orderStatusCounts = {{ chart_order_status_counts_json }};
-    const medLabels = {{ chart_medicine_labels_json }};
-    const medQty = {{ chart_medicine_quantity_json }};
 
     function makeChart(id, config) {
         const el = document.getElementById(id);
@@ -291,7 +317,7 @@
             datasets: [
                 {
                     type: 'bar',
-                    label: 'Clinic examinations',
+                    label: 'Clinic exams',
                     data: examData,
                     backgroundColor: 'rgba(30, 95, 138, 0.75)',
                     borderRadius: 4,
@@ -303,7 +329,7 @@
                     label: 'Store orders',
                     data: storeOrders,
                     borderColor: '#2a9d8f',
-                    backgroundColor: 'rgba(42, 157, 143, 0.2)',
+                    backgroundColor: 'rgba(42, 157, 143, 0.15)',
                     tension: 0.3,
                     fill: false,
                     yAxisID: 'y1',
@@ -316,21 +342,14 @@
             maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
             plugins: {
-                legend: { position: 'top' },
-                tooltip: { callbacks: {
-                    footer: (items) => {
-                        const i = items[0] && items[0].dataIndex;
-                        if (i == null) return '';
-                        return 'Clinic bill: ' + (clinicRev[i] || 0) + ' · Store GMV: ' + (storeRev[i] || 0);
-                    }
-                }}
+                legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
             },
             scales: {
                 y: {
                     type: 'linear',
                     position: 'left',
                     beginAtZero: true,
-                    title: { display: true, text: 'Examinations' },
+                    title: { display: true, text: 'Exams', font: { size: 11 } },
                     ticks: { precision: 0 }
                 },
                 y1: {
@@ -338,7 +357,7 @@
                     position: 'right',
                     beginAtZero: true,
                     grid: { drawOnChartArea: false },
-                    title: { display: true, text: 'Store orders' },
+                    title: { display: true, text: 'Orders', font: { size: 11 } },
                     ticks: { precision: 0 }
                 }
             }
@@ -357,7 +376,7 @@
                     borderRadius: 3,
                 },
                 {
-                    label: 'Store orders',
+                    label: 'Store GMV',
                     data: storeRev,
                     backgroundColor: '#2a9d8f',
                     borderRadius: 3,
@@ -367,56 +386,12 @@
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } },
-            scales: { y: { beginAtZero: true } }
-        }
-    });
-
-    makeChart('chart-status', {
-        type: 'doughnut',
-        data: {
-            labels: statusLabels.length ? statusLabels : ['no data'],
-            datasets: [{
-                data: statusCounts.length ? statusCounts : [1],
-                backgroundColor: statusCounts.length ? palette : ['#e5e7eb'],
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } }
-        }
-    });
-
-    makeChart('chart-order-status', {
-        type: 'doughnut',
-        data: {
-            labels: orderStatusLabels.length ? orderStatusLabels : ['no data'],
-            datasets: [{
-                data: orderStatusCounts.length ? orderStatusCounts : [1],
-                backgroundColor: orderStatusCounts.length ? palette : ['#e5e7eb'],
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } }
-        }
-    });
-
-    makeChart('chart-medicines', {
-        type: 'doughnut',
-        data: {
-            labels: medLabels.length ? medLabels : ['no data'],
-            datasets: [{
-                data: medQty.length ? medQty : [1],
-                backgroundColor: medQty.length ? palette : ['#e5e7eb'],
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } }
+            plugins: {
+                legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+            },
+            scales: {
+                y: { beginAtZero: true, ticks: { precision: 0 } }
+            }
         }
     });
 })();
