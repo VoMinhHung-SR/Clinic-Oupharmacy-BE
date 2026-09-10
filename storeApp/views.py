@@ -32,7 +32,7 @@ from storeApp.services.country_normalize import (
     parse_csv_ints,
     parse_csv_strings,
 )
-from storeApp.services.search_facets_service import SearchFacetsService
+from storeApp.services.search_facets_service import SearchFacetsService, apply_price_range_filter
 from storeApp.services.store_path_resolver import resolve_store_path
 from storeApp.models import Notification
 from storeApp.serializers import ContactSupportRequestSerializer
@@ -45,14 +45,6 @@ def _prefetch_variant_product_categories():
         "product__product_categories",
         queryset=ProductCategory.objects.using(STORE_DB_ALIAS).select_related("category"),
     )
-
-
-PRICE_RANGE_BUCKETS = [
-    ("under_100k", None, 100000),
-    ("100k_300k", 100000, 300000),
-    ("300k_500k", 300000, 500000),
-    ("over_500k", 500000, None),
-]
 
 
 def _safe_int(value, default):
@@ -71,18 +63,6 @@ def _parse_bool(value):
     if lowered in {"false", "0", "no"}:
         return False
     return None
-
-
-def _apply_price_range_filter(queryset, price_range):
-    if price_range == "under_100k":
-        return queryset.filter(price_value__lt=100000)
-    if price_range == "100k_300k":
-        return queryset.filter(price_value__gte=100000, price_value__lt=300000)
-    if price_range == "300k_500k":
-        return queryset.filter(price_value__gte=300000, price_value__lt=500000)
-    if price_range == "over_500k":
-        return queryset.filter(price_value__gte=500000)
-    return queryset
 
 
 def _parse_brand_filter(raw) -> list[int]:
@@ -278,7 +258,7 @@ def search_products(request):
         queryset = queryset.filter(in_stock__gt=0)
     if in_stock is False:
         queryset = queryset.filter(in_stock__lte=0)
-    queryset = _apply_price_range_filter(queryset, price_range)
+    queryset = apply_price_range_filter(queryset, price_range)
 
     applied_filters = {
         "q": query_normalized,

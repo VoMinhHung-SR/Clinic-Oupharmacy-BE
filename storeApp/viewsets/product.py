@@ -7,7 +7,7 @@ from storeApp.models import ProductVariant
 from storeApp.serializers import ProductVariantSerializer
 from storeApp.filters import ProductFilter
 from rest_framework.pagination import PageNumberPagination
-from django.db.models import OuterRef, Subquery, DecimalField, Value
+from django.db.models import OuterRef, Subquery, DecimalField, CharField, Value
 from django.db.models.functions import Coalesce
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -17,30 +17,45 @@ from django.db.models import Prefetch
 
 def annotate_variant_unit_price(queryset, db_alias=None):
     """
-    Annotate ProductVariant queryset with price_value from default/first published unit.
-    Required for ProductFilter (min/max price) and ordering by price_value.
+    Annotate ProductVariant with default/first published unit price fields.
+
+    - price_value: numeric sale/list price (ordering, price_range)
+    - list_price_display: unit.price_display (CONSULT vs listed VND)
     """
     alias = db_alias or "default"
-    default_unit_price = ProductVariantUnit.objects.using(alias).filter(
+    decimal_price = DecimalField(max_digits=12, decimal_places=2)
+    default_units = ProductVariantUnit.objects.using(alias).filter(
         variant_id=OuterRef("pk"),
         is_default=True,
         is_published=True,
-    ).values("price_value")[:1]
-    fallback_unit_price = (
-        ProductVariantUnit.objects.using(alias).filter(
+    )
+    fallback_units = (
+        ProductVariantUnit.objects.using(alias)
+        .filter(
             variant_id=OuterRef("pk"),
             is_published=True,
         )
         .order_by("unit_order", "id")
-        .values("price_value")[:1]
     )
     return queryset.annotate(
         price_value=Coalesce(
-            Subquery(default_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
-            Subquery(fallback_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            Subquery(default_units.values("price_value")[:1], output_field=decimal_price),
+            Subquery(fallback_units.values("price_value")[:1], output_field=decimal_price),
             Value(0),
-            output_field=DecimalField(max_digits=12, decimal_places=2),
-        )
+            output_field=decimal_price,
+        ),
+        list_price_display=Coalesce(
+            Subquery(
+                default_units.values("price_display")[:1],
+                output_field=CharField(),
+            ),
+            Subquery(
+                fallback_units.values("price_display")[:1],
+                output_field=CharField(),
+            ),
+            Value(""),
+            output_field=CharField(),
+        ),
     )
 
 

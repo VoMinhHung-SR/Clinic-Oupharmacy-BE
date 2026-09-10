@@ -256,6 +256,72 @@ class SearchApiTests(APITestCase):
         self.assertEqual(stock_counts[True], 3)
         self.assertEqual(stock_counts[False], 1)
 
+    def test_price_range_excludes_consult_and_zero_prices(self):
+        """CONSULT / zero list prices must not match under_100k (or any price bucket)."""
+        consult_zero = self._create_variant(
+            name="Thuốc CONSULT zero",
+            web_name="Consult Zero",
+            slug="thuoc-consult-zero",
+            category=self.category,
+            price_value=0,
+            in_stock=5,
+            ranking=10,
+        )
+        ProductVariantUnit.objects.filter(variant=consult_zero).update(price_display="CONSULT")
+
+        consult_clinic = self._create_variant(
+            name="Thuốc CONSULT clinic",
+            web_name="Consult Clinic",
+            slug="thuoc-consult-clinic",
+            category=self.category,
+            price_value=50000,
+            in_stock=5,
+            ranking=10,
+        )
+        ProductVariantUnit.objects.filter(variant=consult_clinic).update(price_display="CONSULT")
+
+        zero_listed = self._create_variant(
+            name="Thuốc giá 0",
+            web_name="Zero Listed",
+            slug="thuoc-gia-0",
+            category=self.category,
+            price_value=0,
+            in_stock=5,
+            ranking=10,
+        )
+        ProductVariantUnit.objects.filter(variant=zero_listed).update(price_display="0đ")
+
+        try:
+            response = self.client.get(
+                f"/api/store/search/?q=&category={self.category.id}&price_range=under_100k"
+            )
+            self.assertEqual(response.status_code, 200)
+            slugs = set()
+            for item in response.data["items"]:
+                product = item.get("product") if isinstance(item.get("product"), dict) else {}
+                slugs.add(product.get("slug") or item.get("slug"))
+            # Existing 90k listed product stays; CONSULT / zero must not appear.
+            self.assertIn("thuoc-cam-cum-a", slugs)
+            self.assertNotIn("thuoc-consult-zero", slugs)
+            self.assertNotIn("thuoc-consult-clinic", slugs)
+            self.assertNotIn("thuoc-gia-0", slugs)
+
+            browse = self.client.get(f"/api/store/search/?q=&category={self.category.id}")
+            self.assertEqual(browse.status_code, 200)
+            price_counts = {
+                item["key"]: item["count"] for item in browse.data["facets"]["price_ranges"]
+            }
+            # CONSULT/zero must not inflate under_100k facet within this category.
+            self.assertEqual(price_counts["under_100k"], 1)
+        finally:
+            Product.objects.filter(
+                slug__in=[
+                    "thuoc-consult-zero",
+                    "thuoc-consult-clinic",
+                    "thuoc-gia-0",
+                ]
+            ).delete()
+
     def test_search_matches_variant_sku(self):
         self._create_variant(
             name="Thuốc SKU test",

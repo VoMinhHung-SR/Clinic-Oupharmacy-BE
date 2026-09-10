@@ -12,6 +12,9 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Count, Q
 
+from storeApp.management.commands.catalog_import.store_import_pricing import (
+    PRICE_DISPLAY_CONSULT,
+)
 from storeApp.services.country_normalize import normalize_country_label
 
 CACHE_PREFIX = "store_search_facets"
@@ -21,12 +24,32 @@ CACHE_VERSION_KEY = f"{CACHE_PREFIX}:version"
 MAX_ATTRIBUTE_GROUPS = getattr(settings, "SEARCH_FACETS_MAX_ATTRIBUTE_GROUPS", 12)
 MAX_OPTIONS_PER_ATTRIBUTE = getattr(settings, "SEARCH_FACETS_MAX_OPTIONS_PER_ATTRIBUTE", 30)
 
+# Storefront list price only — exclude pharmacist-consult (CONSULT) and zero/missing.
+# CONSULT rows may still carry a clinic price_value for internal use.
+STOREFRONT_LIST_PRICED_Q = Q(price_value__gt=0) & ~Q(
+    list_price_display__iexact=PRICE_DISPLAY_CONSULT
+)
+
 PRICE_RANGE_FILTER_Q = {
-    "under_100k": Q(price_value__lt=100000),
-    "100k_300k": Q(price_value__gte=100000, price_value__lt=300000),
-    "300k_500k": Q(price_value__gte=300000, price_value__lt=500000),
-    "over_500k": Q(price_value__gte=500000),
+    "under_100k": STOREFRONT_LIST_PRICED_Q & Q(price_value__lt=100000),
+    "100k_300k": STOREFRONT_LIST_PRICED_Q & Q(
+        price_value__gte=100000, price_value__lt=300000
+    ),
+    "300k_500k": STOREFRONT_LIST_PRICED_Q & Q(
+        price_value__gte=300000, price_value__lt=500000
+    ),
+    "over_500k": STOREFRONT_LIST_PRICED_Q & Q(price_value__gte=500000),
 }
+
+
+def apply_price_range_filter(queryset, price_range: str | None):
+    """Filter variants into a price bucket; CONSULT / zero prices never match."""
+    if not price_range:
+        return queryset
+    clause = PRICE_RANGE_FILTER_Q.get(price_range)
+    if clause is None:
+        return queryset
+    return queryset.filter(clause)
 
 
 class SearchFacetsService:
