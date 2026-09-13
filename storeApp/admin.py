@@ -16,6 +16,7 @@ from .models import (
     OrderItem,
     MedicineBatch,
     MedicineRequest,
+    ConsultationSession,
     Notification,
     SearchKeyword,
     Product,
@@ -253,6 +254,21 @@ class MedicineRequestAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" style="max-height:160px;" />', url)
         except Exception:
             return str(obj.prescription_image)
+
+
+class ConsultationSessionAdmin(admin.ModelAdmin):
+    list_display = [
+        'id',
+        'user_id',
+        'pharmacist_id',
+        'status',
+        'firestore_conversation_id',
+        'created_date',
+    ]
+    list_filter = ['status', 'active', 'created_date']
+    search_fields = ['need_text', 'firestore_conversation_id']
+    list_editable = ['status']
+    readonly_fields = ['created_date', 'updated_date', 'context_json']
 
 
 class SearchKeywordAdmin(admin.ModelAdmin):
@@ -569,6 +585,7 @@ admin_site.register(OrderItem)
 admin_site.register(MedicineBatch, MedicineBatchAdmin)
 admin_site.register(Notification, NotificationAdmin)
 admin_site.register(MedicineRequest, MedicineRequestAdmin)
+admin_site.register(ConsultationSession, ConsultationSessionAdmin)
 admin_site.register(SearchKeyword, SearchKeywordAdmin)
 admin_site.register(Category, CategoryAdmin)
 admin_site.register(Product, ProductAdmin)

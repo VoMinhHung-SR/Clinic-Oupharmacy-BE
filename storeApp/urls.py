@@ -19,6 +19,7 @@ from .viewsets import (
     CampaignAdminViewSet,
     CampaignPublicViewSet,
     MedicineRequestViewSet,
+    ConsultationSessionViewSet,
 )
 from .views import (
     products_by_category_slug,
@@ -44,6 +45,11 @@ router.register("cabinets", CabinetViewSet, basename="cabinet")
 router.register("cabinet-items", CabinetItemViewSet, basename="cabinet-item")
 router.register("cabinet-alerts", CabinetAlertViewSet, basename="cabinet-alert")
 router.register("medicine-requests", MedicineRequestViewSet, basename="medicine-request")
+router.register(
+    "consultation-sessions",
+    ConsultationSessionViewSet,
+    basename="consultation-session",
+)
 router.register("admin/campaigns", CampaignAdminViewSet, basename="admin-campaign")
 router.register("campaigns", CampaignPublicViewSet, basename="campaign-public")
 
@@ -65,7 +71,7 @@ urlpatterns = [
     # Trailing slash là optional (/?)
     # Exclude các API endpoint names để tránh conflict
     re_path(
-        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|medicine-requests|notifications|search-terms|search|resolve-path|admin|carts|cabinets|cabinet-items|cabinet-alerts|cabinet-prescription-lines|campaigns|contact)(?P<category_slug>[\w\-/]+)/?$',
+        r'^(?!products|categories|brands|shipping-methods|payment-methods|orders|order-items|medicine-batches|medicine-requests|consultation-sessions|notifications|search-terms|search|resolve-path|admin|carts|cabinets|cabinet-items|cabinet-alerts|cabinet-prescription-lines|campaigns|contact)(?P<category_slug>[\w\-/]+)/?$',
         products_by_category_slug, 
         name='products-by-category-slug'
     ),

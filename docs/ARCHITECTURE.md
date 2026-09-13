@@ -40,6 +40,7 @@ flowchart LR
   - `storeApp/models/voucher.py`: voucher và redemption.
   - `storeApp/models/cart.py`: placeholder cho cart domain.
   - `storeApp/models/cabinet.py`: tủ thuốc user (`user_id`, qty/HSD; P2 low-stock/refill/lot/reminder) — **không** phải kho `MedicineBatch`. Adjacent (Done): `CabinetAlert` inbox HSD (`0020`, `scan_cabinet_expiry_alerts`); seed toa `GET /cabinet-prescription-lines/`. **API doc:** [`docs/smart-medicine-cabinet-api.md`](smart-medicine-cabinet-api.md). Plans: `PersonalProject/plans/[Done] smart-medicine-cabinet.plan.md`, `[Done] smart-cabinet-adjacent-domains.plan.md`.
+  - `storeApp/models/consultation.py`: `ConsultationSession` (pharmacist hub) — messages ở Firestore; API `/api/store/consultation-sessions/` (claim atomic). Role `ROLE_PHARMACIST` (seed `mainApp.0022`). Plan: `PersonalProject/plans/[UnDone] consultation-hub-mvp.plan.md`.
 - `storeApp/models/__init__.py` re-export model để giữ tương thích import cũ (`from storeApp.models import ...`).
 
 Cập nhật file này khi thêm app Django mới, đổi mount URL gốc, hoặc tách/hợp store API.
@@ -51,7 +52,7 @@ Cập nhật file này khi thêm app Django mới, đổi mount URL gốc, hoặ
 | `is_superuser` | **System super admin** (prefer 1 account) | Yes (full site) | Yes (allowed, prefer Jazzmin) |
 | `is_admin` | **Business admin** | **Yes, Campaign-only** (D-18) | Yes (clinic ops; no campaign CMS) |
 | `is_staff` only | Legacy Django staff | **No** | **No** |
-| `UserRole` (`ROLE_USER` / `DOCTOR` / `NURSE`) | Clinical roles | No | Role-gated screens only |
+| `UserRole` (`ROLE_USER` / `DOCTOR` / `NURSE` / `PHARMACIST`) | Clinical roles | No | Role-gated screens only |
 
 - `User.has_perm` follows Django (superuser all; groups otherwise). **Do not** treat `is_admin` as Django model perms.
 - DRF business writes: `IsBusinessAdmin` / `is_business_admin()` (`mainApp.authz`).
