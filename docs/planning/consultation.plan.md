@@ -7,16 +7,16 @@ todos:
     status: completed
   - id: p1-chatbox-shell
     content: "P1 Store: ConsultChatbox + deterministic intent state machine + menu 1/2/3"
-    status: pending
+    status: completed
   - id: p2-pharmacist
     content: P2 Store Firestore chat + Clinic FE pharmacist queue/claim/inbox
-    status: pending
+    status: completed
   - id: p3-doctor-actions
     content: "P3 Doctor branch: guided steps + BookingActionBubble → MAIN_API examination/schedule"
-    status: pending
+    status: completed
   - id: p4-medicine-actions
     content: "P4 Medicine branch: search.ts → ProductSuggestBubble 1–5 + CartContext.add"
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -63,7 +63,7 @@ ConsultChatbox
 | Examination + doctor-schedules + time-slots | Doctor book action | ConsultChatbox + FE state machine | `ConsultationRecommendation` model |
 | `search.ts` + `CartContext` | Medicine cards + add cart | Rich bubbles (menu, booking, products) | Django Channels / message tables |
 | `OfferSheet`, `LoginModal`, FAB-like sticky patterns | Widget chrome | Clinic FE queue UI for pharmacist | Background-jobs phase |
-| `/tu-van-duoc-si` placeholder | Redirect → open chatbox | — | Kommunicate |
+| `/tu-van-duoc-si` placeholder | — (đã xóa route) | CTA → `useConsultUi().open()` | Kommunicate |
 
 ---
 
@@ -151,7 +151,7 @@ Transitions **only** via button click or documented syntax (e.g. doctor book com
 | `src/components/consultation/usePharmacistThread.ts` | Firestore |
 | `src/lib/services/consultation.ts` | session API |
 | `src/lib/consultation/firestore.ts` | collections helpers |
-| `src/app/tu-van/page.tsx` | optional full-page opener |
+| `src/app/tu-van/page.tsx` | **deleted** — không page hub |
 
 ### B) Store — modify
 
@@ -159,8 +159,8 @@ Transitions **only** via button click or documented syntax (e.g. doctor book com
 |------|-----|
 | `src/app/layout.tsx` | mount ConsultChatbox (như LoginModal) |
 | `src/lib/config/firebase.ts` | `getFirestore` |
-| `src/lib/constant.ts` | `HOME_QUICK_LINKS` bỏ comingSoon; href `/tu-van` hoặc open-chat query |
-| `src/app/tu-van-duoc-si/page.tsx` | redirect → hub/chatbox |
+| `src/lib/constant.ts` | `HOME_QUICK_LINKS` `openConsult: true`; `CONSULT_HREF=/?consult=open` |
+| `src/app/tu-van-duoc-si/page.tsx` | **deleted** — không giữ redirect |
 | `src/i18n/messages/vi.json` | copy hub |
 | `src/contexts/CartContext.tsx` | **reuse** `add` — không đổi API trừ export nếu thiếu |
 | `src/lib/services/search.ts` | **reuse** — gọi từ medicine branch |

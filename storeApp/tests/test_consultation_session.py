@@ -77,6 +77,37 @@ class ConsultationSessionApiTests(APITestCase):
         ids = [row["id"] for row in listed.data]
         self.assertEqual(ids, [create.data["id"]])
 
+    def test_create_reuses_open_session(self):
+        self.client.force_authenticate(user=self.customer)
+        first = self.client.post(BASE, {"need_text": ""}, format="json")
+        self.assertEqual(first.status_code, 201, first.data)
+        session_id = first.data["id"]
+
+        second = self.client.post(
+            BASE,
+            {"need_text": "Escalated product", "context_json": {"source": "medicine_consult_escalate"}},
+            format="json",
+        )
+        self.assertEqual(second.status_code, 200, second.data)
+        self.assertEqual(second.data["id"], session_id)
+        self.assertEqual(second.data["need_text"], "Escalated product")
+        self.assertEqual(second.data["context_json"]["source"], "medicine_consult_escalate")
+
+        listed = self.client.get(BASE)
+        self.assertEqual(len(listed.data), 1)
+
+    def test_create_after_complete_makes_new_session(self):
+        self.client.force_authenticate(user=self.customer)
+        first = self.client.post(BASE, {"need_text": "first"}, format="json")
+        self.assertEqual(first.status_code, 201)
+        complete = self.client.post(f"{BASE}{first.data['id']}/complete/")
+        self.assertEqual(complete.status_code, 200)
+
+        second = self.client.post(BASE, {"need_text": "second"}, format="json")
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertNotEqual(second.data["id"], first.data["id"])
+        self.assertEqual(second.data["need_text"], "second")
+
     def test_customer_cannot_list_queue(self):
         self.client.force_authenticate(user=self.customer)
         res = self.client.get(BASE, {"scope": "queue"})

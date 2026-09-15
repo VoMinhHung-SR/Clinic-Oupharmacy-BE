@@ -82,9 +82,10 @@ class ConsultationSessionViewSet(
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         session = serializer.save()
+        created = bool(getattr(serializer, "_session_created", True))
         return Response(
             ConsultationSessionSerializer(session, context={"request": request}).data,
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
     def partial_update(self, request, *args, **kwargs):
