@@ -42,7 +42,8 @@ class Migration(migrations.Migration):
                 ],
                 db_column="status",
                 default="PENDING",
-                max_length=20,
+                # PREORDER_PENDING_STOCK is 22 chars; keep headroom above 20
+                max_length=32,
             ),
         ),
     ]
