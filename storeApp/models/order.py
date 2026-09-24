@@ -122,7 +122,7 @@ class Order(BaseModel):
         db_column="total",
         help_text="Tổng thanh toán",
     )
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PENDING, db_column="status")
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=PENDING, db_column="status")
     notes = models.TextField(null=True, blank=True, db_column="notes", help_text="Ghi chú của khách hàng")
     order_voucher = models.ForeignKey(
         "Voucher",
