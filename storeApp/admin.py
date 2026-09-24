@@ -101,10 +101,18 @@ class ProductAdmin(admin.ModelAdmin):
 
 class ProductVariantAdmin(admin.ModelAdmin):
     """Giá bán nằm trên ProductVariantUnit; hiển thị giá đơn vị mặc định (hoặc đơn vị đầu tiên)."""
-    list_display = ['packing', 'product', 'default_unit_price', 'in_stock', 'created_date']
-    list_filter = ['in_stock', 'created_date']
+    list_display = [
+        'packing',
+        'product',
+        'default_unit_price',
+        'in_stock',
+        'allow_preorder',
+        'preorder_eta_days',
+        'created_date',
+    ]
+    list_filter = ['in_stock', 'allow_preorder', 'created_date']
     search_fields = ['packing', 'product__name']
-    list_editable = ['in_stock']
+    list_editable = ['in_stock', 'allow_preorder', 'preorder_eta_days']
 
     @admin.display(description='Giá (đơn vị mặc định)')
     def default_unit_price(self, obj):

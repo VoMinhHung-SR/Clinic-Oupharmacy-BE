@@ -53,6 +53,7 @@ class Order(BaseModel):
     """Đơn hàng online"""
 
     PENDING = "PENDING"
+    PREORDER_PENDING_STOCK = "PREORDER_PENDING_STOCK"
     CONFIRMED = "CONFIRMED"
     SHIPPING = "SHIPPING"
     DELIVERED = "DELIVERED"
@@ -60,6 +61,7 @@ class Order(BaseModel):
 
     STATUS_CHOICES = [
         (PENDING, "Chờ xử lý"),
+        (PREORDER_PENDING_STOCK, "Đặt trước — chờ hàng"),
         (CONFIRMED, "Đã xác nhận"),
         (SHIPPING, "Đang giao hàng"),
         (DELIVERED, "Đã giao"),
