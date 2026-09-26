@@ -309,3 +309,82 @@ class CabinetApiTests(APITestCase):
         self.assertIn("low_stock", overview.data)
         self.assertIn("refill_list", overview.data)
 
+    def _new_item_id(self):
+        cabinet_id = self.client.get("/api/store/cabinets/").data[0]["id"]
+        today = timezone.now().date()
+        return self._add_item(cabinet_id, today + timedelta(days=200)).data["id"]
+
+    def test_dose_fields_default_on_new_item(self):
+        cabinet_id = self.client.get("/api/store/cabinets/").data[0]["id"]
+        today = timezone.now().date()
+        created = self._add_item(cabinet_id, today + timedelta(days=200))
+        self.assertEqual(created.status_code, 201)
+        self.assertFalse(created.data["dose_enabled"])
+        self.assertEqual(created.data["dose_times"], [])
+        self.assertEqual(created.data["dose_label"], "")
+
+    def test_dose_enable_normalizes_times(self):
+        item_id = self._new_item_id()
+        patched = self.client.patch(
+            f"/api/store/cabinet-items/{item_id}/",
+            {"dose_enabled": True, "dose_times": ["20:00", "08:00", "08:00"], "dose_label": " 1 viên "},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, 200)
+        self.assertTrue(patched.data["dose_enabled"])
+        self.assertEqual(patched.data["dose_times"], ["08:00", "20:00"])
+        self.assertEqual(patched.data["dose_label"], "1 viên")
+
+        fetched = self.client.get(f"/api/store/cabinet-items/{item_id}/")
+        self.assertEqual(fetched.data["dose_times"], ["08:00", "20:00"])
+
+    def test_dose_enable_requires_times(self):
+        item_id = self._new_item_id()
+        response = self.client.patch(
+            f"/api/store/cabinet-items/{item_id}/",
+            {"dose_enabled": True, "dose_times": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("dose_times", response.data)
+
+    def test_dose_rejects_invalid_time_and_too_many(self):
+        item_id = self._new_item_id()
+        invalid = self.client.patch(
+            f"/api/store/cabinet-items/{item_id}/",
+            {"dose_times": ["25:00"]},
+            format="json",
+        )
+        self.assertEqual(invalid.status_code, 400)
+
+        too_many = self.client.patch(
+            f"/api/store/cabinet-items/{item_id}/",
+            {"dose_times": ["06:00", "09:00", "12:00", "18:00", "21:00"]},
+            format="json",
+        )
+        self.assertEqual(too_many.status_code, 400)
+
+    def test_dose_disable_keeps_times_and_partial_qty_patch_ok(self):
+        item_id = self._new_item_id()
+        self.client.patch(
+            f"/api/store/cabinet-items/{item_id}/",
+            {"dose_enabled": True, "dose_times": ["07:30"]},
+            format="json",
+        )
+        qty_only = self.client.patch(
+            f"/api/store/cabinet-items/{item_id}/",
+            {"quantity": 3},
+            format="json",
+        )
+        self.assertEqual(qty_only.status_code, 200)
+        self.assertTrue(qty_only.data["dose_enabled"])
+
+        disabled = self.client.patch(
+            f"/api/store/cabinet-items/{item_id}/",
+            {"dose_enabled": False},
+            format="json",
+        )
+        self.assertEqual(disabled.status_code, 200)
+        self.assertFalse(disabled.data["dose_enabled"])
+        self.assertEqual(disabled.data["dose_times"], ["07:30"])
+

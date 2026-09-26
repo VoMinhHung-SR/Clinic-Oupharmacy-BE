@@ -15,18 +15,19 @@
 | In-app HSD inbox (`CabinetAlert`) | Reuse warehouse `Notification` |
 | Seed cabinet from owned prescriptions (read mainApp, write store) | Auto-seed at checkout; clinic FE changes |
 | Buy-again handled on storefront cart API | Decrement cabinet qty on buy-again |
+| Per-item dose reminder config (`dose_*` on `CabinetItem`) | Separate schedule/log tables, “taken today” log, Web Push, dose-due alerts |
 
 ---
 
 ## Domain model
 
 **Code:** `storeApp/models/cabinet.py`  
-**Migrations:** `0018_cabinet_and_cabinet_item`, `0019_cabinet_p2_fields`, `0020_cabinet_alert`
+**Migrations:** `0018_cabinet_and_cabinet_item`, `0019_cabinet_p2_fields`, `0020_cabinet_alert`, `0026_cabinet_item_dose_fields`
 
 | Model | Table | Notes |
 |-------|-------|-------|
 | `Cabinet` | `store_cabinet` | `user_id` (integer, no FK to `mainApp.User`); settings `reminder_enabled`, `expiring_soon_days` (default 30) |
-| `CabinetItem` | `store_cabinet_item` | FK `product_variant`, `product_variant_unit`; qty, `expiration_date`, optional `lot_number`, `low_stock_threshold`, `on_refill_list` |
+| `CabinetItem` | `store_cabinet_item` | FK `product_variant`, `product_variant_unit`; qty, `expiration_date`, optional `lot_number`, `low_stock_threshold`, `on_refill_list`; dose config `dose_enabled`, `dose_times`, `dose_label` |
 | `CabinetAlert` | `store_cabinet_alert` | Inbox row; `kind` = `EXPIRED` \| `EXPIRING_SOON`; soft link `cabinet_item` (SET_NULL on delete) |
 
 **Computed (not stored):**
@@ -77,6 +78,16 @@ Catch-all category slug regex **excludes** `cabinets`, `cabinet-items`, `cabinet
 | DELETE | `/cabinet-items/{id}/` | **204** empty body |
 
 Serializer exposes hydrated catalog fields: `product_name`, `packing`, `unit_name`, `image_url`, plus computed status fields.
+
+**Dose reminder fields** (same `GET` / `PATCH` item — no separate endpoint):
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `dose_enabled` | bool, default `false` | When `true`, `dose_times` must be non-empty |
+| `dose_times` | list of `"HH:MM"` (24h), default `[]` | Max 4; deduped + sorted on save; wall-clock `Asia/Ho_Chi_Minh`, every day |
+| `dose_label` | string ≤ 80, default `""` | Trimmed; e.g. `"1 viên"` |
+
+Disabling (`dose_enabled=false`) keeps `dose_times` so the user can re-enable. Config only — no notification is sent in this phase.
 
 ### Cabinet alerts (inbox)
 
