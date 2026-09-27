@@ -1,5 +1,6 @@
 """Scan cabinet items and create user-scoped HSD alerts (inbox channel)."""
 
+from collections import defaultdict
 from datetime import timedelta
 
 from django.utils import timezone
@@ -12,6 +13,9 @@ from storeApp.models.cabinet import (
     EXPIRED,
     EXPIRING_SOON,
 )
+
+# Cap inbox flood when a user imports many medicines at once.
+MAX_ALERTS_PER_USER_PER_SCAN = 10
 
 
 def _product_label(item: CabinetItem) -> str:
@@ -39,6 +43,11 @@ def scan_cabinet_expiry_alerts(*, today=None, dedupe_days: int = DEFAULT_ALERT_D
     """
     Create EXPIRING_SOON / EXPIRED alerts for cabinets with reminder_enabled.
     Does not touch warehouse Notification / MedicineBatch.
+
+    Anti-spam:
+    - Dedupe window covers active *and* inactive alerts (dismissed still block recreate for N days).
+    - Any previously dismissed (active=False) item+kind pair is blocked permanently.
+    - At most MAX_ALERTS_PER_USER_PER_SCAN new alerts per user per run.
     """
     today = today or timezone.now().date()
     since = timezone.now() - timedelta(days=max(1, int(dedupe_days)))
@@ -49,20 +58,31 @@ def scan_cabinet_expiry_alerts(*, today=None, dedupe_days: int = DEFAULT_ALERT_D
         .order_by("id")
     )
 
+    item_ids = [item.id for item in items]
     recent_keys = set()
-    if items:
+    dismissed_keys = set()
+    if item_ids:
         recent_keys = set(
             CabinetAlert.objects.filter(
-                cabinet_item_id__in=[item.id for item in items],
+                cabinet_item_id__in=item_ids,
                 kind__in=[ALERT_EXPIRED, ALERT_EXPIRING_SOON],
                 created_date__gte=since,
-                active=True,
+            ).values_list("cabinet_item_id", "kind")
+        )
+        dismissed_keys = set(
+            CabinetAlert.objects.filter(
+                cabinet_item_id__in=item_ids,
+                kind__in=[ALERT_EXPIRED, ALERT_EXPIRING_SOON],
+                active=False,
             ).values_list("cabinet_item_id", "kind")
         )
 
     created = 0
     skipped_dedupe = 0
     skipped_status = 0
+    skipped_dismissed = 0
+    skipped_cap = 0
+    created_by_user = defaultdict(int)
 
     for item in items:
         status = item.expiration_status(today=today)
@@ -74,26 +94,39 @@ def scan_cabinet_expiry_alerts(*, today=None, dedupe_days: int = DEFAULT_ALERT_D
             skipped_status += 1
             continue
 
-        if (item.id, kind) in recent_keys:
+        key = (item.id, kind)
+        if key in dismissed_keys:
+            skipped_dismissed += 1
+            continue
+
+        if key in recent_keys:
             skipped_dedupe += 1
+            continue
+
+        user_id = item.cabinet.user_id
+        if created_by_user[user_id] >= MAX_ALERTS_PER_USER_PER_SCAN:
+            skipped_cap += 1
             continue
 
         title, body = _build_copy(kind, item, item.days_until_expiry(today=today))
         CabinetAlert.objects.create(
-            user_id=item.cabinet.user_id,
+            user_id=user_id,
             cabinet_item=item,
             kind=kind,
             title=title,
             body=body,
             is_read=False,
         )
-        recent_keys.add((item.id, kind))
+        recent_keys.add(key)
+        created_by_user[user_id] += 1
         created += 1
 
     return {
         "created": created,
         "skipped_dedupe": skipped_dedupe,
         "skipped_status": skipped_status,
+        "skipped_dismissed": skipped_dismissed,
+        "skipped_cap": skipped_cap,
         "scanned": len(items),
         "dedupe_days": dedupe_days,
         "today": today.isoformat(),

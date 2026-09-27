@@ -66,7 +66,10 @@ def expiration_date_range(status, today=None, soon_days=None):
 class Cabinet(BaseModel):
     user_id = models.BigIntegerField(db_column="user_id", db_index=True)
     name = models.CharField(max_length=120, db_column="name")
-    reminder_enabled = models.BooleanField(default=True, db_column="reminder_enabled")
+    # New cabinets start off; auto-enabled when user adds an item with HSD.
+    reminder_enabled = models.BooleanField(default=False, db_column="reminder_enabled")
+    # Cabinet-level preference for dose reminders; auto-enabled when any item enables dose.
+    dose_reminder_enabled = models.BooleanField(default=False, db_column="dose_reminder_enabled")
     expiring_soon_days = models.PositiveIntegerField(
         default=EXPIRING_SOON_DAYS,
         db_column="expiring_soon_days",

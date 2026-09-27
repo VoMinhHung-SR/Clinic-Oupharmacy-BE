@@ -41,6 +41,7 @@ class CabinetSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "reminder_enabled",
+            "dose_reminder_enabled",
             "expiring_soon_days",
             "created_date",
             "updated_date",
@@ -50,6 +51,20 @@ class CabinetSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context["request"]
         return Cabinet.objects.create(user_id=request.user.id, **validated_data)
+
+
+def _maybe_enable_cabinet_notify_prefs(cabinet, *, has_hsd=False, dose_enabled=False):
+    """Flip cabinet prefs on when the user starts using the related feature."""
+    updates = []
+    if has_hsd and not cabinet.reminder_enabled:
+        cabinet.reminder_enabled = True
+        updates.append("reminder_enabled")
+    if dose_enabled and not cabinet.dose_reminder_enabled:
+        cabinet.dose_reminder_enabled = True
+        updates.append("dose_reminder_enabled")
+    if updates:
+        updates.append("updated_date")
+        cabinet.save(update_fields=updates)
 
 
 class CabinetItemSerializer(serializers.ModelSerializer):
@@ -191,11 +206,26 @@ class CabinetItemSerializer(serializers.ModelSerializer):
                 )
         return attrs
 
+    def create(self, validated_data):
+        item = super().create(validated_data)
+        _maybe_enable_cabinet_notify_prefs(
+            item.cabinet,
+            has_hsd=item.expiration_date is not None,
+            dose_enabled=bool(item.dose_enabled),
+        )
+        return item
+
     def update(self, instance, validated_data):
         validated_data.pop("cabinet", None)
         validated_data.pop("product_variant", None)
         validated_data.pop("product_variant_unit", None)
-        return super().update(instance, validated_data)
+        item = super().update(instance, validated_data)
+        _maybe_enable_cabinet_notify_prefs(
+            item.cabinet,
+            has_hsd=False,
+            dose_enabled=bool(item.dose_enabled),
+        )
+        return item
 
 
 def apply_expiration_status_filter(queryset, status, soon_days=None):

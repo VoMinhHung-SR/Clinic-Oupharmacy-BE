@@ -22,13 +22,13 @@
 ## Domain model
 
 **Code:** `storeApp/models/cabinet.py`  
-**Migrations:** `0018_cabinet_and_cabinet_item`, `0019_cabinet_p2_fields`, `0020_cabinet_alert`, `0026_cabinet_item_dose_fields`
+**Migrations:** `0018_cabinet_and_cabinet_item`, `0019_cabinet_p2_fields`, `0020_cabinet_alert`, `0026_cabinet_item_dose_fields`, `0027_cabinet_notify_prefs`
 
 | Model | Table | Notes |
 |-------|-------|-------|
-| `Cabinet` | `store_cabinet` | `user_id` (integer, no FK to `mainApp.User`); settings `reminder_enabled`, `expiring_soon_days` (default 30) |
+| `Cabinet` | `store_cabinet` | `user_id` (integer, no FK to `mainApp.User`); settings `reminder_enabled` (default **false**), `dose_reminder_enabled` (default **false**), `expiring_soon_days` (default 30). Prefs auto-flip on when user adds an item with HSD / enables dose on an item. |
 | `CabinetItem` | `store_cabinet_item` | FK `product_variant`, `product_variant_unit`; qty, `expiration_date`, optional `lot_number`, `low_stock_threshold`, `on_refill_list`; dose config `dose_enabled`, `dose_times`, `dose_label` |
-| `CabinetAlert` | `store_cabinet_alert` | Inbox row; `kind` = `EXPIRED` \| `EXPIRING_SOON`; soft link `cabinet_item` (SET_NULL on delete) |
+| `CabinetAlert` | `store_cabinet_alert` | Inbox row; `kind` = `EXPIRED` \| `EXPIRING_SOON`; soft link `cabinet_item` (SET_NULL on delete); soft-dismiss via `active=False` |
 
 **Computed (not stored):**
 
@@ -61,9 +61,9 @@ Catch-all category slug regex **excludes** `cabinets`, `cabinet-items`, `cabinet
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/cabinets/` | List user cabinets; creates default if empty |
-| POST | `/cabinets/` | Body: `name`, optional `reminder_enabled`, `expiring_soon_days` |
+| POST | `/cabinets/` | Body: `name`, optional `reminder_enabled`, `dose_reminder_enabled`, `expiring_soon_days` |
 | GET | `/cabinets/{id}/` | Detail |
-| PATCH | `/cabinets/{id}/` | Rename / settings |
+| PATCH | `/cabinets/{id}/` | Rename / notify prefs |
 | DELETE | `/cabinets/{id}/` | Blocked when only one cabinet remains |
 | GET | `/cabinets/{id}/overview/` | Aggregated counts + capped lists (expired, soon, low-stock, refill) |
 
@@ -93,10 +93,12 @@ Disabling (`dose_enabled=false`) keeps `dose_times` so the user can re-enable. C
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/cabinet-alerts/` | Query: `unread=1` for unread only; ordered newest first |
+| GET | `/cabinet-alerts/` | Query: `unread=1` for unread only; ordered newest first; only `active=True` |
 | GET | `/cabinet-alerts/{id}/` | Detail |
 | POST | `/cabinet-alerts/{id}/mark-read/` | Marks single alert read |
 | POST | `/cabinet-alerts/mark-all-read/` | Bulk mark; returns `{ "updated": N }` |
+| POST | `/cabinet-alerts/{id}/dismiss/` | Soft-dismiss (`active=False`); returns `{ "dismissed": id }` |
+| POST | `/cabinet-alerts/clear-read/` | Soft-dismiss all read alerts; returns `{ "cleared": N }` |
 
 ### Prescription seed (read-only list)
 
@@ -117,7 +119,9 @@ Disabling (`dose_enabled=false`) keeps `dose_times` so the user can re-enable. C
 **Behaviour** (`storeApp/services/cabinet_alert_scan.py`):
 
 - Skips cabinets with `reminder_enabled=False`
-- Dedupe: same `cabinet_item` + `kind` within **7 days** (override `--dedupe-days`)
+- Dedupe: same `cabinet_item` + `kind` within **7 days** (override `--dedupe-days`) — counts **active and inactive** rows so a just-dismissed alert is not recreated in-window
+- Permanently skips any `(cabinet_item, kind)` that already has an `active=False` (dismissed) alert
+- Cap: at most **10** new alerts per user per scan (`MAX_ALERTS_PER_USER_PER_SCAN`); remainder wait for the next run
 - Does **not** create warehouse notifications
 
 **Ops:** schedule via cron / Celery Beat (not required to ship code).
@@ -128,8 +132,8 @@ Disabling (`dose_enabled=false`) keeps `dose_times` so the user can re-enable. C
 
 | File | Coverage |
 |------|----------|
-| `storeApp/tests/test_cabinet.py` | CRUD, overview, filters, last-cabinet guard |
-| `storeApp/tests/test_cabinet_alerts.py` | Scan, dedupe, reminder off, mark-read |
+| `storeApp/tests/test_cabinet.py` | CRUD, overview, filters, last-cabinet guard, dose fields, auto-enable notify prefs |
+| `storeApp/tests/test_cabinet_alerts.py` | Scan, dedupe, reminder off, mark-read, dismiss, clear-read, cap, no recreate after dismiss |
 | `storeApp/tests/test_cabinet_prescription_seed.py` | Owner-only, catalog hydrate, limits |
 
 ```bash

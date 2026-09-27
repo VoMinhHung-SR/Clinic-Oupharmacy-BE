@@ -97,6 +97,8 @@ class CabinetApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["name"], DEFAULT_CABINET_NAME)
+        self.assertFalse(response.data[0]["reminder_enabled"])
+        self.assertFalse(response.data[0]["dose_reminder_enabled"])
 
         again = self.client.get("/api/store/cabinets/")
         self.assertEqual(len(again.data), 1)
@@ -387,4 +389,32 @@ class CabinetApiTests(APITestCase):
         self.assertEqual(disabled.status_code, 200)
         self.assertFalse(disabled.data["dose_enabled"])
         self.assertEqual(disabled.data["dose_times"], ["07:30"])
+
+    def test_add_item_with_hsd_auto_enables_reminder(self):
+        cabinet_id = self.client.get("/api/store/cabinets/").data[0]["id"]
+        before = self.client.get(f"/api/store/cabinets/{cabinet_id}/")
+        self.assertFalse(before.data["reminder_enabled"])
+
+        today = timezone.now().date()
+        created = self._add_item(cabinet_id, today + timedelta(days=40))
+        self.assertEqual(created.status_code, 201)
+
+        after = self.client.get(f"/api/store/cabinets/{cabinet_id}/")
+        self.assertTrue(after.data["reminder_enabled"])
+
+    def test_enable_dose_auto_enables_dose_reminder_pref(self):
+        cabinet_id = self.client.get("/api/store/cabinets/").data[0]["id"]
+        before = self.client.get(f"/api/store/cabinets/{cabinet_id}/")
+        self.assertFalse(before.data["dose_reminder_enabled"])
+
+        item_id = self._new_item_id()
+        patched = self.client.patch(
+            f"/api/store/cabinet-items/{item_id}/",
+            {"dose_enabled": True, "dose_times": ["08:00"]},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, 200)
+
+        after = self.client.get(f"/api/store/cabinets/{cabinet_id}/")
+        self.assertTrue(after.data["dose_reminder_enabled"])
 

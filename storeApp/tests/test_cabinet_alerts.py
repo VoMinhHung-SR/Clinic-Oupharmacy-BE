@@ -139,3 +139,72 @@ class CabinetAlertTests(APITestCase):
         self.client.force_authenticate(user=self.other)
         response = self.client.post(f"/api/store/cabinet-alerts/{alert.id}/mark-read/")
         self.assertEqual(response.status_code, 403)
+
+    def test_dismiss_removes_from_list_and_blocks_recreate(self):
+        scan_cabinet_expiry_alerts()
+        listed = self.client.get("/api/store/cabinet-alerts/")
+        self.assertEqual(len(listed.data), 2)
+        alert_id = listed.data[0]["id"]
+
+        dismissed = self.client.post(f"/api/store/cabinet-alerts/{alert_id}/dismiss/")
+        self.assertEqual(dismissed.status_code, 200)
+        self.assertEqual(dismissed.data["dismissed"], alert_id)
+
+        after = self.client.get("/api/store/cabinet-alerts/")
+        self.assertEqual(len(after.data), 1)
+        self.assertNotEqual(after.data[0]["id"], alert_id)
+
+        rescan = scan_cabinet_expiry_alerts()
+        self.assertEqual(rescan["created"], 0)
+        self.assertGreaterEqual(rescan["skipped_dismissed"], 1)
+        self.assertEqual(
+            CabinetAlert.objects.filter(user_id=self.user.id, active=True).count(),
+            1,
+        )
+
+    def test_other_user_cannot_dismiss(self):
+        scan_cabinet_expiry_alerts()
+        alert = CabinetAlert.objects.filter(user_id=self.user.id).first()
+        self.client.force_authenticate(user=self.other)
+        response = self.client.post(f"/api/store/cabinet-alerts/{alert.id}/dismiss/")
+        self.assertEqual(response.status_code, 403)
+
+    def test_clear_read_only_clears_read_alerts(self):
+        scan_cabinet_expiry_alerts()
+        listed = self.client.get("/api/store/cabinet-alerts/")
+        first_id = listed.data[0]["id"]
+        self.client.post(f"/api/store/cabinet-alerts/{first_id}/mark-read/")
+
+        cleared = self.client.post("/api/store/cabinet-alerts/clear-read/")
+        self.assertEqual(cleared.status_code, 200)
+        self.assertEqual(cleared.data["cleared"], 1)
+
+        remaining = self.client.get("/api/store/cabinet-alerts/")
+        self.assertEqual(len(remaining.data), 1)
+        self.assertFalse(remaining.data[0]["is_read"])
+
+    def test_scan_caps_alerts_per_user(self):
+        from storeApp.services import cabinet_alert_scan as scan_mod
+
+        today = timezone.now().date()
+        for i in range(12):
+            CabinetItem.objects.create(
+                cabinet=self.cabinet,
+                product_variant=self.variant,
+                product_variant_unit=self.unit,
+                quantity=1,
+                expiration_date=today - timedelta(days=1 + i),
+            )
+        # soon + expired already in setUp (2) + 12 expired = 14 candidates
+        previous = scan_mod.MAX_ALERTS_PER_USER_PER_SCAN
+        scan_mod.MAX_ALERTS_PER_USER_PER_SCAN = 10
+        try:
+            result = scan_cabinet_expiry_alerts()
+            self.assertEqual(result["created"], 10)
+            self.assertGreaterEqual(result["skipped_cap"], 1)
+            self.assertEqual(
+                CabinetAlert.objects.filter(user_id=self.user.id, active=True).count(),
+                10,
+            )
+        finally:
+            scan_mod.MAX_ALERTS_PER_USER_PER_SCAN = previous
