@@ -22,6 +22,8 @@ OUT_OF_STOCK = "OUT_OF_STOCK"
 
 DEFAULT_LOW_STOCK_THRESHOLD = 5
 
+DOSE_TIMES_MAX = 4
+
 
 def expiration_status_for(expiration_date, today=None, soon_days=None):
     """Compute expiry bucket from a date. Not stored on the row."""
@@ -64,7 +66,10 @@ def expiration_date_range(status, today=None, soon_days=None):
 class Cabinet(BaseModel):
     user_id = models.BigIntegerField(db_column="user_id", db_index=True)
     name = models.CharField(max_length=120, db_column="name")
-    reminder_enabled = models.BooleanField(default=True, db_column="reminder_enabled")
+    # New cabinets start off; auto-enabled when user adds an item with HSD.
+    reminder_enabled = models.BooleanField(default=False, db_column="reminder_enabled")
+    # Cabinet-level preference for dose reminders; auto-enabled when any item enables dose.
+    dose_reminder_enabled = models.BooleanField(default=False, db_column="dose_reminder_enabled")
     expiring_soon_days = models.PositiveIntegerField(
         default=EXPIRING_SOON_DAYS,
         db_column="expiring_soon_days",
@@ -110,6 +115,10 @@ class CabinetItem(BaseModel):
         validators=[MinValueValidator(0)],
     )
     on_refill_list = models.BooleanField(default=False, db_column="on_refill_list")
+    dose_enabled = models.BooleanField(default=False, db_column="dose_enabled")
+    # Wall-clock "HH:MM" strings in Asia/Ho_Chi_Minh, daily; max DOSE_TIMES_MAX entries.
+    dose_times = models.JSONField(default=list, blank=True, db_column="dose_times")
+    dose_label = models.CharField(max_length=80, blank=True, default="", db_column="dose_label")
 
     class Meta:
         db_table = "store_cabinet_item"

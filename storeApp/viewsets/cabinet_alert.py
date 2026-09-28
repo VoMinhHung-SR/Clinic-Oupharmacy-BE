@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -42,11 +43,26 @@ class CabinetAlertViewSet(
 
     @action(detail=False, methods=["post"], url_path="mark-all-read")
     def mark_all_read(self, request):
-        from django.utils import timezone
-
         updated = (
             self.get_queryset()
             .filter(is_read=False)
             .update(is_read=True, read_at=timezone.now())
         )
         return Response({"updated": updated}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="dismiss")
+    def dismiss(self, request, pk=None):
+        alert = self.get_object()
+        if alert.active:
+            alert.active = False
+            alert.save(update_fields=["active", "updated_date"])
+        return Response({"dismissed": alert.id}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="clear-read")
+    def clear_read(self, request):
+        cleared = (
+            CabinetAlert.objects.filter(user_id=request.user.id, active=True, is_read=True).update(
+                active=False
+            )
+        )
+        return Response({"cleared": cleared}, status=status.HTTP_200_OK)
