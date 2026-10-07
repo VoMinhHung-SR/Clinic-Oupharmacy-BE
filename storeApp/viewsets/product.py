@@ -66,6 +66,14 @@ class ProductPagination(PageNumberPagination):
     max_page_size = 100
 
 
+class SitemapFeedPagination(PageNumberPagination):
+    """Large pages for storefront sitemap product URLs (lightweight rows)."""
+
+    page_size = 500
+    page_size_query_param = "page_size"
+    max_page_size = 2000
+
+
 class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView):
     serializer_class = ProductVariantSerializer
     pagination_class = ProductPagination
@@ -116,3 +124,38 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
                 "variant_units": units_count,
             }
         )
+
+    @action(methods=["get"], detail=False, url_path="sitemap")
+    def sitemap(self, request):
+        """
+        Lightweight product URL feed for storefront sitemap.xml.
+        Returns path (= category path_slug + product slug), no heavy serializers.
+        """
+        store_db_alias = "store" if "store" in settings.DATABASES else "default"
+        qs = (
+            Product.objects.using(store_db_alias)
+            .filter(active=True)
+            .exclude(slug__isnull=True)
+            .exclude(slug="")
+            .select_related("category")
+            .order_by("id")
+            .values("slug", "updated_date", "category__path_slug", "category__slug")
+        )
+        paginator = SitemapFeedPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        results = []
+        for row in page or []:
+            slug = (row.get("slug") or "").strip()
+            if not slug:
+                continue
+            cat = (row.get("category__path_slug") or row.get("category__slug") or "").strip()
+            path = f"{cat}/{slug}" if cat else slug
+            updated = row.get("updated_date")
+            results.append(
+                {
+                    "slug": slug,
+                    "path": path,
+                    "updated_at": updated.isoformat() if updated else None,
+                }
+            )
+        return paginator.get_paginated_response(results)
