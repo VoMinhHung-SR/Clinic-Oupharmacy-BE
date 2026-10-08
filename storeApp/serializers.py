@@ -376,6 +376,8 @@ class ProductVariantPickerSerializer(ModelSerializer):
             "id",
             "packing",
             "in_stock",
+            "allow_preorder",
+            "preorder_eta_days",
             "price_value",
             "price_display",
             "image_url",
@@ -436,7 +438,8 @@ class ProductVariantSerializer(ModelSerializer):
     class Meta:
         model = ProductVariant
         fields = [
-            'id', 'sku', 'in_stock', 'image', 'image_url', 'images', "packing",
+            'id', 'sku', 'in_stock', 'allow_preorder', 'preorder_eta_days',
+            'image', 'image_url', 'images', "packing",
             'price_display', 'price_value', 'compare_at_price', 'discount_percent',
             'default_unit_id', 'default_unit_name', 'unit_options',
             'product_ranking', 'is_published', 'is_hot',
@@ -609,7 +612,7 @@ class MinimalProductVariantSerializer(serializers.ModelSerializer):
         model = ProductVariant
         fields = ["id", "product_id", "name", "slug", "web_slug",
         "thumbnail", "price_value", 
-        "discount_percent", "packing", "in_stock", 
+        "discount_percent", "packing", "in_stock", "allow_preorder", "preorder_eta_days",
         "is_out_of_stock", "is_hot", "product_ranking", "badges"]
 
     def get_name(self, obj):

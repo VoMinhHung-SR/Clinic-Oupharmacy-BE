@@ -16,6 +16,7 @@ from .models import (
     OrderItem,
     MedicineBatch,
     MedicineRequest,
+    ConsultationSession,
     Notification,
     SearchKeyword,
     Product,
@@ -100,10 +101,18 @@ class ProductAdmin(admin.ModelAdmin):
 
 class ProductVariantAdmin(admin.ModelAdmin):
     """Giá bán nằm trên ProductVariantUnit; hiển thị giá đơn vị mặc định (hoặc đơn vị đầu tiên)."""
-    list_display = ['packing', 'product', 'default_unit_price', 'in_stock', 'created_date']
-    list_filter = ['in_stock', 'created_date']
+    list_display = [
+        'packing',
+        'product',
+        'default_unit_price',
+        'in_stock',
+        'allow_preorder',
+        'preorder_eta_days',
+        'created_date',
+    ]
+    list_filter = ['in_stock', 'allow_preorder', 'created_date']
     search_fields = ['packing', 'product__name']
-    list_editable = ['in_stock']
+    list_editable = ['in_stock', 'allow_preorder', 'preorder_eta_days']
 
     @admin.display(description='Giá (đơn vị mặc định)')
     def default_unit_price(self, obj):
@@ -253,6 +262,21 @@ class MedicineRequestAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" style="max-height:160px;" />', url)
         except Exception:
             return str(obj.prescription_image)
+
+
+class ConsultationSessionAdmin(admin.ModelAdmin):
+    list_display = [
+        'id',
+        'user_id',
+        'pharmacist_id',
+        'status',
+        'firestore_conversation_id',
+        'created_date',
+    ]
+    list_filter = ['status', 'active', 'created_date']
+    search_fields = ['need_text', 'firestore_conversation_id']
+    list_editable = ['status']
+    readonly_fields = ['created_date', 'updated_date', 'context_json']
 
 
 class SearchKeywordAdmin(admin.ModelAdmin):
@@ -569,6 +593,7 @@ admin_site.register(OrderItem)
 admin_site.register(MedicineBatch, MedicineBatchAdmin)
 admin_site.register(Notification, NotificationAdmin)
 admin_site.register(MedicineRequest, MedicineRequestAdmin)
+admin_site.register(ConsultationSession, ConsultationSessionAdmin)
 admin_site.register(SearchKeyword, SearchKeywordAdmin)
 admin_site.register(Category, CategoryAdmin)
 admin_site.register(Product, ProductAdmin)

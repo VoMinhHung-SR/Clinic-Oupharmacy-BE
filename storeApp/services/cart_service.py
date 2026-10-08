@@ -23,6 +23,25 @@ class CartVersionConflictError(CartServiceError):
         super().__init__(f"Cart version mismatch. expected={expected_version}, current={current_version}")
 
 
+def _variant_allows_preorder(product_variant) -> bool:
+    return bool(getattr(product_variant, "allow_preorder", False))
+
+
+def _assert_stock_or_preorder(*, product_variant, required_base_quantity) -> bool:
+    """
+    Ensure stock or allow_preorder.
+    Returns True when this line must be fulfilled as preorder (no stock deduct).
+    """
+    total_available = get_available_stock(product_variant.id)
+    if total_available >= required_base_quantity:
+        return False
+    if _variant_allows_preorder(product_variant):
+        return True
+    raise CartServiceError(
+        f"Insufficient stock in base unit. Available: {total_available}, Requested: {required_base_quantity}"
+    )
+
+
 def _invalidate_cart_related_cache(*, cart, order_voucher_code=None, shipping_voucher_code=None):
     cache_gateway = get_cart_cache_gateway()
     cache_gateway.invalidate_cart_summary(cart_id=cart.id)
@@ -175,11 +194,10 @@ def add_or_update_item(
     unit_price = _to_decimal(unit.price_value)
     list_snapshot = list_price_snapshot_from_unit(unit, unit_price)
     required_base_quantity = int(quantity) * int(unit.quantity_in_base)
-    total_available = get_available_stock(product_variant.id)
-    if total_available < required_base_quantity:
-        raise CartServiceError(
-            f"Insufficient stock in base unit. Available: {total_available}, Requested: {required_base_quantity}"
-        )
+    _assert_stock_or_preorder(
+        product_variant=product_variant,
+        required_base_quantity=required_base_quantity,
+    )
 
     item, _ = CartItem.objects.using(using).update_or_create(
         cart_id=cart.id,
@@ -257,11 +275,10 @@ def update_item(
     )
     final_quantity = next_quantity + int(existing_same_unit.quantity) if existing_same_unit else next_quantity
     required_base_quantity = final_quantity * int(next_unit.quantity_in_base)
-    total_available = get_available_stock(item.product_variant_id)
-    if total_available < required_base_quantity:
-        raise CartServiceError(
-            f"Insufficient stock in base unit. Available: {total_available}, Requested: {required_base_quantity}"
-        )
+    _assert_stock_or_preorder(
+        product_variant=item.product_variant,
+        required_base_quantity=required_base_quantity,
+    )
 
     unit_price = _to_decimal(next_unit.price_value)
     list_snapshot = list_price_snapshot_from_unit(next_unit, unit_price)
@@ -373,19 +390,28 @@ def _item_required_base_quantity(item) -> int:
 
 
 def _assert_checkout_stock(*, items, using="store"):
-    """Ensure batch stock (base unit) covers all checkout lines; aggregate per variant."""
+    """
+    Ensure each checkout line has stock or allow_preorder.
+    Returns True when the order should be marked PREORDER_PENDING_STOCK (no stock deduct).
+    """
     required_by_variant: dict[int, int] = {}
+    variants: dict[int, ProductVariant] = {}
     for item in items:
         variant_id = int(item.product_variant_id)
         required_by_variant[variant_id] = required_by_variant.get(variant_id, 0) + _item_required_base_quantity(item)
+        if variant_id not in variants:
+            variants[variant_id] = item.product_variant
 
+    needs_preorder = False
     for variant_id, required_base_quantity in required_by_variant.items():
-        total_available = get_available_stock(variant_id)
-        if total_available < required_base_quantity:
-            raise CartServiceError(
-                f"Insufficient stock in base unit. Available: {total_available}, "
-                f"Requested: {required_base_quantity} (product_variant_id={variant_id})"
-            )
+        variant = variants[variant_id]
+        is_preorder = _assert_stock_or_preorder(
+            product_variant=variant,
+            required_base_quantity=required_base_quantity,
+        )
+        if is_preorder:
+            needs_preorder = True
+    return needs_preorder
 
 
 def recalculate_cart(*, cart, using="store", expected_version=None, check_version=True):
@@ -523,7 +549,7 @@ def checkout_cart(
         if not items:
             raise CartServiceError("Cart must have at least one item")
 
-        _assert_checkout_stock(items=items, using=using)
+        needs_preorder = _assert_checkout_stock(items=items, using=using)
 
         voucher_result = resolve_voucher_discounts(
             order_voucher_code=locked_cart.order_voucher.code if locked_cart.order_voucher else None,
@@ -546,6 +572,9 @@ def checkout_cart(
             shipping_fee=voucher_result["final_shipping_fee"],
             total=voucher_result["final_total"],
             notes=notes,
+            status=(
+                Order.PREORDER_PENDING_STOCK if needs_preorder else Order.PENDING
+            ),
             order_voucher=voucher_result["order_voucher"],
             shipping_voucher=voucher_result["shipping_voucher"],
             discount_amount=voucher_result["order_discount_amount"],
@@ -562,6 +591,8 @@ def checkout_cart(
                 price=item.unit_price_snapshot,
                 list_price_snapshot=item.list_price_snapshot,
             )
+            if needs_preorder:
+                continue
             required_base_quantity = _item_required_base_quantity(item)
             try:
                 deduct_stock(item.product_variant_id, required_base_quantity)

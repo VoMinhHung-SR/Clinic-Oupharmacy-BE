@@ -541,6 +541,16 @@ class ProductVariant(BaseModel):
         db_index=True,
         help_text="Tồn kho cache theo đơn vị cơ sở (base unit)",
     )
+    allow_preorder = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Cho phép đặt trước khi hết hàng (không trừ kho lúc checkout)",
+    )
+    preorder_eta_days = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Số ngày dự kiến có hàng lại (hiển thị FE)",
+    )
     product_ranking = models.IntegerField(default=0, db_index=True)
     is_published = models.BooleanField(default=True, db_index=True)
     is_hot = models.BooleanField(default=False, db_index=True)

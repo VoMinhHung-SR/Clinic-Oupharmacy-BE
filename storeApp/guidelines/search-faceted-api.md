@@ -55,6 +55,8 @@ Category resolution trả listing meta cho search-first browse:
   - **OR** trong cùng `code`
   - **AND** giữa các `code` khác nhau
 - `price_range`: `under_100k` | `100k_300k` | `300k_500k` | `over_500k`
+  - Chỉ áp dụng cho biến thể **có giá bán storefront** (`price_value > 0` và `price_display ≠ CONSULT`).
+  - Sản phẩm “Tư vấn dược sĩ” (CONSULT) không vào facet/count và không khớp filter giá.
 - `in_stock`: `true` | `false`
 - `sort`: `relevance` | `price_asc` | `price_desc` | `popular`
 - `include_facets`: `true` | `false` (default `true`; set `false` for suggest-only item fetch)
@@ -139,7 +141,7 @@ python manage.py store_backfill brand-country
 - `category` + `brand` kết hợp vẫn trả `meta.applied_filters` chính xác.
 - `origin_country=Việt Nam` (hoặc CSV multi) chỉ giữ brand có country canonical tương ứng.
 - `attrs=skin_type:da-kho&attrs=target_user:tre-em` — AND giữa codes; OR nếu lặp cùng code.
-- `price_range=under_100k` chỉ trả item trong bucket tương ứng.
+- `price_range=under_100k` chỉ trả item **có giá niêm yết storefront** trong bucket (loại `price_display=CONSULT` và `price_value ≤ 0`; CONSULT có thể vẫn mang `price_value` clinic nội bộ).
 - `in_stock=true` chỉ trả item có tồn kho > 0.
 - Category browse: `facets.attributes` chỉ chứa group có PAV trong category đó (có thể `[]` nếu chưa import attrs).
 

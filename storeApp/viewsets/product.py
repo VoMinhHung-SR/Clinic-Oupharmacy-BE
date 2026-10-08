@@ -7,7 +7,7 @@ from storeApp.models import ProductVariant
 from storeApp.serializers import ProductVariantSerializer
 from storeApp.filters import ProductFilter
 from rest_framework.pagination import PageNumberPagination
-from django.db.models import OuterRef, Subquery, DecimalField, Value
+from django.db.models import OuterRef, Subquery, DecimalField, CharField, Value
 from django.db.models.functions import Coalesce
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -17,30 +17,45 @@ from django.db.models import Prefetch
 
 def annotate_variant_unit_price(queryset, db_alias=None):
     """
-    Annotate ProductVariant queryset with price_value from default/first published unit.
-    Required for ProductFilter (min/max price) and ordering by price_value.
+    Annotate ProductVariant with default/first published unit price fields.
+
+    - price_value: numeric sale/list price (ordering, price_range)
+    - list_price_display: unit.price_display (CONSULT vs listed VND)
     """
     alias = db_alias or "default"
-    default_unit_price = ProductVariantUnit.objects.using(alias).filter(
+    decimal_price = DecimalField(max_digits=12, decimal_places=2)
+    default_units = ProductVariantUnit.objects.using(alias).filter(
         variant_id=OuterRef("pk"),
         is_default=True,
         is_published=True,
-    ).values("price_value")[:1]
-    fallback_unit_price = (
-        ProductVariantUnit.objects.using(alias).filter(
+    )
+    fallback_units = (
+        ProductVariantUnit.objects.using(alias)
+        .filter(
             variant_id=OuterRef("pk"),
             is_published=True,
         )
         .order_by("unit_order", "id")
-        .values("price_value")[:1]
     )
     return queryset.annotate(
         price_value=Coalesce(
-            Subquery(default_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
-            Subquery(fallback_unit_price, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            Subquery(default_units.values("price_value")[:1], output_field=decimal_price),
+            Subquery(fallback_units.values("price_value")[:1], output_field=decimal_price),
             Value(0),
-            output_field=DecimalField(max_digits=12, decimal_places=2),
-        )
+            output_field=decimal_price,
+        ),
+        list_price_display=Coalesce(
+            Subquery(
+                default_units.values("price_display")[:1],
+                output_field=CharField(),
+            ),
+            Subquery(
+                fallback_units.values("price_display")[:1],
+                output_field=CharField(),
+            ),
+            Value(""),
+            output_field=CharField(),
+        ),
     )
 
 
@@ -49,6 +64,14 @@ class ProductPagination(PageNumberPagination):
     page_size = 12
     page_size_query_param = 'page_size'
     max_page_size = 100
+
+
+class SitemapFeedPagination(PageNumberPagination):
+    """Large pages for storefront sitemap product URLs (lightweight rows)."""
+
+    page_size = 500
+    page_size_query_param = "page_size"
+    max_page_size = 2000
 
 
 class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIView):
@@ -101,3 +124,38 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAP
                 "variant_units": units_count,
             }
         )
+
+    @action(methods=["get"], detail=False, url_path="sitemap")
+    def sitemap(self, request):
+        """
+        Lightweight product URL feed for storefront sitemap.xml.
+        Returns path (= category path_slug + product slug), no heavy serializers.
+        """
+        store_db_alias = "store" if "store" in settings.DATABASES else "default"
+        qs = (
+            Product.objects.using(store_db_alias)
+            .filter(active=True)
+            .exclude(slug__isnull=True)
+            .exclude(slug="")
+            .select_related("category")
+            .order_by("id")
+            .values("slug", "updated_date", "category__path_slug", "category__slug")
+        )
+        paginator = SitemapFeedPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        results = []
+        for row in page or []:
+            slug = (row.get("slug") or "").strip()
+            if not slug:
+                continue
+            cat = (row.get("category__path_slug") or row.get("category__slug") or "").strip()
+            path = f"{cat}/{slug}" if cat else slug
+            updated = row.get("updated_date")
+            results.append(
+                {
+                    "slug": slug,
+                    "path": path,
+                    "updated_at": updated.isoformat() if updated else None,
+                }
+            )
+        return paginator.get_paginated_response(results)

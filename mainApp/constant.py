@@ -5,6 +5,7 @@ SERVICE_FEE_PER_PRESCRIBING = 20000
 ROLE_DOCTOR = 'ROLE_DOCTOR'
 ROLE_NURSE = 'ROLE_NURSE'
 ROLE_USER = 'ROLE_USER'
+ROLE_PHARMACIST = 'ROLE_PHARMACIST'
 
 # P6 — clinic open frame (ISO weekday: Mon=0 … Sun=6). Doctors opt in only within this set.
 CLINIC_OPEN_WEEKDAYS = (0, 1, 2, 3, 4, 5)  # Mon–Sat

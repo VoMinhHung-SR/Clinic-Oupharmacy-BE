@@ -158,18 +158,23 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
             }
 
         # Validate stock theo đơn vị cơ sở (quantity order * quantity_in_base)
+        # Preorder: allow shortage when ProductVariant.allow_preorder
         required_base_quantity = int(quantity) * int(product_variant_unit.quantity_in_base)
         total_available = get_available_stock(product_variant_id)
+        is_preorder_line = False
         if total_available < required_base_quantity:
-            return {
-                'item_index': idx,
-                'product_variant': product_variant_id,
-                'field': 'quantity',
-                'error': (
-                    f'Insufficient stock in base unit. '
-                    f'Available: {total_available}, Requested: {required_base_quantity}'
-                ),
-            }
+            if getattr(product_variant, "allow_preorder", False):
+                is_preorder_line = True
+            else:
+                return {
+                    'item_index': idx,
+                    'product_variant': product_variant_id,
+                    'field': 'quantity',
+                    'error': (
+                        f'Insufficient stock in base unit. '
+                        f'Available: {total_available}, Requested: {required_base_quantity}'
+                    ),
+                }
 
         return {
             'item_index': idx,
@@ -178,6 +183,7 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
             'quantity': int(quantity),
             'price': price_decimal,
             'required_base_quantity': required_base_quantity,
+            'is_preorder_line': is_preorder_line,
         }
     
     def _deduct_stock(self, product_variant_id, quantity):
@@ -185,7 +191,9 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
         deduct_stock(product_variant_id, quantity)
 
     def _restore_stock(self, order):
-        """Hoàn tồn kho khi đơn bị hủy: gọi restore_stock cho từng item (LIFO/ADJ + sync cache)."""
+        """Hoàn tồn kho khi đơn bị hủy. Skip preorder orders (stock was never deducted)."""
+        if order.status == Order.PREORDER_PENDING_STOCK:
+            return
         for item in order.items.all():
             quantity_in_base = item.product_variant_unit.quantity_in_base if item.product_variant_unit else 1
             restore_stock(item.product_variant_id, item.quantity * quantity_in_base)
@@ -385,7 +393,11 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                 }
                 serializer.is_valid(raise_exception=True)
                 order = serializer.save()
-                # Create order items and deduct stock
+                needs_preorder = any(item_data.get('is_preorder_line') for item_data in normalized_items)
+                if needs_preorder:
+                    order.status = Order.PREORDER_PENDING_STOCK
+                    order.save(update_fields=['status'])
+                # Create order items; deduct stock only for non-preorder checkouts
                 for item_data in normalized_items:
                     OrderItem.objects.create(
                         order=order,
@@ -394,6 +406,8 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
                         quantity=item_data['quantity'],
                         price=item_data['price'],
                     )
+                    if needs_preorder:
+                        continue
                     self._deduct_stock(
                         item_data['product_variant'].id,
                         item_data['required_base_quantity'],
@@ -456,16 +470,16 @@ class OrderViewSet(viewsets.ViewSet, generics.ListAPIView, generics.RetrieveAPIV
 
     @action(methods=['post'], detail=True, url_path='cancel')
     def cancel(self, request, pk=None):
-        """User hủy đơn (chỉ đơn PENDING, chỉ chủ đơn)."""
+        """User hủy đơn (PENDING hoặc PREORDER_PENDING_STOCK, chỉ chủ đơn)."""
         order = self.get_object()
         if order.user_id != request.user.id:
             return Response(
                 {'error': 'You can only cancel your own order'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        if order.status != Order.PENDING:
+        if order.status not in (Order.PENDING, Order.PREORDER_PENDING_STOCK):
             return Response(
-                {'error': 'Only PENDING orders can be cancelled'},
+                {'error': 'Only PENDING or PREORDER_PENDING_STOCK orders can be cancelled'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         with transaction.atomic(using='store'):

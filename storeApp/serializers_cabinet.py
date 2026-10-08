@@ -1,7 +1,11 @@
+import re
+
 from rest_framework import serializers
 
 from storeApp.models import Cabinet, CabinetItem, ProductVariant, ProductVariantUnit
-from storeApp.models.cabinet import expiration_date_range
+from storeApp.models.cabinet import DOSE_TIMES_MAX, expiration_date_range
+
+DOSE_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 def variant_image_url(variant):
@@ -37,6 +41,7 @@ class CabinetSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "reminder_enabled",
+            "dose_reminder_enabled",
             "expiring_soon_days",
             "created_date",
             "updated_date",
@@ -46,6 +51,20 @@ class CabinetSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context["request"]
         return Cabinet.objects.create(user_id=request.user.id, **validated_data)
+
+
+def _maybe_enable_cabinet_notify_prefs(cabinet, *, has_hsd=False, dose_enabled=False):
+    """Flip cabinet prefs on when the user starts using the related feature."""
+    updates = []
+    if has_hsd and not cabinet.reminder_enabled:
+        cabinet.reminder_enabled = True
+        updates.append("reminder_enabled")
+    if dose_enabled and not cabinet.dose_reminder_enabled:
+        cabinet.dose_reminder_enabled = True
+        updates.append("dose_reminder_enabled")
+    if updates:
+        updates.append("updated_date")
+        cabinet.save(update_fields=updates)
 
 
 class CabinetItemSerializer(serializers.ModelSerializer):
@@ -77,6 +96,9 @@ class CabinetItemSerializer(serializers.ModelSerializer):
             "lot_number",
             "low_stock_threshold",
             "on_refill_list",
+            "dose_enabled",
+            "dose_times",
+            "dose_label",
             "expiration_status",
             "days_until_expiry",
             "inventory_status",
@@ -139,8 +161,33 @@ class CabinetItemSerializer(serializers.ModelSerializer):
             return None
         return value
 
+    def validate_dose_times(self, value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Must be a list of HH:MM strings.")
+        normalized = set()
+        for raw in value:
+            if not isinstance(raw, str) or not DOSE_TIME_RE.match(raw.strip()):
+                raise serializers.ValidationError(f"Invalid time: {raw!r}. Use HH:MM (24h).")
+            normalized.add(raw.strip())
+        if len(normalized) > DOSE_TIMES_MAX:
+            raise serializers.ValidationError(f"At most {DOSE_TIMES_MAX} times per day.")
+        return sorted(normalized)
+
+    def validate_dose_label(self, value):
+        return (value or "").strip()
+
     def validate(self, attrs):
         request = self.context["request"]
+        dose_enabled = attrs.get(
+            "dose_enabled", getattr(self.instance, "dose_enabled", False)
+        )
+        dose_times = attrs.get("dose_times", getattr(self.instance, "dose_times", None) or [])
+        if dose_enabled and not dose_times:
+            raise serializers.ValidationError(
+                {"dose_times": "At least one time is required when dose reminders are enabled."}
+            )
         cabinet = attrs.get("cabinet")
         if self.instance is None:
             if cabinet is None:
@@ -159,11 +206,26 @@ class CabinetItemSerializer(serializers.ModelSerializer):
                 )
         return attrs
 
+    def create(self, validated_data):
+        item = super().create(validated_data)
+        _maybe_enable_cabinet_notify_prefs(
+            item.cabinet,
+            has_hsd=item.expiration_date is not None,
+            dose_enabled=bool(item.dose_enabled),
+        )
+        return item
+
     def update(self, instance, validated_data):
         validated_data.pop("cabinet", None)
         validated_data.pop("product_variant", None)
         validated_data.pop("product_variant_unit", None)
-        return super().update(instance, validated_data)
+        item = super().update(instance, validated_data)
+        _maybe_enable_cabinet_notify_prefs(
+            item.cabinet,
+            has_hsd=False,
+            dose_enabled=bool(item.dose_enabled),
+        )
+        return item
 
 
 def apply_expiration_status_filter(queryset, status, soon_days=None):

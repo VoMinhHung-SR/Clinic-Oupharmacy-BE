@@ -29,6 +29,7 @@
 | Campaign permissions & URL plan | `docs/campaign-permissions-urls.md` (+ `docs/ARCHITECTURE.md` § Campaign) |
 | **Catalog pricing & promotions** | `docs/product-pricing-promotions.md` (D-PRC-01…05; cart + voucher layers) |
 | Smart Medicine Cabinet (storeApp) | `docs/smart-medicine-cabinet-api.md` (+ `docs/ARCHITECTURE.md` § storeApp models) |
+| Consultation hub (pharmacist sessions) | `docs/consultation-hub.md` (+ `docs/planning/consultation.plan.md`) |
 
 
 ## Lệnh thường dùng
